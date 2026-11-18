@@ -16,6 +16,7 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 <section><h2>Ripping profile</h2>
 <label for="profile">Default profile</label><select id="profile"><option value="archival">Archival / collectors</option><option value="classical">Classical / works &amp; performers</option></select>
 <p>Profile selection is stored for future processing. Neither profile starts a rip.</p></section>
+<section><h2>Language &amp; names</h2><label for="name-display">Show names</label><select id="name-display"><option value="original_and_english">Original + English (when available)</option><option value="original">Original only</option><option value="english">English preferred (original preserved)</option></select><label for="alias-fallback">When no English alias exists</label><select id="alias-fallback"><option value="original">Use original</option><option value="sort_name">Allow artist sort-name as transliteration (not a translation)</option></select><p>English aliases are fetched on demand from MusicBrainz. Original names and entity IDs are always retained. These settings do not tag audio files.</p></section>
 <section><h2>Optical drives</h2><div id="drives"></div><button id="probe" type="button">Check inserted discs</button><p id="media-status" aria-live="polite"></p><div id="toc-results"></div></section>
 <button id="save">Save settings</button><p id="status" aria-live="polite"></p>
 <script>
@@ -27,6 +28,8 @@ async function init(){
  if(!a.ok||!b.ok)throw new Error('Unable to load configuration');
  settings=await a.json();const live=await b.json();
  document.getElementById('profile').value=settings.profile;
+ document.getElementById('name-display').value=settings.name_display||'original_and_english';
+ document.getElementById('alias-fallback').value=settings.english_alias_fallback||'original';
  area.replaceChildren();
  for(const drive of settings.drives){
   const row=document.createElement('div');row.className='drive';
@@ -111,6 +114,45 @@ async function showCandidates(stableId){
   }
  }catch(error){p.textContent='MusicBrainz unavailable: '+error.message}
 }
+const aliasCache=new Map();
+async function aliasFor(type,id){
+ const key=type+':'+id;
+ if(!aliasCache.has(key)){
+  const req=fetch('/api/name-aliases?'+new URLSearchParams({entity_type:type,entity_id:id}))
+   .then(async r=>{if(!r.ok)throw new Error(await r.text());return r.json()})
+   .catch(e=>{aliasCache.delete(key);throw e});
+  aliasCache.set(key,req);
+ }
+ return aliasCache.get(key);
+}
+function nameValue(original,alias){
+ const mode=settings.name_display||'original_and_english';
+ const fallback=settings.english_alias_fallback||'original';
+ const extra=alias.english||(fallback==='sort_name'&&alias.sort_name!==original?alias.sort_name:null);
+ if(!extra||extra===original||mode==='original')return original;
+ if(mode==='english')return extra;
+ return original+' ('+extra+')';
+}
+function aliasNode(type,id,original){
+ const span=document.createElement('span');
+ const value=document.createElement('span');value.textContent=original||'—';span.append(value);
+ if(!id)return span;
+ const button=document.createElement('button');button.type='button';
+ button.style.margin='4px';button.style.padding='4px 8px';button.style.fontSize='12px';
+ button.textContent='EN';button.title='Fetch English MusicBrainz alias';
+ button.onclick=async()=>{
+  button.disabled=true;button.textContent='…';
+  try{
+   const alias=await aliasFor(type,id);
+   value.textContent=nameValue(original||alias.original,alias);
+   const source=alias.english?alias.english_source:
+      (settings.english_alias_fallback==='sort_name'&&alias.sort_name?'sort name':'no English alias');
+   button.title=source+'; original: '+alias.original;
+   button.textContent=alias.english?'EN ✓':'EN —';
+  }catch(e){button.disabled=false;button.textContent='EN';button.title=e.message}
+ };
+ span.append(button);return span;
+}
 async function showMedium(stableId, releaseId){
  const target=document.getElementById('toc-results');
  let area=document.getElementById('medium-results');
@@ -159,12 +201,30 @@ async function showMedium(stableId, releaseId){
         const tr=document.createElement('tr');
         const composer=track.composers?.map(x=>x.name).join(', ')||'—';
         const performers=track.performers?.map(x=>x.name+(x.role?' ('+x.role+')':'')).join(', ')||'Not documented';
-        const works=(track.work_details||[]).map(x=>x.title||x.id).join(', ');
-        for(const item of [track.number||track.position,track.title||'Untitled',works||'Work not linked',composer,performers]){
+        const cols=[
+          track.number||track.position,
+          track.title||'Untitled',
+          null,null,
+          performers
+        ];
+        for(let i=0;i<cols.length;i++){
           const td=document.createElement('td');
-          td.textContent=String(item??'');
           td.style.padding='6px';td.style.borderBottom='1px solid #324253';
-          td.style.verticalAlign='top';tr.append(td);
+          td.style.verticalAlign='top';
+          if(i===2){
+            const works=track.work_details||[];
+            if(!works.length)td.textContent='Work not linked';
+            for(const work of works){
+              td.append(aliasNode('work',work.id,work.title||work.id));
+            }
+          }else if(i===3){
+            if(!track.composers?.length)td.textContent='—';
+            for(const composer of track.composers||[]){
+              if(td.childNodes.length)td.append(document.createTextNode(', '));
+              td.append(aliasNode('artist',composer.artist_id,composer.name));
+            }
+          }else{td.textContent=String(cols[i]??'')}
+          tr.append(td);
         }
         table.append(tr);
       }
@@ -175,6 +235,8 @@ async function showMedium(stableId, releaseId){
 }
 document.getElementById('save').onclick=async()=>{
  const status=document.getElementById('status');settings.profile=document.getElementById('profile').value;
+ settings.name_display=document.getElementById('name-display').value;
+ settings.english_alias_fallback=document.getElementById('alias-fallback').value;
  status.textContent='Saving…';
  try{const r=await fetch('/api/settings',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(settings)});
  if(!r.ok)throw new Error(await r.text());status.textContent='Settings saved. No rip started.';}
