@@ -14,7 +14,7 @@
 - Original-language names preserved with MusicBrainz English aliases (no machine translation). Composer/work aliases automatically deduplicated and cached in SQLite at `/config/aliases.sqlite3`. Positive TTL 30 days, negative TTL 7 days.
 - PR #16: cooldown and stale fallback after persistent alias API failures.
 - PR #17: shared single-process MusicBrainz transport across Disc ID / release medium / alias lookups, 1.1 s spacing, bounded retries, optional Retry-After and temporary circuit-breaker.
-- Current PR: also enrich conductor/orchestra/soloist names in the tracklist with the same artist alias mechanism. Preserve role and instrument attributes.
+- PR #18: enrich conductor/orchestra/soloist names in the tracklist with the same artist alias mechanism, preserving roles and instrument attributes. Check the PR for current merge status.
 
 **Not implemented:** automated CD ripping, cyanrip integration, AccurateRip/CTDB verification, FLAC writing/tags, final archive promotion, queue-based background metadata retries or automatic cleanup. Metadata review does not validate extracted audio.
 
@@ -38,7 +38,7 @@
 
 ## Next steps in priority order
 
-1. Merge performer-alias PR after CI; deploy newly built `ghcr.io/sin7ek/oscar:main` to Unraid and re-test Tchaikovsky conductor spelling against real MusicBrainz alias availability.
+1. Confirm PR #18 merged after CI; deploy newly built `ghcr.io/sin7ek/oscar:main` to Unraid and re-test Tchaikovsky conductor spelling against real MusicBrainz alias availability.
 2. Build durable SQLite metadata job queue with retry after network outages, cancellation, progress reporting, and deduplication. Do not block rip verification on MusicBrainz.
 3. Refine per-medium metadata review, album/work/movement/performer tag plan and correct boxset disc numbering; maintain source provenance.
 4. Prototype secure extraction with an established Linux ripper (cyanrip candidate), hardware-supported drive offsets, CUE/log capture; validate multiple drives safely.
