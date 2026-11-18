@@ -196,6 +196,7 @@ async function enrichNamesAutomatically(area){
    }
   }catch(error){
    failed+=batch.length;
+   completed+=batch.length;
    for(const b of buttons){
     if(batch.some(e=>e.entity_type===b.dataset.aliasType&&e.entity_id===b.dataset.aliasId)){
       b.textContent='EN !';b.title='Retry: '+error.message;b.disabled=false;
