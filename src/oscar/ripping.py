@@ -66,10 +66,14 @@ def selected_drive(stable_id):
 
 
 def make_command(device, offset):
-    """Options are fixed and shell=False; no implicit external metadata changes."""
+    """Debian cyanrip 0.9.3-compatible flags; do not use newer -B.
+
+    AccurateRip remains enabled (no -A). The -N flag disables MusicBrainz,
+    which avoids automatic AcoustID metadata submission on older builds.
+    """
     return ["cyanrip", "-d", device, "-s", str(offset),
             "-o", "flac", "-D", "audio", "-F", "{track} - {title}",
-            "-N", "-U", "-G", "-B", "-K", "-W"]
+            "-N", "-U", "-G", "-K", "-W"]
 
 
 def _atomic_json(path, data):

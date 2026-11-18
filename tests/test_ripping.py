@@ -55,6 +55,8 @@ def test_fixed_safe_command_and_offset(sandbox):
     assert args[:5]==["cyanrip","-d","/dev/sr2","-s","667"]
     assert args[args.index("-D")+1]=="audio"
     assert "-N" in args and "-o" in args
+    assert "-B" not in args  # Debian cyanrip 0.9.3 does not support -B
+    assert "-A" not in args  # AccurateRip must remain enabled
     assert "-Q" not in args and "-O" not in args
     assert info["disc_id"]==DISC
 

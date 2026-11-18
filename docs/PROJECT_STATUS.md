@@ -17,7 +17,7 @@
 - PR #18: enrich conductor/orchestra/soloist names in the tracklist with the same artist alias mechanism, preserving roles and instrument attributes (merged).
 - PR #19: persistent MusicBrainz artist/work alias retry queue (merged), SQLite-backed deduplicated jobs for transient artist/work alias errors, exponential backoff, crash-recoverable leases and an optional single worker activated by `OSCAR_ENABLE_METADATA_WORKER=1`. `GET /api/metadata-queue` reports status. Unit-tested without hardware.
 
-- Experimental staging rip prototype (current feature PR): explicit opt-in, token-protected cyanrip FLAC extraction, drive identity/offset validation, new UUID staging folder, captured console logs, file hashes and no automatic archive operations. Documented at [FIRST_RIP_STAGING.md](FIRST_RIP_STAGING.md). All validation is CI-only until tested on Unraid.
+- Experimental staging rip prototype (current feature PR): explicit opt-in, token-protected cyanrip FLAC extraction, drive identity/offset validation, new UUID staging folder, captured console logs, file hashes and no automatic archive operations. Documented at [FIRST_RIP_STAGING.md](FIRST_RIP_STAGING.md). First Unraid test reached cyanrip but failed immediately due to unsupported `-B`; see [FIRST_RIP_STAGING.md](FIRST_RIP_STAGING.md).
 
 **Not implemented:** full unattended CD ripping, independent AccurateRip/CTDB verification, verified CUE and FLAC decode checks, full archive-quality tags, final archive promotion, full release/Disc ID background queueing, or automatic cleanup. The new queue retries only artist/work alias enrichment; deployment requires opting in to the worker. Metadata review does not validate extracted audio.
 
@@ -37,6 +37,7 @@
 - **Händel:** `Water Music / Music for the Royal Fireworks`, Jordi Savall, Le Concert des Nations, Astrée Auvidis ES 99220 (1999). Physical CD on an enabled drive; Disc ID `ROkQlooU5tDdgVZOkfXXTy.S4oU-`, 28 tracks, 1 candidate and exact medium+track-count match. Earlier API returned repeated HTTP 503 during alias lookups. Work groups/composer/roles visible; some EN errors and in-progress entities at capture time.
 - **Tchaikovsky:** `Symphony no. 5 in E minor, op. 64 / Capriccio Italien, op. 45`, Gennady Rozhdestvensky / London Symphony Orchestra. 5 tracks, exact disc and track-count match, 4 symphony movements correctly grouped, Capriccio separate. Alias processing reported 6 resolved, 0 pending/errors; composer displayed as original Cyrillic + Pyotr Ilyich Tchaikovsky, but conductor stayed Cyrillic. This motivated automatic performer alias enrichment.
 - **Stravinsky:** earlier classical sample used to check language aliases and recording/work relationships.
+- **First real cyanrip invocation on Optiarc AD-7200S (2026-11-18):** `/dev/sr2`, offset +48, MusicBrainz Disc ID `sT6cTPp0_qZRfvu1jHQ8VBNx.X4-`, 32 tracks. Staging folder created but cyanrip returned 1 with `invalid option -- 'B'`. No audio extracted. Fix under PR for CLI compatibility; do not mark this as a completed rip.
 - **Safety note:** these checks concern metadata identification only, not secure ripping or AccurateRip validation.
 
 ## Next steps in priority order

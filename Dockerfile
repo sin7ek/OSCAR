@@ -12,6 +12,8 @@ WORKDIR /app
 COPY pyproject.toml README.md ./
 COPY src/ ./src/
 RUN pip install --no-cache-dir .
+# Fail the image build if this Debian cyanrip version lacks a flag OSCAR uses.
+RUN python -m oscar.cyanrip_compat
 
 RUN groupadd --system oscar && useradd --system --gid oscar --home-dir /app oscar \
     && mkdir -p /config && chown oscar:oscar /config
