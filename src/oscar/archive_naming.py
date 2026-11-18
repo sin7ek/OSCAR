@@ -16,7 +16,7 @@ _WHITESPACE = re.compile(r"\s+")
 def safe_component(value, *, fallback="Unknown", max_length=120):
     """Normalize filesystem components without allowing path traversal."""
     text = unicodedata.normalize("NFC", str(value or ""))
-    text = _WHITESPACE.sub(" ", _INVALID.sub(" ", text)).strip(" .")
+    text = _WHITESPACE.sub(" ", _INVALID.sub(" ", text)).strip(" .")\n    text = re.sub(r"(?<!\\w)\\.{2,}(?!\\w)", " ", text).strip(" .")
     if text in _RESERVED:
         return fallback
     return text[:max_length].rstrip(" .") or fallback
