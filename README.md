@@ -35,6 +35,16 @@ Five years, more than a thousand CDs, and quite a few lines of code later, OSCAR
 
 *For my dad. Preserve every note.*
 
+### OSCAR's first CD — November 19, 2026
+
+The first CD OSCAR ripped in full was **George Frideric Handel — [Water Music / Music for the Royal Fireworks](https://musicbrainz.org/release/4a8cbc25-21a0-4a24-8bb8-2f388164d544)**, performed by **Le Concert des Nations** under **Jordi Savall**.
+
+It was the 1999 **Astrée Auvidis** CD, catalogue number **ES 99220**, with 28 tracks ([MusicBrainz Disc ID](https://musicbrainz.org/cdtoc/ROkQlooU5tDdgVZOkfXXTy.S4oU-): `ROkQlooU5tDdgVZOkfXXTy.S4oU-`).
+
+All **28 tracks** were extracted to FLAC without reported ripping errors. Cyanrip reported **AccurateRip v1 and v2 matches for every track** (28/28 for both), and every FLAC passed a decode-integrity test. The original CUE and rip logs were retained in staging.
+
+This was OSCAR's **first successful complete real-world rip**, exactly five years after Oscar's death. It was not yet an automatically tagged or published archive, and OSCAR's independent verification engine is still being developed.
+
 ## Status
 **v0.1.0-alpha: read-only metadata scaffold plus an opt-in experimental cyanrip staging rip.** This prototype can extract a test CD only after explicit configuration and confirmation, into a newly created staging directory. No independently verified archive, publishing, or cleanup is implemented. AccurateRip/CTDB evidence must be proven on hardware before claims of verified operation.
 
