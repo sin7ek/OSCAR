@@ -20,6 +20,8 @@ class OscarSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
     profile: str = Field(default="archival", pattern=r"^(archival|classical)$")
     drives: list[DriveSettings] = Field(default_factory=list)
+    name_display: str = Field(default="original_and_english", pattern=r"^(original_and_english|original|english)$")
+    english_alias_fallback: str = Field(default="original", pattern=r"^(original|sort_name)$")
 
 
 def config_path() -> Path:
