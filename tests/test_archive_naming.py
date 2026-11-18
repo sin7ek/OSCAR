@@ -58,3 +58,13 @@ def test_invalid_year_rejected():
        "profile":"album","album_title":"A","release_year":"../"
     })
     assert r.status_code==422
+
+
+def test_classical_performer_suffix_is_optional_and_reviewed():
+    base = archive_preview(profile="classical", album_title="Symphony no. 5",
+                           composers=["Pyotr Ilyich Tchaikovsky"], release_year="1990")
+    assert "Rozhdestvensky" not in base["directory"]
+    unique = archive_preview(profile="classical", album_title="Symphony no. 5",
+                             composers=["Pyotr Ilyich Tchaikovsky"], release_year="1990",
+                             performer_suffix="Rozhdestvensky - LSO")
+    assert unique["directory"].endswith("Symphony no. 5 (1990) [Rozhdestvensky - LSO]")
