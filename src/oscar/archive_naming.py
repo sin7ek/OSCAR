@@ -16,7 +16,8 @@ _WHITESPACE = re.compile(r"\s+")
 def safe_component(value, *, fallback="Unknown", max_length=120):
     """Normalize filesystem components without allowing path traversal."""
     text = unicodedata.normalize("NFC", str(value or ""))
-    text = _WHITESPACE.sub(" ", _INVALID.sub(" ", text)).strip(" .")\n    text = re.sub(r"(?<!\\w)\\.{2,}(?!\\w)", " ", text).strip(" .")
+    text = _WHITESPACE.sub(" ", _INVALID.sub(" ", text)).strip(" .")
+    text = re.sub(r"(?<!\\w)\\.{2,}(?!\\w)", " ", text).strip(" .")
     if text in _RESERVED:
         return fallback
     return text[:max_length].rstrip(" .") or fallback
@@ -33,7 +34,8 @@ def catalog_prefix(catalog_number):
 def archive_preview(*, profile, album_title, release_year=None,
                     catalog_number=None, album_artist=None, composers=None,
                     disc_number=1, track_number=1, track_title="Untitled",
-                    track_artist=None, multi_disc=False):
+                    track_artist=None, multi_disc=False,
+                    performer_suffix=None):
     """Return a relative path preview only; no filesystem operations."""
     if profile not in PROFILES:
         raise ValueError("Unsupported naming profile")
@@ -45,6 +47,9 @@ def archive_preview(*, profile, album_title, release_year=None,
     if year and not re.fullmatch(r"\d{4}", year):
         raise ValueError("Release year must be four digits")
     edition = f"{catalog_prefix(catalog_number)}{album}" + (f" ({year})" if year else "")
+    # Optional human-reviewed disambiguator, not an automatic performer credit.
+    if profile == "classical" and performer_suffix:
+        edition += f" [{safe_component(performer_suffix)}]"
     if profile == "classical":
         # Composer is never inferred from album artist or artist credit.
         composer_dir = composers[0] if len(set(composers)) == 1 else "Various Composers"
