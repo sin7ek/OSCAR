@@ -1,7 +1,7 @@
 """OSCAR preview API: local drive settings only; no ripping or deletion."""
 from fastapi import FastAPI
 
-from oscar.settings import OscarSettings, inspect_drives, read_settings, save_settings
+from oscar.settings import OscarSettings, discover_settings, inspect_drives, save_settings
 from oscar.web import settings_page
 
 app = FastAPI(title="OSCAR", version="0.1.0-alpha")
@@ -25,7 +25,7 @@ def home():
 
 @app.get("/api/settings", response_model=OscarSettings)
 def get_settings():
-    return read_settings()
+    return discover_settings()
 
 
 @app.put("/api/settings", response_model=OscarSettings)
