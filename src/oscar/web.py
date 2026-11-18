@@ -173,7 +173,7 @@ async function enrichNamesAutomatically(area){
  const message=document.createElement('p');
  message.textContent='Automatically enriching '+entities.length+' unique artist/work names…';
  area.prepend(message);
- const obtained=new Map();
+ let completed=0, failed=0, cacheHits=0;
  for(let i=0;i<entities.length;i+=8){
   if(!area.isConnected)return;
   const batch=entities.slice(i,i+8);
@@ -184,7 +184,9 @@ async function enrichNamesAutomatically(area){
    if(!r.ok)throw new Error(await r.text());
    const data=await r.json();
    for(const item of data.entities||[]){
-    obtained.set(item.entity_type+':'+item.id,item);
+    completed++;
+    if(item.error)failed++;
+    else if(item.cache_status==='hit')cacheHits++;
     const matching=buttons.filter(b=>b.dataset.aliasType===item.entity_type
        &&b.dataset.aliasId.toLowerCase()===item.id);
     for(const b of matching){
@@ -193,6 +195,7 @@ async function enrichNamesAutomatically(area){
     }
    }
   }catch(error){
+   failed+=batch.length;
    for(const b of buttons){
     if(batch.some(e=>e.entity_type===b.dataset.aliasType&&e.entity_id===b.dataset.aliasId)){
       b.textContent='EN !';b.title='Retry: '+error.message;b.disabled=false;
@@ -201,7 +204,7 @@ async function enrichNamesAutomatically(area){
   }
   message.textContent='English names processed: '+Math.min(i+8,entities.length)+' / '+entities.length;
  }
- message.textContent='English name enrichment complete · '+obtained.size+' unique names checked (cached for reuse).';
+ message.textContent='English name enrichment finished · '+(completed-failed)+' successful, '+failed+' failed, '+cacheHits+' cache hits. Failed names can be retried.';
 }
 async function showMedium(stableId, releaseId){
  const target=document.getElementById('toc-results');
