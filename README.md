@@ -8,7 +8,7 @@ Automated, archival-grade CD ripping with AccurateRip/CTDB verification, MusicBr
 > Dedicated to Oscar, whose love of music inspired this project.
 
 ## Status
-**v0.1.0-alpha: architecture and read-only API scaffold only.** Ripping, device access, publishing and cleanup are **not yet implemented**. AccurateRip/CTDB integrations must be proven on hardware before claims of verified operation.
+**v0.1.0-alpha: read-only metadata scaffold plus an opt-in experimental cyanrip staging rip.** This prototype can extract a test CD only after explicit configuration and confirmation, into a newly created staging directory. No independently verified archive, publishing, or cleanup is implemented. AccurateRip/CTDB evidence must be proven on hardware before claims of verified operation.
 
 ## Goals
 - Detect audio CDs, record drive identity, read offset and table of contents (including pregaps and HTOA capability).
@@ -37,7 +37,7 @@ uvicorn oscar.api:app --host 127.0.0.1 --port 8080
 ```
 The `/health` endpoint reports **scaffold status only**; it does not detect discs.
 
-For a new development session, start with the living [Project status and handoff](docs/PROJECT_STATUS.md), then [Architecture](docs/ARCHITECTURE.md), [Metadata retry queue](docs/METADATA_QUEUE.md) and [Milestone 01](docs/MILESTONE_01.md).
+For a new development session, start with [Project status and handoff](docs/PROJECT_STATUS.md), then [Architecture](docs/ARCHITECTURE.md), [Metadata retry queue](docs/METADATA_QUEUE.md), [First experimental rip](docs/FIRST_RIP_STAGING.md), and [Milestone 01](docs/MILESTONE_01.md).
 
 ## Target archive layout
 ```text

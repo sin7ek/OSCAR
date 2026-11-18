@@ -12,7 +12,7 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 .note{padding:12px;background:#283342;border-radius:9px}#status{min-height:1.5em}
 </style></head><body>
 <h1>OSCAR</h1><p>Open Source CD Archiving &amp; Ripping · Device settings</p>
-<div class="note">Configuration preview: no ripping, archiving or automatic deletion is implemented. Keep this UI on localhost or behind authentication.</div>
+<div class="note">Configuration preview. Experimental ripping requires explicit opt-in and writes only to staging; archiving and automatic deletion are not implemented. Keep this UI on localhost or behind authentication.</div>
 <section><h2>Ripping profile</h2>
 <label for="profile">Default profile</label><select id="profile"><option value="archival">Archival / collectors</option><option value="classical">Classical / works &amp; performers</option></select>
 <p>Profile selection is stored for future processing. Neither profile starts a rip.</p></section>
@@ -65,10 +65,54 @@ document.getElementById('probe').onclick=async()=>{
      button.textContent='Read TOC and MusicBrainz ID';
      button.onclick=()=>showToc(disc.stable_id);
      el.append(button);
+     const rip=document.createElement('button');rip.type='button';
+     rip.style.marginLeft='8px';
+     rip.textContent='Test rip to staging (experimental)';
+     rip.onclick=()=>startTestRip(disc.stable_id,disc.label);
+     el.append(rip);
    }
   }
  }catch(error){el.textContent='Probe unavailable: '+error.message}
 };
+async function startTestRip(stableId,label){
+ const token=window.prompt('Enter OSCAR test-rip token (not stored in browser)');
+ if(!token)return;
+ const status=document.createElement('p');
+ status.textContent='Checking test-rip plan for '+label+'…';
+ document.getElementById('media-status').append(status);
+ try{
+  const headers={'X-OSCAR-RIP-TOKEN':token};
+  const planResponse=await fetch('/api/rip/plan?'+new URLSearchParams({stable_id:stableId}),{headers});
+  if(!planResponse.ok)throw new Error(await planResponse.text());
+  const plan=await planResponse.json();
+  const accepted=window.confirm('EXPERIMENTAL RIP: '+plan.track_count+
+    ' tracks from '+plan.device+' (offset '+plan.offset_samples+
+    ') into a NEW folder below '+plan.output_root+
+    '. No archive publication or cleanup. Continue?');
+  if(!accepted){status.textContent='Test rip cancelled before starting';return}
+  const response=await fetch('/api/rip/start',{
+    method:'POST',
+    headers:{...headers,'Content-Type':'application/json'},
+    body:JSON.stringify({stable_id:stableId,confirmation:'RIP_TO_STAGING'})
+  });
+  if(!response.ok)throw new Error(await response.text());
+  const job=await response.json();
+  status.textContent='Rip job '+job.id+' started. Checking status…';
+  const poll=async()=>{
+    try{
+      const r=await fetch('/api/rip/jobs/'+encodeURIComponent(job.id),{headers});
+      if(!r.ok)throw new Error(await r.text());
+      const state=await r.json();
+      status.textContent='Rip '+job.id+': '+state.status+
+        (state.flac_count?' · '+state.flac_count+' FLAC files':'')+
+        (state.error?' · '+state.error:'')+
+        (state.warning?' · '+state.warning:'');
+      if(state.status==='queued'||state.status==='running')setTimeout(poll,3000);
+    }catch(error){status.textContent='Rip status unavailable: '+error.message}
+  };
+  poll();
+ }catch(error){status.textContent='Test rip not started: '+error.message}
+}
 async function showToc(stableId){
  const target=document.getElementById('toc-results');target.replaceChildren();
  const status=document.createElement('p');status.textContent='Reading disc TOC…';target.append(status);
