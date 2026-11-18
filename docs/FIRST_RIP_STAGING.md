@@ -20,11 +20,13 @@ Review and merge these snippets into your current stack; do not replace your wor
         environment:
           OSCAR_ENABLE_RIPPING: "1"
           OSCAR_RIP_ROOT: /staging
-          OSCAR_RIP_TOKEN: "REPLACE_WITH_A_RANDOM_SECRET_OF_AT_LEAST_24_CHARACTERS"
+          OSCAR_RIP_TOKEN: ${OSCAR_RIP_TOKEN}
         volumes:
           - /mnt/user/ai-workspace:/staging:rw
         devices:
           - /dev/srN:/dev/srN:r
+
+Generate a secret token on Unraid with `openssl rand -hex 32`. Copy the 64-character output into Portainer's stack **Environment variables** under the name `OSCAR_RIP_TOKEN`. The compose entry above references that variable; do not put the actual secret in YAML, GitHub commits, screenshots, or support logs. Docker/Portainer administrators may still inspect container environment variables. OSCAR does not provide user authentication, so restrict access to its UI as well.
 
 Replace `srN` with the **actual** source block device discovered by OSCAR, and repeat a device mapping only for additional drives you explicitly want to test. If `/dev/srN` changes across reboots, update the mapping; OSCAR checks the current stable identity before starting. The GUI label `/dev1` is not necessarily a Linux device path.
 
