@@ -42,3 +42,16 @@ def put_settings(settings: OscarSettings):
 @app.get("/api/drives")
 def get_drives() -> list[dict[str, str | bool]]:
     return inspect_drives()
+
+
+@app.get("/api/media")
+def get_media_status():
+    """Opt-in drive-status probe; never starts a rip or writes any media."""
+    import os
+    from fastapi import HTTPException
+
+    if os.environ.get("OSCAR_ENABLE_MEDIA_PROBE") != "1":
+        raise HTTPException(status_code=403, detail="Media probe disabled")
+    from oscar.media import probe_enabled_drives
+
+    return probe_enabled_drives()
