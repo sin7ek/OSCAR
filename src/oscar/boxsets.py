@@ -11,6 +11,7 @@ import urllib.request
 
 from oscar import musicbrainz as mb
 from oscar.classical import recording_roles
+from oscar.work_hierarchy import group_tracks, work_details
 
 RELEASE_ID = re.compile(r"[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}\Z")
 DISC_ID = re.compile(r"[A-Za-z0-9._-]{28}\Z")
@@ -52,12 +53,14 @@ def parse_release_media(payload: dict, disc_id: str, track_count: int) -> dict:
                     "title": t.get("title") or (t.get("recording") or {}).get("title"),
                     "artist_credit": _artist_credit(t.get("artist-credit") or (t.get("recording") or {}).get("artist-credit", [])),
                     **recording_roles(t.get("recording") or {}),
+                    "work_details": work_details(t.get("recording") or {}),
                     "recording_id": (t.get("recording") or {}).get("id"),
                     "length_ms": t.get("length"),
                 }
                 for t in tracks if isinstance(t, dict)
             ],
         })
+        results[-1]["work_groups"] = group_tracks(results[-1]["tracks"])
     matched = [m for m in results if m["disc_id_attached"]]
     fully_matching = [m for m in matched if m["track_count_matches"]]
     if len(fully_matching) == 1:
