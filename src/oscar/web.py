@@ -16,7 +16,7 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 <section><h2>Ripping profile</h2>
 <label for="profile">Default profile</label><select id="profile"><option value="archival">Archival / collectors</option><option value="classical">Classical / works &amp; performers</option></select>
 <p>Profile selection is stored for future processing. Neither profile starts a rip.</p></section>
-<section><h2>Optical drives</h2><div id="drives"></div></section>
+<section><h2>Optical drives</h2><div id="drives"></div><button id="probe" type="button">Check inserted discs</button><p id="media-status" aria-live="polite"></p></section>
 <button id="save">Save settings</button><p id="status" aria-live="polite"></p>
 <script>
 let settings;
@@ -44,6 +44,22 @@ async function init(){
   offsetLabel.append(offset);row.append(head,device,label,offsetLabel);area.append(row);
  }
 }
+document.getElementById('probe').onclick=async()=>{
+ const el=document.getElementById('media-status');el.textContent='Checking drives…';
+ try{
+  const response=await fetch('/api/media');
+  if(!response.ok)throw new Error(await response.text());
+  const results=await response.json();
+  el.replaceChildren();
+  if(!results.length){el.textContent='No enabled drives detected. Enable and save a drive first.';return}
+  for(const disc of results){
+   const p=document.createElement('p');
+   p.textContent=disc.label+' ('+disc.device+'): '+disc.status+
+      (disc.disc_type?' · '+disc.disc_type:'')+(disc.error?' · '+disc.error:'');
+   el.append(p);
+  }
+ }catch(error){el.textContent='Probe unavailable: '+error.message}
+};
 document.getElementById('save').onclick=async()=>{
  const status=document.getElementById('status');settings.profile=document.getElementById('profile').value;
  status.textContent='Saving…';
