@@ -23,6 +23,8 @@
 
 - Drive-offset assistant (pending CI): AccurateRip web lookup for detected model with conservative/conflict-aware suggestions, optional user-triggered cyanrip `-f` reference-CD calibration, external manual fallback URL. Only prefills a blank offset in the browser and requires Save settings; existing offsets never overwritten automatically. GH24NS95 has conflicting database rows (+6 vs +667) and must be reviewed. See [DRIVE_OFFSET.md](DRIVE_OFFSET.md).
 
+- Staging verification report (feature in progress): explicit, token-protected per-job verification with cyanrip's recorded AccurateRip v1/v2/EAC CRC32 evidence, per-FLAC SHA-256 rehash and FLAC decoding, CUE file-reference check, log ripping errors and a per-track web table. Persists only a new `verification-report.json`, never modifies staged audio or promotes it. See [STAGING_VERIFICATION.md](STAGING_VERIFICATION.md). Hardware retest against the first 28-track reference job still needed.
+
 **Not implemented:** full unattended CD ripping, independent AccurateRip/CTDB verification, verified CUE and FLAC decode checks, full archive-quality tags, final archive promotion, full release/Disc ID background queueing, or automatic cleanup. The new queue retries only artist/work alias enrichment; deployment requires opting in to the worker. Metadata review does not validate extracted audio.
 
 ## Decisions / invariants
@@ -51,7 +53,7 @@
 2. Validate the metadata retry queue on Unraid with `OSCAR_ENABLE_METADATA_WORKER=1`; then extend queue to Disc ID/release lookups, add cancellation and per-task progress in the GUI. Never block rip verification on MusicBrainz.
 3. Validate archive naming preview on single-composer and mixed-composer classical CDs; refine album/work/movement/performer tag plan, catalog numbers, collision checks and correct boxset disc numbering; maintain source provenance.
 4. Test the experimental cyanrip staging rip on one real optical drive using /mnt/user/ai-workspace only; inspect CLI log, CUE/FLAC output and drive permissions; no archive access.
-5. Integrate FLAC decoding and independently assess AccurateRip v1/v2 and CTDB (Linux feasibility to validate); hashes and cyanrip success alone are NOT verification.
+5. Exercise the staging verification report on the original 28-track Handel reference job; implement independent AccurateRip/CTDB verification later, including confidence provenance and FLAC integrity. Logged cyanrip matches are strong evidence, but not an independent OSCAR database query.
 6. Implement staged, collision-safe archive publication with a manifest and conservative cleanup policy.
 7. Test unattended insert→Go workflow only after the above has proven safe.
 
