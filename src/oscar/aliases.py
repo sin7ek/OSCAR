@@ -11,7 +11,7 @@ import urllib.parse
 import urllib.request
 from oscar import musicbrainz as mb
 
-_ID = re.compile(r"[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}\\Z")
+_ID = re.compile(r"[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$")
 _TYPES = {"artist", "work"}
 _MAX_BYTES = 250_000
 
@@ -37,9 +37,7 @@ def choose_english_alias(aliases: list, original: str) -> dict:
         a.get("name", "").casefold(),
     ))
     if not candidates:
-        return {"english": original if original and original.isascii() else None,
-                "source": "original_is_english_candidate" if original and original.isascii() else "unavailable",
-                "locale": None}
+        return {"english": None, "source": "unavailable", "locale": None}
     result = candidates[0]
     return {"english": result["name"], "source": "musicbrainz_alias",
             "locale": result.get("locale")}
