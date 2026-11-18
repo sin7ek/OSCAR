@@ -103,9 +103,55 @@ async function showCandidates(stableId){
     link.target='_blank';link.rel='noopener noreferrer';
     link.textContent=(release.title||'Untitled')+' · '+(release.artist||'Unknown')+' · '+(release.date||'?')+
       ' · '+release.labels.map(x=>(x.name||'')+' '+(x.catalog_number||'')).join(', ');
-    entry.append(link);target.append(entry);
+    entry.append(link);
+    const inspect=document.createElement('button');inspect.type='button';
+    inspect.style.marginLeft='10px';inspect.textContent='Inspect disc & tracklist';
+    inspect.onclick=()=>showMedium(stableId,release.id);entry.append(inspect);
+    target.append(entry);
   }
  }catch(error){p.textContent='MusicBrainz unavailable: '+error.message}
+}
+async function showMedium(stableId, releaseId){
+ const target=document.getElementById('toc-results');
+ let area=document.getElementById('medium-results');
+ if(!area){area=document.createElement('section');area.id='medium-results';target.append(area)}
+ area.replaceChildren();
+ const status=document.createElement('p');status.textContent='Loading exact medium…';area.append(status);
+ try{
+  const r=await fetch('/api/release-medium?'+new URLSearchParams({stable_id:stableId,release_id:releaseId}));
+  if(!r.ok)throw new Error(await r.text());
+  const info=await r.json();
+  status.textContent=info.release_title+' · '+info.total_media+' discs · '+info.status;
+  const warning=document.createElement('p');
+  warning.textContent='Candidate only: physical edition still requires review. No metadata written.';
+  area.append(warning);
+  if(!info.matched_media.length){
+    const p=document.createElement('p');p.textContent='No medium has this exact Disc ID attached to MusicBrainz.';
+    area.append(p);return;
+  }
+  for(const medium of info.matched_media){
+    const title=document.createElement('h3');
+    title.textContent='Disc '+medium.position+' of '+info.total_media+
+       (medium.title?' · '+medium.title:'')+' ('+medium.track_count+' tracks)';
+    area.append(title);
+    if(!medium.track_count_matches){
+      const mismatch=document.createElement('p');
+      mismatch.textContent='Track count differs from the inserted disc; manual review required.';
+      area.append(mismatch);
+    }
+    const table=document.createElement('table');table.style.width='100%';
+    for(const track of medium.tracks){
+      const tr=document.createElement('tr');
+      for(const item of [track.number||track.position,track.title||'Untitled',track.artist||'']){
+        const td=document.createElement('td');
+        td.textContent=String(item??'');
+        td.style.padding='6px';td.style.borderBottom='1px solid #324253';tr.append(td);
+      }
+      table.append(tr);
+    }
+    area.append(table);
+  }
+ }catch(error){status.textContent='Could not retrieve medium: '+error.message}
 }
 document.getElementById('save').onclick=async()=>{
  const status=document.getElementById('status');settings.profile=document.getElementById('profile').value;
