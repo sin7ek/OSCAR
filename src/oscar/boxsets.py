@@ -10,6 +10,7 @@ import urllib.parse
 import urllib.request
 
 from oscar import musicbrainz as mb
+from oscar.classical import recording_roles
 
 RELEASE_ID = re.compile(r"[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}\Z")
 DISC_ID = re.compile(r"[A-Za-z0-9._-]{28}\Z")
@@ -49,7 +50,8 @@ def parse_release_media(payload: dict, disc_id: str, track_count: int) -> dict:
                     "position": t.get("position"),
                     "number": t.get("number"),
                     "title": t.get("title") or (t.get("recording") or {}).get("title"),
-                    "artist": _artist_credit(t.get("artist-credit") or (t.get("recording") or {}).get("artist-credit", [])),
+                    "artist_credit": _artist_credit(t.get("artist-credit") or (t.get("recording") or {}).get("artist-credit", [])),
+                    **recording_roles(t.get("recording") or {}),
                     "recording_id": (t.get("recording") or {}).get("id"),
                     "length_ms": t.get("length"),
                 }
@@ -91,7 +93,7 @@ def lookup_release_medium(release_id: str, disc_id: str, track_count: int, opene
         raise mb.MusicBrainzError("Invalid track count")
     url = ("https://musicbrainz.org/ws/2/release/" +
            urllib.parse.quote(release_id, safe="") + "?" +
-           urllib.parse.urlencode({"inc": "recordings+artist-credits+discids", "fmt": "json"}))
+           urllib.parse.urlencode({"inc": "recordings+artist-credits+discids+recording-level-rels+work-rels+work-level-rels+artist-rels", "fmt": "json"}))
     request = urllib.request.Request(url, headers={
         "User-Agent": mb._UA, "Accept": "application/json",
     })
