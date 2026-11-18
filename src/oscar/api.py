@@ -227,3 +227,27 @@ def get_rip_status(job_id: str, x_oscar_rip_token: str | None = Header(default=N
         return status(job_id)
     except (RipError, OSError) as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+class ArchiveNamePreviewRequest(BaseModel):
+    profile: str = Field(pattern=r"^(album|compilation|classical)$")
+    album_title: str = Field(min_length=1, max_length=300)
+    release_year: str | None = Field(default=None, max_length=4)
+    catalog_number: str | None = Field(default=None, max_length=100)
+    album_artist: str | None = Field(default=None, max_length=200)
+    composers: list[str] = Field(default_factory=list, max_length=30)
+    disc_number: int = Field(default=1, ge=1, le=99)
+    track_number: int = Field(default=1, ge=1, le=99)
+    track_title: str = Field(default="Untitled", max_length=300)
+    track_artist: str | None = Field(default=None, max_length=200)
+    performer_suffix: str | None = Field(default=None, max_length=100)
+
+
+@app.post("/api/archive/name-preview")
+def get_archive_name_preview(request: ArchiveNamePreviewRequest):
+    """Preview only: does not touch files, devices, staging or Archive."""
+    from oscar.archive_naming import archive_preview
+    try:
+        return archive_preview(**request.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
