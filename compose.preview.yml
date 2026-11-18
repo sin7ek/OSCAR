@@ -1,0 +1,24 @@
+# Read-only discovery and settings preview. No optical device passthrough.
+# Bind to localhost by default; OSCAR does not yet have authentication.
+services:
+  oscar:
+    image: ghcr.io/sin7ek/oscar:main
+    container_name: oscar
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8088:8080"
+    environment:
+      OSCAR_CONFIG_PATH: /config/settings.json
+    volumes:
+      - /mnt/user/appdata/oscar:/config
+      # Host sysfs is normally available in containers; mount if needed:
+      - /sys/class/block:/sys/class/block:ro
+      - /dev/disk/by-id:/dev/disk/by-id:ro
+      - /dev/disk/by-path:/dev/disk/by-path:ro
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
