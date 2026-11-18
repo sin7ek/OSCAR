@@ -1,10 +1,32 @@
 """OSCAR preview API: local drive settings only; no ripping or deletion."""
+import os
+import threading
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 
 from oscar.settings import OscarSettings, discover_settings, inspect_drives, save_settings
 from oscar.web import settings_page
 
-app = FastAPI(title="OSCAR", version="0.1.0-alpha")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Start the metadata-only worker when explicitly enabled."""
+    stop = threading.Event()
+    worker = None
+    if os.environ.get("OSCAR_ENABLE_METADATA_WORKER") == "1":
+        from oscar.metadata_queue import worker_loop
+        worker = threading.Thread(target=worker_loop, args=(stop,),
+                                  daemon=True, name="oscar-metadata-retry")
+        worker.start()
+    try:
+        yield
+    finally:
+        stop.set()
+        if worker is not None:
+            worker.join(timeout=2)
+
+
+app = FastAPI(title="OSCAR", version="0.1.0-alpha", lifespan=lifespan)
 
 
 @app.get("/health")
@@ -144,3 +166,11 @@ def get_name_aliases_batch(entities: list[dict]):
         return {"entities": resolve_many(entities)}
     except MusicBrainzError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get("/api/metadata-queue")
+def get_metadata_queue_status():
+    """Read-only counts of queued alias requests."""
+    from oscar.metadata_queue import summary
+    return {"worker_enabled": os.environ.get("OSCAR_ENABLE_METADATA_WORKER") == "1",
+            **summary()}
