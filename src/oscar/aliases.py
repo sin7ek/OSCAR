@@ -52,22 +52,33 @@ def lookup_aliases(entity_type: str, entity_id: str, opener=None) -> dict:
     req = urllib.request.Request(url, headers={
         "User-Agent": mb._UA, "Accept": "application/json",
     })
-    try:
-        with mb._LOCK:
-            delay = 1.1 - (time.monotonic() - mb._LAST_REQUEST)
-            if delay > 0:
-                time.sleep(delay)
-            mb._LAST_REQUEST = time.monotonic()
-            response = (opener or urllib.request.urlopen)(req, timeout=12)
-            with response:
-                body = response.read(_MAX_BYTES + 1)
-        if len(body) > _MAX_BYTES:
-            raise mb.MusicBrainzError("Alias response too large")
-        data = json.loads(body)
-    except urllib.error.HTTPError as exc:
-        raise mb.MusicBrainzError(f"MusicBrainz HTTP {exc.code}") from exc
-    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
-        raise mb.MusicBrainzError("Could not obtain MusicBrainz aliases") from exc
+    # Retry only transient errors; a failure must never become a cached alias.
+    for attempt in range(3):
+        try:
+            with mb._LOCK:
+                delay = 1.1 - (time.monotonic() - mb._LAST_REQUEST)
+                if delay > 0:
+                    time.sleep(delay)
+                mb._LAST_REQUEST = time.monotonic()
+                response = (opener or urllib.request.urlopen)(req, timeout=12)
+                with response:
+                    body = response.read(_MAX_BYTES + 1)
+            if len(body) > _MAX_BYTES:
+                raise mb.MusicBrainzError("Alias response too large")
+            data = json.loads(body)
+            break
+        except urllib.error.HTTPError as exc:
+            if exc.code in (429, 500, 502, 503, 504) and attempt < 2:
+                time.sleep((attempt + 1) * 3)
+                continue
+            raise mb.MusicBrainzError(f"MusicBrainz HTTP {exc.code}") from exc
+        except (urllib.error.URLError, TimeoutError) as exc:
+            if attempt < 2:
+                time.sleep((attempt + 1) * 3)
+                continue
+            raise mb.MusicBrainzError("Could not obtain MusicBrainz aliases") from exc
+        except json.JSONDecodeError as exc:
+            raise mb.MusicBrainzError("Invalid MusicBrainz alias response") from exc
     if data.get("id", "").lower() != entity_id.lower():
         raise mb.MusicBrainzError("Unexpected entity ID in alias response")
     original = data.get("name") or data.get("title") or ""
