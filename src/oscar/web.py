@@ -139,20 +139,37 @@ async function showMedium(stableId, releaseId){
       mismatch.textContent='Track count differs from the inserted disc; manual review required.';
       area.append(mismatch);
     }
-    const label=document.createElement('p');label.textContent='Track | Title | Composer (work relationships) | Performers (recording relationships)';area.append(label);
-    const table=document.createElement('table');table.style.width='100%';
-    for(const track of medium.tracks){
-      const tr=document.createElement('tr');
-      const composer=track.composers?.map(x=>x.name).join(', ')||'—';
-      const performers=track.performers?.map(x=>x.name+(x.role?' ('+x.role+')':'')).join(', ')||'Not documented';
-      for(const item of [track.number||track.position,track.title||'Untitled',composer,performers]){
-        const td=document.createElement('td');
-        td.textContent=String(item??'');
-        td.style.padding='6px';td.style.borderBottom='1px solid #324253';tr.append(td);
+    const label=document.createElement('p');
+    label.textContent='Work groups only where MusicBrainz explicitly links a movement to a parent work. Otherwise tracks remain separate.';
+    area.append(label);
+    const tracksByNumber=new Map(medium.tracks.map(t=>[String(t.number||t.position),t]));
+    for(const group of (medium.work_groups||[])){
+      if(group.parent_work_id){
+        const heading=document.createElement('h4');
+        heading.textContent=group.parent_work_title||'Untitled work';
+        area.append(heading);
+        const source=document.createElement('small');
+        source.textContent='Verified MusicBrainz work relationship · '+group.tracks.length+' track(s)';
+        area.append(source);
       }
-      table.append(tr);
+      const table=document.createElement('table');table.style.width='100%';
+      for(const number of group.tracks){
+        const track=tracksByNumber.get(String(number));
+        if(!track)continue;
+        const tr=document.createElement('tr');
+        const composer=track.composers?.map(x=>x.name).join(', ')||'—';
+        const performers=track.performers?.map(x=>x.name+(x.role?' ('+x.role+')':'')).join(', ')||'Not documented';
+        const works=(track.work_details||[]).map(x=>x.title||x.id).join(', ');
+        for(const item of [track.number||track.position,track.title||'Untitled',works||'Work not linked',composer,performers]){
+          const td=document.createElement('td');
+          td.textContent=String(item??'');
+          td.style.padding='6px';td.style.borderBottom='1px solid #324253';
+          td.style.verticalAlign='top';tr.append(td);
+        }
+        table.append(tr);
+      }
+      area.append(table);
     }
-    area.append(table);
   }
  }catch(error){status.textContent='Could not retrieve medium: '+error.message}
 }
