@@ -145,8 +145,8 @@ function aliasNode(type,id,original){
    value.textContent=nameValue(original||alias.original,alias);
    const source=alias.english?alias.english_source:
       (settings.english_alias_fallback==='sort_name'&&alias.sort_name?'sort name':'no English alias');
-   button.title=source+'; original: '+alias.original;
-   button.textContent=alias.english?'EN ✓':'EN —';
+   button.title=(alias.cache_status==='stale'?'Cached name; MusicBrainz temporarily unavailable. ':'')+source+'; original: '+alias.original;
+   button.textContent=alias.cache_status==='stale'?'EN ~':(alias.english?'EN ✓':'EN —');
    button.disabled=true;
  };
  button.onclick=async()=>{
@@ -190,7 +190,12 @@ async function enrichNamesAutomatically(area){
     const matching=buttons.filter(b=>b.dataset.aliasType===item.entity_type
        &&b.dataset.aliasId.toLowerCase()===item.id);
     for(const b of matching){
-      if(item.error){b.textContent='EN !';b.title=item.error;b.disabled=false}
+      if(item.error){
+        const temporary=/503|502|500|504|429|cooldown|temporarily unavailable|Could not obtain MusicBrainz/.test(item.error);
+        b.textContent=temporary?'EN ↻':'EN !';
+        b.title=temporary?'MusicBrainz is temporarily unavailable. Reopen this CD or click to retry later. '+item.error:item.error;
+        b.disabled=false;
+      }
       else b.applyAlias(item);
     }
    }
@@ -199,13 +204,13 @@ async function enrichNamesAutomatically(area){
    completed+=batch.length;
    for(const b of buttons){
     if(batch.some(e=>e.entity_type===b.dataset.aliasType&&e.entity_id===b.dataset.aliasId)){
-      b.textContent='EN !';b.title='Retry: '+error.message;b.disabled=false;
+      b.textContent='EN ↻';b.title='Lookup failed; click to retry later. '+error.message;b.disabled=false;
     }
    }
   }
   message.textContent='English names processed: '+Math.min(i+8,entities.length)+' / '+entities.length;
  }
- message.textContent='English name enrichment finished · '+(completed-failed)+' successful, '+failed+' failed, '+cacheHits+' cache hits. Failed names can be retried.';
+ message.textContent='English names checked · '+(completed-failed)+' resolved, '+failed+' pending/error, '+cacheHits+' fresh cache hits. EN — = no English alias, EN ↻ = retry later, EN ~ = stale cached alias, EN ! = other lookup error.';
 }
 async function showMedium(stableId, releaseId){
  const target=document.getElementById('toc-results');
