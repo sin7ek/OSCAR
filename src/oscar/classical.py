@@ -23,6 +23,7 @@ def _add(roles: list[dict], rel: dict):
     item = {
         "name": name, "artist_id": artist.get("id"),
         "role": role, "attributes": attributes if isinstance(attributes, list) else [],
+        "artist_type": artist.get("type"),
     }
     if item not in roles:
         roles.append(item)
@@ -53,7 +54,29 @@ def recording_roles(recording: dict) -> dict:
                 and work_relation.get("type") in _COMPOSER_TYPES
             ):
                 _add(composers, work_relation)
+    conductors = [p for p in performers if p["role"] == "conductor"]
+    orchestras = [p for p in performers if p["role"] in {"orchestra", "performing orchestra"}]
+    # A group with a generic performer relation is an ensemble candidate,
+    # NOT proof that it is an orchestra.
+    ensembles = [
+        p for p in performers
+        if p["role"] == "performer" and p["artist_type"] == "Group"
+    ]
+    soloists = [
+        p for p in performers
+        if p["role"] in {"vocal", "instrument", "solo"}
+        and p["artist_type"] != "Group"
+    ]
+    other_performers = [
+        p for p in performers
+        if p not in conductors + orchestras + ensembles + soloists
+    ]
     return {
+        "conductors": conductors,
+        "orchestras": orchestras,
+        "ensembles": ensembles,
+        "soloists": soloists,
+        "other_performers": other_performers,
         "performers": performers,
         "composers": composers,
         "works": works,
