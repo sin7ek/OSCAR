@@ -93,3 +93,22 @@ def get_release_candidates(stable_id: str):
         return lookup_releases(toc["musicbrainz_disc_id"], toc["toc_string"])
     except MusicBrainzError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+
+@app.get("/api/release-medium")
+def get_release_medium(stable_id: str, release_id: str):
+    """Display the medium on a candidate release associated with this Disc ID."""
+    from fastapi import HTTPException
+    from oscar.boxsets import lookup_release_medium
+    from oscar.musicbrainz import MusicBrainzError, lookup_enabled
+
+    if not lookup_enabled():
+        raise HTTPException(status_code=403, detail="MusicBrainz lookup disabled")
+    toc = get_toc(stable_id)
+    try:
+        return lookup_release_medium(
+            release_id, toc["musicbrainz_disc_id"], len(toc["tracks"])
+        )
+    except MusicBrainzError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
