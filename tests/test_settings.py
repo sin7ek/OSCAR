@@ -1,14 +1,16 @@
 from pathlib import Path
 
+import pytest
+from pydantic import ValidationError
+
 from oscar.settings import (
-    DEFAULT_SETTINGS, OscarSettings, DriveSettings,
-    inspect_drives, read_settings, save_settings,
+    OscarSettings, DriveSettings, discover_settings, inspect_drives,
+    read_settings, save_settings,
 )
 
 
-def test_default_devices_disabled():
-    assert len(DEFAULT_SETTINGS.drives) == 3
-    assert all(not drive.enabled for drive in DEFAULT_SETTINGS.drives)
+def test_new_install_has_no_hardcoded_drives(tmp_path):
+    assert read_settings(tmp_path / "missing.json").drives == []
 
 
 def test_settings_round_trip(tmp_path: Path):
@@ -21,12 +23,43 @@ def test_settings_round_trip(tmp_path: Path):
     assert oct(path.stat().st_mode & 0o777) == "0o600"
 
 
+def test_drive_discovery_from_sysfs_and_by_id(tmp_path: Path):
+    sysclass = tmp_path / "sys"
+    byid = tmp_path / "by-id"
+    bypath = tmp_path / "by-path"
+    for d in (sysclass, byid, bypath):
+        d.mkdir()
+    for name, model in (("sr1", "GH24NS95"), ("sr2", "GP95NB")):
+        dev = sysclass / name / "device"
+        dev.mkdir(parents=True)
+        (dev / "model").write_text(model)
+        (dev / "vendor").write_text("HL-DT-ST")
+        (dev / "rev").write_text("1.00")
+    (byid / "ata-HL-DT-ST_GH24NS95_ABC").symlink_to("../../sr1")
+    (byid / "usb-HL-DT-ST_GP95NB_XYZ").symlink_to("../../sr2")
+    found = inspect_drives(sysclass, byid, bypath)
+    assert len(found) == 2
+    assert found[1]["device"] == "/dev/sr2"
+    assert found[1]["stable_id"] == "usb-HL-DT-ST_GP95NB_XYZ"
+    assert found[1]["identity_persistent"] is True
+    settings = discover_settings(tmp_path / "settings.json", found)
+    assert len(settings.drives) == 2
+    assert not any(d.enabled for d in settings.drives)
+
+
+def test_missing_drive_keeps_saved_settings(tmp_path):
+    path = tmp_path / "settings.json"
+    saved = OscarSettings(drives=[
+        DriveSettings(stable_id="usb-HL-DT-ST_GP95NB_XYZ", label="USB LG", enabled=True, offset_samples=12)
+    ])
+    save_settings(saved, path)
+    assert discover_settings(path, []).drives[0] == saved.drives[0]
+
+
 def test_read_only_inventory_unknown_directory(tmp_path: Path):
     assert inspect_drives(tmp_path / "missing") == []
 
 
 def test_drive_id_rejects_paths():
-    import pytest
-    from pydantic import ValidationError
     with pytest.raises(ValidationError):
         DriveSettings(stable_id="../../etc/passwd", label="bad")
