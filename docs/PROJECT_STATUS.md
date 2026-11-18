@@ -1,0 +1,63 @@
+# OSCAR — project status and handoff
+
+**Last reviewed:** 2026-11-18  
+**Repository:** https://github.com/sin7ek/OSCAR  
+**Purpose:** Open Source CD Archiving & Ripping — archival-grade, verification-first CD digitization for Unraid/Linux, with classical-music metadata and an eventual **insert CD → Go** workflow. Dedicated to Oscar.
+
+> **How to resume after a chat ends:** Read this document first, then `docs/ARCHITECTURE.md`, `README.md`, recent merged PRs and open PRs, and GitHub Actions for the branch under development. Do not infer that a successful CI run establishes real optical hardware functionality.
+
+## Current implementation (v0.1.0-alpha)
+
+- Read-only FastAPI/HTML UI for enabled optical drive configuration, device probing and TOC / MusicBrainz Disc ID inspection, subject to opt-in flags and hardware/container permissions.
+- MusicBrainz release candidate discovery; exact Disc ID + track count medium matching, including multidisc editions. Physical edition still requires human confirmation.
+- Verified MusicBrainz artist/work relationships for composers, work hierarchies, conductors, orchestras and performers. Do not infer role from generic artist credits.
+- Original-language names preserved with MusicBrainz English aliases (no machine translation). Composer/work aliases automatically deduplicated and cached in SQLite at `/config/aliases.sqlite3`. Positive TTL 30 days, negative TTL 7 days.
+- PR #16: cooldown and stale fallback after persistent alias API failures.
+- PR #17: shared single-process MusicBrainz transport across Disc ID / release medium / alias lookups, 1.1 s spacing, bounded retries, optional Retry-After and temporary circuit-breaker.
+- Current PR: also enrich conductor/orchestra/soloist names in the tracklist with the same artist alias mechanism. Preserve role and instrument attributes.
+
+**Not implemented:** automated CD ripping, cyanrip integration, AccurateRip/CTDB verification, FLAC writing/tags, final archive promotion, queue-based background metadata retries or automatic cleanup. Metadata review does not validate extracted audio.
+
+## Decisions / invariants
+
+1. Audio integrity and physical edition certainty are independent.
+2. Retain original rip logs and CUE; never claim INDEX 00 or HTOA detection from a basic TOC.
+3. Original names, entity IDs and verified MusicBrainz relationship provenance must remain intact; English aliases are additional display metadata.
+4. Missing English alias (`EN —`) is not a failure; transient failure (`EN ↻`), stale alias (`EN ~`) and other lookup error (`EN !`) are separate states. `EN ✓` is an English alias.
+5. One CD may correspond to multiple editions; do not silently auto-select without adequate physical evidence.
+6. Never overwrite or delete existing music files from prototype endpoints; initial Archive access read-only.
+7. Shared MusicBrainz limiter is **process-local only**; concurrent workers or multiple OSCAR installations require a cross-process/host-wide rate limiter before scaling.
+8. The SQLite alias cache is not a durable retry queue; adding one is future work.
+
+## Real-world manual checks (not automated acceptance tests)
+
+- **Händel:** `Water Music / Music for the Royal Fireworks`, Jordi Savall, Le Concert des Nations, Astrée Auvidis ES 99220 (1999). Physical CD on an enabled drive; Disc ID `ROkQlooU5tDdgVZOkfXXTy.S4oU-`, 28 tracks, 1 candidate and exact medium+track-count match. Earlier API returned repeated HTTP 503 during alias lookups. Work groups/composer/roles visible; some EN errors and in-progress entities at capture time.
+- **Tchaikovsky:** `Symphony no. 5 in E minor, op. 64 / Capriccio Italien, op. 45`, Gennady Rozhdestvensky / London Symphony Orchestra. 5 tracks, exact disc and track-count match, 4 symphony movements correctly grouped, Capriccio separate. Alias processing reported 6 resolved, 0 pending/errors; composer displayed as original Cyrillic + Pyotr Ilyich Tchaikovsky, but conductor stayed Cyrillic. This motivated automatic performer alias enrichment.
+- **Stravinsky:** earlier classical sample used to check language aliases and recording/work relationships.
+- **Safety note:** these checks concern metadata identification only, not secure ripping or AccurateRip validation.
+
+## Next steps in priority order
+
+1. Merge performer-alias PR after CI; deploy newly built `ghcr.io/sin7ek/oscar:main` to Unraid and re-test Tchaikovsky conductor spelling against real MusicBrainz alias availability.
+2. Build durable SQLite metadata job queue with retry after network outages, cancellation, progress reporting, and deduplication. Do not block rip verification on MusicBrainz.
+3. Refine per-medium metadata review, album/work/movement/performer tag plan and correct boxset disc numbering; maintain source provenance.
+4. Prototype secure extraction with an established Linux ripper (cyanrip candidate), hardware-supported drive offsets, CUE/log capture; validate multiple drives safely.
+5. Verify extracted audio with AccurateRip v1/v2 and CTDB (Linux feasibility to validate), FLAC integrity checks, checksums and explicit verification statuses.
+6. Implement staged, collision-safe archive publication with a manifest and conservative cleanup policy.
+7. Test unattended insert→Go workflow only after the above has proven safe.
+
+## Deployment and safety reminders
+
+- Repo: `sin7ek/OSCAR`; CI uses GitHub Actions; image: `ghcr.io/sin7ek/oscar:main` after successful publish.
+- Main working environment: Unraid + Portainer; current pilot uses optical drive `/dev1` as shown in GUI (verify the underlying stable drive ID; do not assume Linux device path `/dev1`).
+- `/config` is persistent; keep credentials/private device settings out of GitHub. UI does not have built-in authentication.
+- Existing `compose.preview.yml` is a conservative template, not necessarily the full running Portainer stack. Do not replace live stack mounts/flags without comparing them.
+- Test locally with `python -m pytest -q` and observe GitHub Actions before merge.
+- Keep this handoff updated in every major feature PR with **implemented**, **tested in CI**, **tested on hardware**, **known limitations**, and **next steps**.
+
+## Useful links
+
+- [Repository](https://github.com/sin7ek/OSCAR)
+- [Pull requests](https://github.com/sin7ek/OSCAR/pulls)
+- [GitHub Actions](https://github.com/sin7ek/OSCAR/actions)
+- [Architecture](ARCHITECTURE.md)
