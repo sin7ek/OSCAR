@@ -1,10 +1,10 @@
-FROM python:3.12-slim
+FROM python:3.12-slim-trixie
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     OSCAR_CONFIG_PATH=/config/settings.json
 
-RUN apt-get update && apt-get install -y --no-install-recommends libdiscid0 \
+RUN apt-get update && apt-get install -y --no-install-recommends libdiscid0 cyanrip flac \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
