@@ -1,6 +1,6 @@
 # OSCAR — project status and handoff
 
-**Last reviewed:** 2026-11-18  
+**Last reviewed:** 2026-11-19  
 **Repository:** https://github.com/sin7ek/OSCAR  
 **Purpose:** Open Source CD Archiving & Ripping — archival-grade, verification-first CD digitization for Unraid/Linux, with classical-music metadata and an eventual **insert CD → Go** workflow. Dedicated to Oscar.
 
@@ -20,6 +20,8 @@
 - Experimental staging rip prototype (current feature PR): explicit opt-in, token-protected cyanrip FLAC extraction, drive identity/offset validation, new UUID staging folder, captured console logs, file hashes and no automatic archive operations. Documented at [FIRST_RIP_STAGING.md](FIRST_RIP_STAGING.md). First Unraid test reached cyanrip but failed immediately due to unsupported `-B`; see [FIRST_RIP_STAGING.md](FIRST_RIP_STAGING.md).
 
 - Archive naming preview feature in progress: read-only `/api/archive/name-preview` for album, compilation and classical paths, catalog-number prefix and optional reviewed conductor/ensemble suffix (see [ARCHIVE_NAMING.md](ARCHIVE_NAMING.md)). No file operations; pending CI and manual UI integration.
+
+- Drive-offset assistant (pending CI): AccurateRip web lookup for detected model with conservative/conflict-aware suggestions, optional user-triggered cyanrip `-f` reference-CD calibration, external manual fallback URL. Only prefills a blank offset in the browser and requires Save settings; existing offsets never overwritten automatically. GH24NS95 has conflicting database rows (+6 vs +667) and must be reviewed. See [DRIVE_OFFSET.md](DRIVE_OFFSET.md).
 
 **Not implemented:** full unattended CD ripping, independent AccurateRip/CTDB verification, verified CUE and FLAC decode checks, full archive-quality tags, final archive promotion, full release/Disc ID background queueing, or automatic cleanup. The new queue retries only artist/work alias enrichment; deployment requires opting in to the worker. Metadata review does not validate extracted audio.
 

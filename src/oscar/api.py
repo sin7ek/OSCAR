@@ -251,3 +251,57 @@ def get_archive_name_preview(request: ArchiveNamePreviewRequest):
         return archive_preview(**request.model_dump())
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get("/api/drive-offset/lookup")
+def drive_offset_lookup(stable_id: str):
+    """Read-only external drive-model suggestion; never change saved offset."""
+    from oscar.drive_offset import OffsetError, lookup
+    drives = {str(d["stable_id"]): d for d in inspect_drives()}
+    drive = drives.get(stable_id)
+    if drive is None or not drive.get("identity_persistent"):
+        raise HTTPException(status_code=404, detail="Persistent optical drive not found")
+    # Vendor names differ across AccurateRip; query with specific model token.
+    model = str(drive["label"]).split()[-1]
+    try:
+        return lookup(model)
+    except OffsetError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.post("/api/drive-offset/from-disc")
+def drive_offset_from_disc(request: RipRequest, x_oscar_rip_token: str | None = Header(default=None)):
+    """User-triggered reference-disc calibration, no rip and no settings write."""
+    from oscar.drive_offset import OffsetError, disc_calibration
+    from oscar.ripping import selected_drive, _ACTIVE, _LOCK, RipError
+    _rip_auth(x_oscar_rip_token)
+    if request.confirmation != "CALIBRATE_OFFSET":
+        raise HTTPException(status_code=422, detail="Explicit calibration confirmation required")
+    try:
+        device, _ = selected_drive_for_calibration(request.stable_id)
+        with _LOCK:
+            if request.stable_id in _ACTIVE:
+                raise OffsetError("Cannot calibrate while this drive is ripping")
+            _ACTIVE.add(request.stable_id)
+        try:
+            return disc_calibration(device)
+        finally:
+            with _LOCK:
+                _ACTIVE.discard(request.stable_id)
+    except (OffsetError, RipError, OSError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+def selected_drive_for_calibration(stable_id: str):
+    """Resolve a known enabled drive without requiring an offset yet."""
+    import re
+    import stat
+    from oscar.ripping import RipError
+    allowed = {d.stable_id for d in discover_settings().drives if d.enabled}
+    drive = {str(d["stable_id"]): d for d in inspect_drives()}.get(stable_id)
+    if stable_id not in allowed or not drive or not drive.get("identity_persistent"):
+        raise RipError("Drive must be enabled and persistently identified")
+    device = str(drive["device"])
+    if not re.fullmatch(r"/dev/sr\d+", device) or not stat.S_ISBLK(os.stat(device).st_mode):
+        raise RipError("Optical drive not accessible")
+    return device, None
