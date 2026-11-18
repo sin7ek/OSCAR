@@ -18,6 +18,12 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 <p>Profile selection is stored for future processing. Neither profile starts a rip.</p></section>
 <section><h2>Language &amp; names</h2><label for="name-display">Show names</label><select id="name-display"><option value="original_and_english">Original + English (when available)</option><option value="original">Original only</option><option value="english">English preferred (original preserved)</option></select><label for="alias-fallback">When no English alias exists</label><select id="alias-fallback"><option value="original">Use original</option><option value="sort_name">Allow artist sort-name as transliteration (not a translation)</option></select><p>English aliases are fetched on demand from MusicBrainz. Original names and entity IDs are always retained. These settings do not tag audio files.</p></section>
 <section><h2>Optical drives</h2><div id="drives"></div><button id="probe" type="button">Check inserted discs</button><p id="media-status" aria-live="polite"></p><div id="toc-results"></div></section>
+<section><h2>Staging verification (experimental)</h2>
+<p>Review an already completed OSCAR rip. Reads cyanrip AccurateRip evidence, checks saved SHA-256, decodes each FLAC and validates CUE references. No tagging, archiving or cleanup.</p>
+<label for="verify-job">Staging rip job ID (32 hexadecimal characters)</label>
+<input id="verify-job" placeholder="f41806152a614b1a9006b10456b9bbd4" maxlength="32" style="width:340px;max-width:90%">
+<button id="verify-start" type="button">Verify staged rip</button>
+<div id="verify-output" aria-live="polite"></div></section>
 <button id="save">Save settings</button><p id="status" aria-live="polite"></p>
 <script>
 let settings;
@@ -403,6 +409,61 @@ async function showMedium(stableId, releaseId){
   enrichNamesAutomatically(area);
  }catch(error){status.textContent='Could not retrieve medium: '+error.message}
 }
+async function verifyExistingJob(){
+ const target=document.getElementById('verify-output');
+ const job=document.getElementById('verify-job').value.trim().toLowerCase();
+ if(!/^[a-f0-9]{32}$/.test(job)){target.textContent='Enter an OSCAR rip job ID (32 hexadecimal characters).';return}
+ const token=window.prompt('Enter OSCAR rip token to read staged verification');
+ if(!token)return;
+ target.textContent='Starting verification (FLAC decoding may take some time)…';
+ const headers={'X-OSCAR-RIP-TOKEN':token};
+ try{
+  const r=await fetch('/api/rip/jobs/'+job+'/verification',{method:'POST',headers});
+  if(!r.ok)throw new Error(await r.text());
+  async function poll(){
+   const response=await fetch('/api/rip/jobs/'+job+'/verification',{headers});
+   if(!response.ok)throw new Error(await response.text());
+   const data=await response.json();
+   if(data.status==='running'||data.status==='not_started'){
+    target.textContent='Verification: '+data.status+' (reading stored FLAC files; no optical drive needed).';
+    if(data.status==='running')setTimeout(()=>poll().catch(e=>target.textContent=e.message),2500);
+    return;
+   }
+   target.replaceChildren();
+   const summary=document.createElement('p');
+   summary.textContent='Report: '+data.status+' · '+(data.flac_count??'?')+
+      '/'+(data.expected_tracks??'?')+' FLAC · ripping errors: '+(data.ripping_errors??'?')+
+      ' · CUE references match: '+(data.cue?.references_match?'yes':'no')+
+      (data.error?' · '+data.error:'');
+   target.append(summary);
+   if(data.tracks?.length){
+    const table=document.createElement('table');table.style.width='100%';
+    const header=document.createElement('tr');
+    for(const h of ['Track','AR v1','AR v2','SHA-256','FLAC decode','Result']){
+     const cell=document.createElement('th');cell.textContent=h;cell.style.textAlign='left';
+     cell.style.padding='6px';header.append(cell);
+    }table.append(header);
+    for(const track of data.tracks){
+     const tr=document.createElement('tr');
+     const ar=v=>{const a=track.accuraterip?.[v];
+       return !a?'—':a.status==='accurately_ripped'?'Matched ('+a.confidence+')':a.status};
+     for(const value of [track.number,ar('v1'),ar('v2'),
+                         track.sha256_matches?'✓':'✗',track.flac_decodes?'✓':'✗',
+                         track.checks_passed?'Passed':'Review']){
+      const td=document.createElement('td');td.textContent=String(value);
+      td.style.padding='6px';td.style.borderBottom='1px solid #324253';tr.append(td);
+     }table.append(tr);
+    }
+    target.append(table);
+   }
+   const note=document.createElement('p');
+   note.textContent=(data.notes||[]).join(' ');
+   target.append(note);
+  }
+  await poll();
+ }catch(e){target.textContent='Verification unavailable: '+e.message}
+}
+document.getElementById('verify-start').onclick=verifyExistingJob;
 document.getElementById('save').onclick=async()=>{
  const status=document.getElementById('status');settings.profile=document.getElementById('profile').value;
  settings.name_display=document.getElementById('name-display').value;
