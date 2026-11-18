@@ -51,18 +51,18 @@ def test_transient_failure_eventually_resolves(tmp_path, monkeypatch):
             raise MusicBrainzError("MusicBrainz HTTP 503")
         return {"entity_type": kind, "id": mbid, "original": "Чайковский",
                 "english": "Tchaikovsky"}
-    assert q.process_one(path=path, fetcher=fake_fetch, now=10)
+    assert q.process_one(path=path, alias_path=tmp_path / 'aliases.db', fetcher=fake_fetch, now=10)
     assert q.summary(path=path)["pending"] == 1
     monkeypatch.setattr(alias_cache, "_UNAVAILABLE_UNTIL", 0.0)
-    assert q.process_one(path=path, fetcher=fake_fetch, now=101)
+    assert q.process_one(path=path, alias_path=tmp_path / 'aliases.db', fetcher=fake_fetch, now=101)
     assert q.summary(path=path)["done"] == 1
-    assert not q.process_one(path=path, fetcher=fake_fetch, now=102)
+    assert not q.process_one(path=path, alias_path=tmp_path / 'aliases.db', fetcher=fake_fetch, now=102)
 
 
 def test_permanent_error_not_requeued(tmp_path):
     path = tmp_path / "queue.sqlite3"
     q.enqueue("artist", IDS[0], path=path, now=1)
-    q.process_one(path=path, fetcher=lambda *a: (_ for _ in ()).throw(
+    q.process_one(path=path, alias_path=tmp_path / 'aliases.db', fetcher=lambda *a: (_ for _ in ()).throw(
         MusicBrainzError("MusicBrainz HTTP 404")), now=1)
     assert q.summary(path=path)["failed"] == 1
 
