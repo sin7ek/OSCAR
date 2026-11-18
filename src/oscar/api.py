@@ -240,6 +240,7 @@ class ArchiveNamePreviewRequest(BaseModel):
     track_number: int = Field(default=1, ge=1, le=99)
     track_title: str = Field(default="Untitled", max_length=300)
     track_artist: str | None = Field(default=None, max_length=200)
+    performer_suffix: str | None = Field(default=None, max_length=100)
 
 
 @app.post("/api/archive/name-preview")
