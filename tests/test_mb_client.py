@@ -96,3 +96,17 @@ class BadResponse:
     def __enter__(self):return self
     def __exit__(self,*args):return False
     def read(self,n):return b"not-json"
+
+
+def test_stale_alias_survives_shared_network_cooldown(tmp_path, monkeypatch):
+    from oscar.alias_cache import get_alias
+    from oscar import alias_cache
+    path=tmp_path/"aliases.sqlite3"
+    original={"entity_type":"artist","id":ARTIST,"original":"Händel",
+              "english":"Handel"}
+    get_alias("artist",ARTIST,fetcher=lambda *args: original,path=path,now=1)
+    monkeypatch.setattr(mb_client, "_UNAVAILABLE_UNTIL", 10**30)
+    result=get_alias("artist",ARTIST,
+        fetcher=lambda *args: lookup_aliases("artist",ARTIST),path=path,now=40*86400)
+    assert result["cache_status"]=="stale"
+    assert result["english"]=="Handel"
