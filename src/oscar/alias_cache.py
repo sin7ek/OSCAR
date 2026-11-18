@@ -11,10 +11,21 @@ from pathlib import Path
 
 from oscar.aliases import lookup_aliases
 from oscar.settings import config_path
+from oscar.musicbrainz import MusicBrainzError
 
 _CACHE_LOCK = threading.RLock()
 _POSITIVE_TTL = 30 * 86400
 _NEGATIVE_TTL = 7 * 86400
+# One failed batch must not trigger 3 more network attempts for every work.
+_COOLDOWN_SECONDS = 90
+_UNAVAILABLE_UNTIL = 0.0
+
+
+def _transient_failure(error: MusicBrainzError) -> bool:
+    """Only server overload/rate limit opens the breaker (not invalid MBIDs)."""
+    return any(f"HTTP {code}" in str(error) for code in (429, 500, 502, 503, 504)) or (
+        str(error) == "Could not obtain MusicBrainz aliases"
+    )
 
 
 def cache_path() -> Path:
@@ -57,8 +68,23 @@ def get_alias(entity_type: str, entity_id: str, *, fetcher=lookup_aliases,
                 ttl = _POSITIVE_TTL if data.get("english") else _NEGATIVE_TTL
                 if now - row[1] < ttl:
                     return {**data, "cache_status": "hit"}
-            # Never overwrite a good cache entry when MusicBrainz is unavailable.
-            data = fetcher(entity_type, entity_id)
+            # Fresh cache is available even while the remote API is down.
+            # Keep stale records as a fallback, but never refresh their TTL.
+            global _UNAVAILABLE_UNTIL
+            if time.monotonic() < _UNAVAILABLE_UNTIL:
+                if row:
+                    return {**json.loads(row[0]), "cache_status": "stale",
+                            "warning": "MusicBrainz temporarily unavailable"}
+                raise MusicBrainzError("MusicBrainz temporarily unavailable (cooldown)")
+            try:
+                data = fetcher(entity_type, entity_id)
+            except MusicBrainzError as exc:
+                if _transient_failure(exc):
+                    _UNAVAILABLE_UNTIL = time.monotonic() + _COOLDOWN_SECONDS
+                    if row:
+                        return {**json.loads(row[0]), "cache_status": "stale",
+                                "warning": "MusicBrainz temporarily unavailable"}
+                raise
             db.execute(
                 """INSERT INTO aliases(entity_type,entity_id,response_json,checked_at)
                 VALUES(?,?,?,?) ON CONFLICT(entity_type,entity_id) DO UPDATE SET
