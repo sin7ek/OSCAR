@@ -112,3 +112,19 @@ def get_release_medium(stable_id: str, release_id: str):
         )
     except MusicBrainzError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+
+@app.get("/api/name-aliases")
+def get_name_aliases(entity_type: str, entity_id: str):
+    """One opt-in, read-only artist/work alias request (no disc operations)."""
+    from fastapi import HTTPException
+    from oscar.aliases import lookup_aliases
+    from oscar.musicbrainz import MusicBrainzError, lookup_enabled
+
+    if not lookup_enabled():
+        raise HTTPException(status_code=403, detail="MusicBrainz lookup disabled")
+    try:
+        return lookup_aliases(entity_type, entity_id)
+    except MusicBrainzError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
