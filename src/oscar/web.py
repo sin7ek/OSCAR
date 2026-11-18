@@ -16,7 +16,7 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 <section><h2>Ripping profile</h2>
 <label for="profile">Default profile</label><select id="profile"><option value="archival">Archival / collectors</option><option value="classical">Classical / works &amp; performers</option></select>
 <p>Profile selection is stored for future processing. Neither profile starts a rip.</p></section>
-<section><h2>Optical drives</h2><div id="drives"></div><button id="probe" type="button">Check inserted discs</button><p id="media-status" aria-live="polite"></p></section>
+<section><h2>Optical drives</h2><div id="drives"></div><button id="probe" type="button">Check inserted discs</button><p id="media-status" aria-live="polite"></p><div id="toc-results"></div></section>
 <button id="save">Save settings</button><p id="status" aria-live="polite"></p>
 <script>
 let settings;
@@ -57,9 +57,56 @@ document.getElementById('probe').onclick=async()=>{
    p.textContent=disc.label+' ('+disc.device+'): '+disc.status+
       (disc.disc_type?' · '+disc.disc_type:'')+(disc.error?' · '+disc.error:'');
    el.append(p);
+   if(disc.status==='disc_present' && disc.disc_type==='audio'){
+     const button=document.createElement('button');button.type='button';
+     button.textContent='Read TOC and MusicBrainz ID';
+     button.onclick=()=>showToc(disc.stable_id);
+     el.append(button);
+   }
   }
  }catch(error){el.textContent='Probe unavailable: '+error.message}
 };
+async function showToc(stableId){
+ const target=document.getElementById('toc-results');target.replaceChildren();
+ const status=document.createElement('p');status.textContent='Reading disc TOC…';target.append(status);
+ try{
+  const r=await fetch('/api/toc?'+new URLSearchParams({stable_id:stableId}));
+  if(!r.ok)throw new Error(await r.text());
+  const toc=await r.json();
+  status.textContent='MusicBrainz Disc ID: '+toc.musicbrainz_disc_id+' · '+toc.tracks.length+' tracks · Lead-out '+toc.leadout_sector;
+  const note=document.createElement('p');note.textContent='INDEX 00, pregaps and hidden track-one audio are not checked by a standard TOC.';target.append(note);
+  const table=document.createElement('table');table.style.width='100%';
+  for(const track of toc.tracks){
+    const tr=document.createElement('tr');
+    for(const value of [track.number,track.start_sector,track.duration_seconds+' s']){
+      const cell=document.createElement('td');cell.textContent=String(value);cell.style.padding='5px';tr.append(cell);
+    }table.append(tr);
+  }
+  target.append(table);
+  const lookup=document.createElement('button');lookup.type='button';
+  lookup.textContent='Find release candidates on MusicBrainz';
+  lookup.onclick=()=>showCandidates(stableId);target.append(lookup);
+ }catch(error){status.textContent='TOC unavailable: '+error.message}
+}
+async function showCandidates(stableId){
+ const target=document.getElementById('toc-results');
+ const p=document.createElement('p');p.textContent='Looking up MusicBrainz candidates…';target.append(p);
+ try{
+  const r=await fetch('/api/releases?'+new URLSearchParams({stable_id:stableId}));
+  if(!r.ok)throw new Error(await r.text());
+  const result=await r.json();
+  p.textContent=result.releases.length+' candidate(s) found — physical edition requires review';
+  for(const release of result.releases){
+    const entry=document.createElement('p');
+    const link=document.createElement('a');
+    link.href='https://musicbrainz.org/release/'+encodeURIComponent(release.id);
+    link.target='_blank';link.rel='noopener noreferrer';
+    link.textContent=(release.title||'Untitled')+' · '+(release.artist||'Unknown')+' · '+(release.date||'?')+
+      ' · '+release.labels.map(x=>(x.name||'')+' '+(x.catalog_number||'')).join(', ');
+    entry.append(link);target.append(entry);
+  }
+ }catch(error){p.textContent='MusicBrainz unavailable: '+error.message}
+}
 document.getElementById('save').onclick=async()=>{
  const status=document.getElementById('status');settings.profile=document.getElementById('profile').value;
  status.textContent='Saving…';
