@@ -193,7 +193,9 @@ async function enrichNamesAutomatically(area){
       if(item.error){
         const temporary=/503|502|500|504|429|cooldown|temporarily unavailable|Could not obtain MusicBrainz/.test(item.error);
         b.textContent=temporary?'EN ↻':'EN !';
-        b.title=temporary?'MusicBrainz is temporarily unavailable. Reopen this CD or click to retry later. '+item.error:item.error;
+        b.title=temporary?(item.queued_for_retry?
+          'Automatically queued for retry. Reopen this disc later to refresh the displayed alias. ':
+          'MusicBrainz temporarily unavailable; retry was not persisted. ')+item.error:item.error;
         b.disabled=false;
       }
       else b.applyAlias(item);
