@@ -125,6 +125,22 @@ def get_name_aliases(entity_type: str, entity_id: str):
     if not lookup_enabled():
         raise HTTPException(status_code=403, detail="MusicBrainz lookup disabled")
     try:
-        return lookup_aliases(entity_type, entity_id)
+        from oscar.alias_cache import get_alias
+        return get_alias(entity_type, entity_id)
+    except MusicBrainzError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/name-aliases/batch")
+def get_name_aliases_batch(entities: list[dict]):
+    """Enrich at most 12 artist/work names; deduplicated and persisted."""
+    from fastapi import HTTPException
+    from oscar.alias_cache import resolve_many
+    from oscar.musicbrainz import MusicBrainzError, lookup_enabled
+
+    if not lookup_enabled():
+        raise HTTPException(status_code=403, detail="MusicBrainz lookup disabled")
+    try:
+        return {"entities": resolve_many(entities)}
     except MusicBrainzError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc

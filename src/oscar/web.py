@@ -139,19 +139,69 @@ function aliasNode(type,id,original){
  if(!id)return span;
  const button=document.createElement('button');button.type='button';
  button.style.margin='4px';button.style.padding='4px 8px';button.style.fontSize='12px';
- button.textContent='EN';button.title='Fetch English MusicBrainz alias';
- button.onclick=async()=>{
-  button.disabled=true;button.textContent='…';
-  try{
-   const alias=await aliasFor(type,id);
+ button.textContent='EN';button.title='English alias automatically enriched';
+ button.className='alias-enrichment';button.dataset.aliasType=type;button.dataset.aliasId=id;
+ button.applyAlias=(alias)=>{
    value.textContent=nameValue(original||alias.original,alias);
    const source=alias.english?alias.english_source:
       (settings.english_alias_fallback==='sort_name'&&alias.sort_name?'sort name':'no English alias');
    button.title=source+'; original: '+alias.original;
    button.textContent=alias.english?'EN ✓':'EN —';
+   button.disabled=true;
+ };
+ button.onclick=async()=>{
+  button.disabled=true;button.textContent='…';
+  try{
+   const alias=await aliasFor(type,id);
+   button.applyAlias(alias);
   }catch(e){button.disabled=false;button.textContent='EN';button.title=e.message}
  };
  span.append(button);return span;
+}
+async function enrichNamesAutomatically(area){
+ const buttons=[...area.querySelectorAll('button.alias-enrichment')];
+ const keys=new Map();
+ for(const button of buttons){
+  const key=button.dataset.aliasType+':'+button.dataset.aliasId;
+  if(!keys.has(key))keys.set(key,{
+   entity_type:button.dataset.aliasType,entity_id:button.dataset.aliasId
+  });
+  button.textContent='EN …';button.disabled=true;
+ }
+ const entities=[...keys.values()];
+ if(!entities.length)return;
+ const message=document.createElement('p');
+ message.textContent='Automatically enriching '+entities.length+' unique artist/work names…';
+ area.prepend(message);
+ const obtained=new Map();
+ for(let i=0;i<entities.length;i+=8){
+  if(!area.isConnected)return;
+  const batch=entities.slice(i,i+8);
+  try{
+   const r=await fetch('/api/name-aliases/batch',{
+     method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(batch)
+   });
+   if(!r.ok)throw new Error(await r.text());
+   const data=await r.json();
+   for(const item of data.entities||[]){
+    obtained.set(item.entity_type+':'+item.id,item);
+    const matching=buttons.filter(b=>b.dataset.aliasType===item.entity_type
+       &&b.dataset.aliasId.toLowerCase()===item.id);
+    for(const b of matching){
+      if(item.error){b.textContent='EN !';b.title=item.error;b.disabled=false}
+      else b.applyAlias(item);
+    }
+   }
+  }catch(error){
+   for(const b of buttons){
+    if(batch.some(e=>e.entity_type===b.dataset.aliasType&&e.entity_id===b.dataset.aliasId)){
+      b.textContent='EN !';b.title='Retry: '+error.message;b.disabled=false;
+    }
+   }
+  }
+  message.textContent='English names processed: '+Math.min(i+8,entities.length)+' / '+entities.length;
+ }
+ message.textContent='English name enrichment complete · '+obtained.size+' unique names checked (cached for reuse).';
 }
 async function showMedium(stableId, releaseId){
  const target=document.getElementById('toc-results');
@@ -231,6 +281,7 @@ async function showMedium(stableId, releaseId){
       area.append(table);
     }
   }
+  enrichNamesAutomatically(area);
  }catch(error){status.textContent='Could not retrieve medium: '+error.message}
 }
 document.getElementById('save').onclick=async()=>{
