@@ -4,6 +4,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     OSCAR_CONFIG_PATH=/config/settings.json
 
+RUN apt-get update && apt-get install -y --no-install-recommends libdiscid0 \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 COPY pyproject.toml README.md ./

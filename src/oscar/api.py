@@ -55,3 +55,41 @@ def get_media_status():
     from oscar.media import probe_enabled_drives
 
     return probe_enabled_drives()
+
+
+@app.get("/api/toc")
+def get_toc(stable_id: str):
+    """Read standard TOC for one configured enabled disc drive."""
+    import os
+    from fastapi import HTTPException
+    from oscar.toc import TocError, read_toc
+
+    if os.environ.get("OSCAR_ENABLE_TOC_PROBE") != "1":
+        raise HTTPException(status_code=403, detail="TOC reader disabled")
+    settings = discover_settings()
+    allowed = {d.stable_id for d in settings.drives if d.enabled}
+    drives = {str(d["stable_id"]): d for d in inspect_drives()}
+    drive = drives.get(stable_id)
+    if stable_id not in allowed or drive is None:
+        raise HTTPException(status_code=403, detail="Drive must be enabled and present")
+    if not drive["identity_persistent"]:
+        raise HTTPException(status_code=409, detail="Drive has no persistent identity")
+    try:
+        return read_toc(str(drive["device"]))
+    except TocError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.get("/api/releases")
+def get_release_candidates(stable_id: str):
+    """Lookup candidate releases; never auto-approve a physical edition."""
+    from fastapi import HTTPException
+    from oscar.musicbrainz import MusicBrainzError, lookup_enabled, lookup_releases
+
+    if not lookup_enabled():
+        raise HTTPException(status_code=403, detail="MusicBrainz lookup disabled")
+    toc = get_toc(stable_id)
+    try:
+        return lookup_releases(toc["musicbrainz_disc_id"], toc["toc_string"])
+    except MusicBrainzError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
