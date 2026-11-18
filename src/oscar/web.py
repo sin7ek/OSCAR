@@ -44,7 +44,61 @@ async function init(){
   const offset=document.createElement('input');offset.type='number';offset.min=-2000;offset.max=2000;
   offset.value=drive.offset_samples===null?'':drive.offset_samples;
   offset.oninput=()=>{drive.offset_samples=offset.value===''?null:Number(offset.value)};
-  offsetLabel.append(offset);row.append(head,device,label,offsetLabel);area.append(row);
+  offsetLabel.append(offset);row.append(head,device,label,offsetLabel);
+  const assist=document.createElement('div');
+  const link=document.createElement('a');link.href='https://www.accuraterip.com/driveoffsets.htm';
+  link.target='_blank';link.rel='noopener noreferrer';link.textContent='AccurateRip drive offset database';
+  link.style.color='#bfd5ff';
+  const hint=document.createElement('small');hint.style.display='block';
+  hint.textContent=drive.offset_samples===null?'Offset not yet set.':'Saved offset: '+drive.offset_samples+' samples (never automatically overwritten).';
+  const lookup=document.createElement('button');lookup.type='button';
+  lookup.style.marginRight='8px';lookup.textContent='Look up offset';
+  lookup.onclick=async()=>{
+   hint.textContent='Checking AccurateRip drive-offset database…';
+   try{
+    const r=await fetch('/api/drive-offset/lookup?'+new URLSearchParams({stable_id:drive.stable_id}));
+    if(!r.ok)throw new Error(await r.text());
+    const data=await r.json();
+    if(data.suggested_offset!==null){
+     hint.textContent='Database suggests '+data.suggested_offset+' samples. Review before saving.';
+     if(drive.offset_samples===null){
+       offset.value=String(data.suggested_offset);
+       drive.offset_samples=data.suggested_offset;
+       hint.textContent+=' Suggested value filled in; click Save settings to persist.';
+     }
+    }else{
+     hint.textContent=data.status==='conflict'?'Conflicting reported offsets for this model: '+
+      [...new Set(data.matches.map(x=>x.offset_samples))].join(', ')+
+      '. Do not guess; calibrate with a known disc or review the database.':
+      'No reliable matching database offset. Try CD calibration or manual lookup.';
+    }
+   }catch(e){hint.textContent='Lookup unavailable; use the linked database manually. '+e.message}
+  };
+  const detect=document.createElement('button');detect.type='button';
+  detect.style.marginRight='8px';detect.textContent='Detect from CD (experimental)';
+  detect.onclick=async()=>{
+    if(!confirm('Use the inserted CD to detect a drive offset with cyanrip? It must be known to AccurateRip. No audio is archived, and your settings will not be saved automatically.'))return;
+    const token=prompt('OSCAR rip token (required for optical drive access)');
+    if(!token)return;
+    detect.disabled=true;hint.textContent='Reading offset from reference CD…';
+    try{
+      const r=await fetch('/api/drive-offset/from-disc',{method:'POST',
+        headers:{'X-OSCAR-RIP-TOKEN':token,'Content-Type':'application/json'},
+        body:JSON.stringify({stable_id:drive.stable_id,confirmation:'CALIBRATE_OFFSET'})});
+      if(!r.ok)throw new Error(await r.text());
+      const data=await r.json();
+      if(data.suggested_offset!==null){
+       hint.textContent='CD suggests '+data.suggested_offset+
+        ' samples (experimental; review). Click Save settings to persist.';
+       if(drive.offset_samples===null){
+        offset.value=String(data.suggested_offset);drive.offset_samples=data.suggested_offset;
+       }else hint.textContent+=' Existing saved offset left untouched.';
+      }else hint.textContent=data.message;
+    }catch(e){hint.textContent='CD calibration failed: '+e.message}
+    finally{detect.disabled=false}
+  };
+  assist.append(lookup,detect,link,hint);row.append(assist);area.append(row);
+  if(drive.offset_samples===null)lookup.click();
  }
 }
 document.getElementById('probe').onclick=async()=>{
