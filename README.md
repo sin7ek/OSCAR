@@ -7,6 +7,34 @@ Automated, archival-grade CD ripping with AccurateRip/CTDB verification, MusicBr
 
 > Dedicated to Oscar, whose love of music inspired this project.
 
+## The Story Behind OSCAR
+
+My dad, Oscar, passed away on November 19, 2021, at the age of 64. Throughout his life, he faced many challenges, including bipolar disorder, brainstem infarcts, and ultimately glioblastoma, an aggressive brain tumour.
+
+But there was so much more to him than his illnesses.
+
+Besides his love for us, his children, one of his greatest passions was music. His taste was wonderfully eclectic, ranging from Eurodance to Anastacia and Roxy Music. But his greatest musical love was classical music.
+
+At his funeral, we listened to the Adagio from Bruckner's Ninth Symphony, performed by the Royal Concertgebouw Orchestra under Riccardo Chailly. And because this was Oscar, we played it through **his own amplifier and loudspeakers**, which we had brought to the funeral home. It felt only right.
+
+After his passing, he left me something else: **more than 1,000 CDs**.
+
+And I had absolutely no idea what to do with them.
+
+I couldn't bring myself to get rid of them, but manually ripping a thousand CDs wasn't particularly appealing either. I experimented with Automatic Ripping Machine, but even that required more manual work than I was willing to put in.
+
+So, naturally, I did what any reasonable person would do: **I spent five years not solving the problem.**
+
+Eventually, with a little help from ChatGPT, I started building something of my own: **OSCAR — Open Source CD Archiving & Ripping**. An open-source project dedicated to preserving music collections like my father's, automatically, accurately, and with the care they deserve.
+
+On November 19, 2026, exactly five years after my dad passed away, OSCAR successfully ripped and AccurateRip-verified its very first audio track.
+
+Five years, more than a thousand CDs, and quite a few lines of code later, OSCAR was finally making music again.
+
+**OSCAR lives on.**
+
+*For my dad. Preserve every note.*
+
 ## Status
 **v0.1.0-alpha: read-only metadata scaffold plus an opt-in experimental cyanrip staging rip.** This prototype can extract a test CD only after explicit configuration and confirmation, into a newly created staging directory. No independently verified archive, publishing, or cleanup is implemented. AccurateRip/CTDB evidence must be proven on hardware before claims of verified operation.
 
