@@ -174,3 +174,56 @@ def get_metadata_queue_status():
     from oscar.metadata_queue import summary
     return {"worker_enabled": os.environ.get("OSCAR_ENABLE_METADATA_WORKER") == "1",
             **summary()}
+
+
+# Experimental extraction endpoints require BOTH environment opt-in and a token.
+# Endpoints never accept a filesystem destination from the browser.
+from fastapi import Header, HTTPException
+from pydantic import BaseModel, Field
+
+
+class RipRequest(BaseModel):
+    stable_id: str = Field(min_length=1, max_length=256)
+    confirmation: str
+
+
+def _rip_auth(token: str | None):
+    from oscar.ripping import RipError, authorize, enabled
+    if not enabled():
+        raise HTTPException(status_code=403, detail="Experimental ripping disabled")
+    try:
+        authorize(token)
+    except RipError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+
+@app.get("/api/rip/plan")
+def get_rip_plan(stable_id: str, x_oscar_rip_token: str | None = Header(default=None)):
+    from oscar.ripping import RipError, plan
+    _rip_auth(x_oscar_rip_token)
+    try:
+        return plan(stable_id)
+    except (RipError, OSError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/rip/start")
+def start_rip(request: RipRequest, x_oscar_rip_token: str | None = Header(default=None)):
+    from oscar.ripping import RipError, start
+    _rip_auth(x_oscar_rip_token)
+    if request.confirmation != "RIP_TO_STAGING":
+        raise HTTPException(status_code=422, detail="Explicit staging confirmation required")
+    try:
+        return start(request.stable_id)
+    except (RipError, OSError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.get("/api/rip/jobs/{job_id}")
+def get_rip_status(job_id: str, x_oscar_rip_token: str | None = Header(default=None)):
+    from oscar.ripping import RipError, status
+    _rip_auth(x_oscar_rip_token)
+    try:
+        return status(job_id)
+    except (RipError, OSError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
