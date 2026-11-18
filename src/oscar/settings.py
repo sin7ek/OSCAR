@@ -1,9 +1,7 @@
-"""Configuration storage and read-only optical-drive inventory.
-
-Settings cannot start a rip, write to Archive or trigger deletion.
-"""
+"""Safe, dynamic optical-drive discovery and persisted per-drive settings."""
 import json
 import os
+import re
 import tempfile
 from pathlib import Path
 
@@ -22,31 +20,95 @@ class OscarSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
     profile: str = Field(default="archival", pattern=r"^(archival|classical)$")
     drives: list[DriveSettings] = Field(default_factory=list)
-    # Deliberately no destructive or rip-start flags until worker integration.
-
-
-DEFAULT_SETTINGS = OscarSettings(drives=[
-    DriveSettings(stable_id="ata-HL-DT-ST_DVDRAM_GH24NS95_KRQCCM33843", label="LG GH24NS95"),
-    DriveSettings(stable_id="ata-Optiarc_DVD_RW_AD-7200S", label="Optiarc AD-7200S"),
-    DriveSettings(stable_id="ata-hp_DVD_A_DH16AAL_2B9950003803", label="HP DH16AAL"),
-])
 
 
 def config_path() -> Path:
     return Path(os.environ.get("OSCAR_CONFIG_PATH", "/config/settings.json"))
 
 
+def _read_attr(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8", errors="replace").strip()
+    except OSError:
+        return ""
+
+
+def inspect_drives(
+    sys_class: Path = Path("/sys/class/block"),
+    by_id_dir: Path = Path("/dev/disk/by-id"),
+    by_path_dir: Path = Path("/dev/disk/by-path"),
+) -> list[dict[str, str | bool]]:
+    """Discover every srN via sysfs, with udev identity if available.
+
+    No media or block device is opened. /dev/srN is only an ephemeral path.
+    """
+    if not sys_class.is_dir():
+        return []
+    found: list[dict[str, str | bool]] = []
+    for entry in sorted(sys_class.iterdir(), key=lambda p: int(p.name[2:]) if re.fullmatch(r"sr\d+", p.name) else 999999):
+        if not re.fullmatch(r"sr\d+", entry.name):
+            continue
+        model = _read_attr(entry / "device/model")
+        vendor = _read_attr(entry / "device/vendor")
+        firmware = _read_attr(entry / "device/rev")
+        # udev symlinks usually point to ../../srN; compare their target names
+        # without requiring /dev/srN to be mounted in the container.
+        ids: list[tuple[int, str]] = []
+        for directory, priority in ((by_id_dir, 0), (by_path_dir, 1)):
+            if not directory.is_dir():
+                continue
+            for link in directory.iterdir():
+                if not link.is_symlink() or link.name.endswith("-part1"):
+                    continue
+                try:
+                    if Path(os.readlink(link)).name == entry.name:
+                        ids.append((priority, link.name))
+                except OSError:
+                    pass
+        ids.sort(key=lambda pair: (pair[0], pair[1]))
+        # In absence of a persistent ID, an ephemeral ID is displayed but
+        # should not be interpreted as reliably bound to the physical drive.
+        stable_id = ids[0][1] if ids else f"ephemeral-{entry.name}"
+        found.append({
+            "stable_id": stable_id,
+            "device": f"/dev/{entry.name}",
+            "label": " ".join(x for x in (vendor, model) if x) or entry.name,
+            "firmware": firmware,
+            "present": True,
+            "identity_persistent": bool(ids),
+        })
+    return found
+
+
 def read_settings(path: Path | None = None) -> OscarSettings:
     path = path or config_path()
     if not path.exists():
-        return DEFAULT_SETTINGS.model_copy(deep=True)
+        return OscarSettings()
     return OscarSettings.model_validate_json(path.read_text(encoding="utf-8"))
+
+
+def discover_settings(path: Path | None = None, discovered: list[dict] | None = None) -> OscarSettings:
+    """Merge current drives without overwriting saved choices.
+
+    Missing drives remain in settings, so unplugging does not erase offsets.
+    """
+    settings = read_settings(path).model_copy(deep=True)
+    known = {drive.stable_id for drive in settings.drives}
+    if discovered is None:
+        discovered = inspect_drives()
+    for drive in discovered:
+        if drive["stable_id"] not in known:
+            settings.drives.append(DriveSettings(
+                stable_id=str(drive["stable_id"]),
+                label=str(drive["label"])[:100],
+            ))
+            known.add(str(drive["stable_id"]))
+    return settings
 
 
 def save_settings(settings: OscarSettings, path: Path | None = None) -> None:
     path = path or config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    # Atomic replacement; never overwrite partially written JSON.
     fd, tmp = tempfile.mkstemp(prefix=".oscar-", dir=path.parent)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as stream:
@@ -59,17 +121,3 @@ def save_settings(settings: OscarSettings, path: Path | None = None) -> None:
     finally:
         if os.path.exists(tmp):
             os.unlink(tmp)
-
-
-def inspect_drives(by_id_dir: Path = Path("/dev/disk/by-id")) -> list[dict[str, str | bool]]:
-    """Read-only device-listing: caller must mount /dev/disk/by-id to see host names."""
-    if not by_id_dir.is_dir():
-        return []
-    found = []
-    for entry in sorted(by_id_dir.glob("ata-*")):
-        if not entry.is_symlink() or not any(x in entry.name.lower() for x in ("dvd", "dvdram", "cd", "optiarc")):
-            continue
-        # resolve(strict=False) never accesses media.
-        target = entry.resolve(strict=False)
-        found.append({"stable_id": entry.name, "device": str(target), "present": target.exists()})
-    return found
