@@ -305,3 +305,27 @@ def selected_drive_for_calibration(stable_id: str):
     if not re.fullmatch(r"/dev/sr\d+", device) or not stat.S_ISBLK(os.stat(device).st_mode):
         raise RipError("Optical drive not accessible")
     return device, None
+
+
+@app.post("/api/rip/jobs/{job_id}/verification")
+def start_rip_verification(job_id: str, x_oscar_rip_token: str | None = Header(default=None)):
+    """Explicit post-rip verification; does not use drive or modify FLAC/CUE."""
+    from oscar import verification
+    from oscar.ripping import RipError
+    _rip_auth(x_oscar_rip_token)
+    try:
+        return verification.start(job_id)
+    except (RipError, OSError, ValueError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.get("/api/rip/jobs/{job_id}/verification")
+def get_rip_verification(job_id: str, x_oscar_rip_token: str | None = Header(default=None)):
+    """Read saved verification evidence, or current in-process progress."""
+    from oscar import verification
+    from oscar.ripping import RipError
+    _rip_auth(x_oscar_rip_token)
+    try:
+        return verification.report(job_id)
+    except (RipError, OSError, ValueError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
