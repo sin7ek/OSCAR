@@ -39,26 +39,11 @@ def lookup_releases(disc_id: str, toc: str, opener=None) -> dict:
         "User-Agent": _UA,
         "Accept": "application/json",
     })
-    global _LAST_REQUEST
-    try:
-        # One request per second per process; no concurrent MusicBrainz bursts.
-        with _LOCK:
-            delay = 1.1 - (time.monotonic() - _LAST_REQUEST)
-            if delay > 0:
-                time.sleep(delay)
-            _LAST_REQUEST = time.monotonic()
-            response = (opener or urllib.request.urlopen)(req, timeout=12)
-            with response:
-                data = response.read(1_000_001)
-        if len(data) > 1_000_000:
-            raise MusicBrainzError("MusicBrainz response too large")
-        payload = json.loads(data)
-    except urllib.error.HTTPError as exc:
-        if exc.code == 404:
-            return {"disc_id": disc_id, "releases": [], "status": "no_match"}
-        raise MusicBrainzError(f"MusicBrainz HTTP {exc.code}") from exc
-    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
-        raise MusicBrainzError(f"MusicBrainz lookup failed: {type(exc).__name__}") from exc
+    from oscar.mb_client import fetch_json
+    payload = fetch_json(req, opener=opener, timeout=12,
+                         max_bytes=1_000_000, allow_404=True)
+    if payload is None:
+        return {"disc_id": disc_id, "releases": [], "status": "no_match"}
     releases = []
     for release in payload.get("releases", []):
         if not isinstance(release, dict) or not release.get("id"):

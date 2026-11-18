@@ -100,24 +100,8 @@ def lookup_release_medium(release_id: str, disc_id: str, track_count: int, opene
     request = urllib.request.Request(url, headers={
         "User-Agent": mb._UA, "Accept": "application/json",
     })
-    # Same per-process rate limiter as other OSCAR MusicBrainz lookups.
-    import time
-    try:
-        with mb._LOCK:
-            delay = 1.1 - (time.monotonic() - mb._LAST_REQUEST)
-            if delay > 0:
-                time.sleep(delay)
-            mb._LAST_REQUEST = time.monotonic()
-            response = (opener or urllib.request.urlopen)(request, timeout=18)
-            with response:
-                data = response.read(8_000_001)
-        if len(data) > 8_000_000:
-            raise mb.MusicBrainzError("MusicBrainz release response too large")
-        payload = json.loads(data)
-    except urllib.error.HTTPError as exc:
-        raise mb.MusicBrainzError(f"MusicBrainz HTTP {exc.code}") from exc
-    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
-        raise mb.MusicBrainzError(f"MusicBrainz release lookup failed: {type(exc).__name__}") from exc
+    from oscar.mb_client import fetch_json
+    payload = fetch_json(request, opener=opener, timeout=18, max_bytes=8_000_000)
     if payload.get("id", "").lower() != release_id.lower():
         raise mb.MusicBrainzError("Unexpected release ID in response")
     return parse_release_media(payload, disc_id, track_count)

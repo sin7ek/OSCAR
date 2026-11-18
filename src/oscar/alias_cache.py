@@ -24,7 +24,9 @@ _UNAVAILABLE_UNTIL = 0.0
 def _transient_failure(error: MusicBrainzError) -> bool:
     """Only server overload/rate limit opens the breaker (not invalid MBIDs)."""
     return any(f"HTTP {code}" in str(error) for code in (429, 500, 502, 503, 504)) or (
-        str(error) == "Could not obtain MusicBrainz aliases"
+        str(error) in {"Could not obtain MusicBrainz aliases",
+                       "Could not obtain MusicBrainz response",
+                       "MusicBrainz temporarily unavailable (cooldown)"}
     )
 
 
