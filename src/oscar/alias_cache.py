@@ -52,7 +52,6 @@ def get_alias(entity_type: str, entity_id: str, *, fetcher=lookup_aliases,
     # Validation also happens in lookup_aliases; enforce before any DB write.
     from oscar.aliases import _ID, _TYPES
     if entity_type not in _TYPES or not _ID.fullmatch(entity_id):
-        from oscar.musicbrainz import MusicBrainzError
         raise MusicBrainzError("Invalid alias entity")
     entity_id = entity_id.lower()
     path = path or cache_path()
