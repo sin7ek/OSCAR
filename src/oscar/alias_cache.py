@@ -118,5 +118,15 @@ def resolve_many(entities: list[dict], *, fetcher=lookup_aliases,
         try:
             results.append(get_alias(*key, fetcher=fetcher, path=path))
         except MusicBrainzError as exc:
-            results.append({"entity_type": key[0], "id": key[1], "error": str(exc)})
+            queued = False
+            if _transient_failure(exc):
+                try:
+                    from oscar.metadata_queue import enqueue
+                    enqueue(*key, error=str(exc))
+                    queued = True
+                except (OSError, sqlite3.Error) as cache_exc:
+                    # The UI still gets the lookup error if persistence fails.
+                    queued = False
+            results.append({"entity_type": key[0], "id": key[1],
+                            "error": str(exc), "queued_for_retry": queued})
     return results
