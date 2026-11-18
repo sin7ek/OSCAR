@@ -167,6 +167,14 @@ async function startTestRip(stableId,label){
         (state.flac_count?' · '+state.flac_count+' FLAC files':'')+
         (state.error?' · '+state.error:'')+
         (state.warning?' · '+state.warning:'');
+      if(state.status==='needs_verification'){
+        document.getElementById('verify-job').value=job.id;
+        const hint=document.createElement('button');hint.type='button';
+        hint.textContent='Open verification for this rip';
+        hint.onclick=()=>{document.getElementById('verify-job').scrollIntoView({behavior:'smooth'});
+          document.getElementById('verify-job').focus();};
+        status.append(document.createTextNode(' '),hint);
+      }
       if(state.status==='queued'||state.status==='running')setTimeout(poll,3000);
     }catch(error){status.textContent='Rip status unavailable: '+error.message}
   };
