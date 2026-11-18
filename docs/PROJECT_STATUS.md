@@ -14,9 +14,9 @@
 - Original-language names preserved with MusicBrainz English aliases (no machine translation). Composer/work aliases automatically deduplicated and cached in SQLite at `/config/aliases.sqlite3`. Positive TTL 30 days, negative TTL 7 days.
 - PR #16: cooldown and stale fallback after persistent alias API failures.
 - PR #17: shared single-process MusicBrainz transport across Disc ID / release medium / alias lookups, 1.1 s spacing, bounded retries, optional Retry-After and temporary circuit-breaker.
-- PR #18: enrich conductor/orchestra/soloist names in the tracklist with the same artist alias mechanism, preserving roles and instrument attributes. Check the PR for current merge status.
+- PR #18: enrich conductor/orchestra/soloist names in the tracklist with the same artist alias mechanism, preserving roles and instrument attributes (merged).\n- Metadata retry queue (current feature PR): SQLite-backed deduplicated jobs for transient artist/work alias errors, exponential backoff, crash-recoverable leases and an optional single worker activated by `OSCAR_ENABLE_METADATA_WORKER=1`. `GET /api/metadata-queue` reports status. Unit-tested without hardware.
 
-**Not implemented:** automated CD ripping, cyanrip integration, AccurateRip/CTDB verification, FLAC writing/tags, final archive promotion, queue-based background metadata retries or automatic cleanup. Metadata review does not validate extracted audio.
+**Not implemented:** automated CD ripping, cyanrip integration, AccurateRip/CTDB verification, FLAC writing/tags, final archive promotion, full release/Disc ID background queueing, or automatic cleanup. The new queue retries only artist/work alias enrichment; deployment requires opting in to the worker. Metadata review does not validate extracted audio.
 
 ## Decisions / invariants
 
@@ -27,7 +27,7 @@
 5. One CD may correspond to multiple editions; do not silently auto-select without adequate physical evidence.
 6. Never overwrite or delete existing music files from prototype endpoints; initial Archive access read-only.
 7. Shared MusicBrainz limiter is **process-local only**; concurrent workers or multiple OSCAR installations require a cross-process/host-wide rate limiter before scaling.
-8. The SQLite alias cache is not a durable retry queue; adding one is future work.
+8. SQLite alias cache and retry queue are distinct: `/config/aliases.sqlite3` holds resolved aliases; `/config/metadata_queue.sqlite3` holds transient artist/work retry tasks. A cross-process, cross-container IP-wide MusicBrainz rate limiter remains future work.
 
 ## Real-world manual checks (not automated acceptance tests)
 
@@ -39,7 +39,7 @@
 ## Next steps in priority order
 
 1. Confirm PR #18 merged after CI; deploy newly built `ghcr.io/sin7ek/oscar:main` to Unraid and re-test Tchaikovsky conductor spelling against real MusicBrainz alias availability.
-2. Build durable SQLite metadata job queue with retry after network outages, cancellation, progress reporting, and deduplication. Do not block rip verification on MusicBrainz.
+2. Validate the metadata retry queue on Unraid with `OSCAR_ENABLE_METADATA_WORKER=1`; then extend queue to Disc ID/release lookups, add cancellation and per-task progress in the GUI. Never block rip verification on MusicBrainz.
 3. Refine per-medium metadata review, album/work/movement/performer tag plan and correct boxset disc numbering; maintain source provenance.
 4. Prototype secure extraction with an established Linux ripper (cyanrip candidate), hardware-supported drive offsets, CUE/log capture; validate multiple drives safely.
 5. Verify extracted audio with AccurateRip v1/v2 and CTDB (Linux feasibility to validate), FLAC integrity checks, checksums and explicit verification statuses.
@@ -50,7 +50,7 @@
 
 - Repo: `sin7ek/OSCAR`; CI uses GitHub Actions; image: `ghcr.io/sin7ek/oscar:main` after successful publish.
 - Main working environment: Unraid + Portainer; current pilot uses optical drive `/dev1` as shown in GUI (verify the underlying stable drive ID; do not assume Linux device path `/dev1`).
-- `/config` is persistent; keep credentials/private device settings out of GitHub. UI does not have built-in authentication.
+- `/config` is persistent; keep credentials/private device settings out of GitHub. UI does not have built-in authentication. Preserve both alias and queue SQLite files across updates. Set `OSCAR_ENABLE_METADATA_WORKER=1` in the existing Portainer stack to enable automated retries after a new deployment.
 - Existing `compose.preview.yml` is a conservative template, not necessarily the full running Portainer stack. Do not replace live stack mounts/flags without comparing them.
 - Test locally with `python -m pytest -q` and observe GitHub Actions before merge.
 - Keep this handoff updated in every major feature PR with **implemented**, **tested in CI**, **tested on hardware**, **known limitations**, and **next steps**.
