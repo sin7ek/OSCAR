@@ -111,7 +111,7 @@ def summary(*, path=None):
     return {name: counts.get(name, 0) for name in ("pending", "running", "done", "failed")}
 
 
-def process_one(*, path=None, fetcher=None, now=None):
+def process_one(*, path=None, alias_path=None, fetcher=None, now=None):
     """Run one due retry. Caller can invoke repeatedly from a worker thread."""
     from oscar.alias_cache import get_alias, _transient_failure
     from oscar.musicbrainz import MusicBrainzError
@@ -121,6 +121,8 @@ def process_one(*, path=None, fetcher=None, now=None):
     typ, ident, attempts = job["entity_type"], job["entity_id"], job["attempts"]
     try:
         kw = {"fetcher": fetcher} if fetcher is not None else {}
+        if alias_path is not None:
+            kw["path"] = alias_path
         result = get_alias(typ, ident, **kw)
         if result.get("cache_status") == "stale":
             raise MusicBrainzError("MusicBrainz temporarily unavailable (cooldown)")
