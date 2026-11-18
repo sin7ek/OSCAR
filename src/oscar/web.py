@@ -123,7 +123,7 @@ async function showMedium(stableId, releaseId){
   const info=await r.json();
   status.textContent=info.release_title+' · '+info.total_media+' discs · '+info.status;
   const warning=document.createElement('p');
-  warning.textContent='Candidate only: physical edition still requires review. No metadata written.';
+  warning.textContent='Composer and performers are taken from explicit MusicBrainz relationships, not from the general artist credit. Missing information is shown as undocumented. Physical edition still requires review; nothing is written.';
   area.append(warning);
   if(!info.matched_media.length){
     const p=document.createElement('p');p.textContent='No medium has this exact Disc ID attached to MusicBrainz.';
@@ -139,10 +139,13 @@ async function showMedium(stableId, releaseId){
       mismatch.textContent='Track count differs from the inserted disc; manual review required.';
       area.append(mismatch);
     }
+    const label=document.createElement('p');label.textContent='Track | Title | Composer (work relationships) | Performers (recording relationships)';area.append(label);
     const table=document.createElement('table');table.style.width='100%';
     for(const track of medium.tracks){
       const tr=document.createElement('tr');
-      for(const item of [track.number||track.position,track.title||'Untitled',track.artist||'']){
+      const composer=track.composers?.map(x=>x.name).join(', ')||'—';
+      const performers=track.performers?.map(x=>x.name+(x.role?' ('+x.role+')':'')).join(', ')||'Not documented';
+      for(const item of [track.number||track.position,track.title||'Untitled',composer,performers]){
         const td=document.createElement('td');
         td.textContent=String(item??'');
         td.style.padding='6px';td.style.borderBottom='1px solid #324253';tr.append(td);
