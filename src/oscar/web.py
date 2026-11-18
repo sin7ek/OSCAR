@@ -171,7 +171,7 @@ async function enrichNamesAutomatically(area){
  const entities=[...keys.values()];
  if(!entities.length)return;
  const message=document.createElement('p');
- message.textContent='Automatically enriching '+entities.length+' unique artist/work names…';
+ message.textContent='Automatically enriching '+entities.length+' unique composer, performer and work names…';
  area.prepend(message);
  let completed=0, failed=0, cacheHits=0;
  for(let i=0;i<entities.length;i+=8){
@@ -259,12 +259,10 @@ async function showMedium(stableId, releaseId){
         if(!track)continue;
         const tr=document.createElement('tr');
         const composer=track.composers?.map(x=>x.name).join(', ')||'—';
-        const performers=track.performers?.map(x=>x.name+(x.role?' ('+x.role+')':'')).join(', ')||'Not documented';
         const cols=[
           track.number||track.position,
           track.title||'Untitled',
-          null,null,
-          performers
+          null,null,null
         ];
         for(let i=0;i<cols.length;i++){
           const td=document.createElement('td');
@@ -281,6 +279,18 @@ async function showMedium(stableId, releaseId){
             for(const composer of track.composers||[]){
               if(td.childNodes.length)td.append(document.createTextNode(', '));
               td.append(aliasNode('artist',composer.artist_id,composer.name));
+            }
+          }else if(i===4){
+            if(!track.performers?.length)td.textContent='Not documented';
+            for(const performer of track.performers||[]){
+              if(td.childNodes.length)td.append(document.createTextNode(', '));
+              td.append(aliasNode('artist',performer.artist_id,performer.name));
+              if(performer.role){
+                const role=document.createElement('span');
+                role.textContent=' ('+performer.role+
+                  (performer.attributes?.length?', '+performer.attributes.join(', '):'')+')';
+                td.append(role);
+              }
             }
           }else{td.textContent=String(cols[i]??'')}
           tr.append(td);
