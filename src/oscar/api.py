@@ -731,3 +731,41 @@ def discogs_account(request: Request, x_oscar_rip_token: str | None = Header(def
         return account_summary()
     except DiscogsError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/collection/index-tracks")
+def collection_index_tracks(request: Request, x_oscar_rip_token: str | None = Header(default=None)):
+    """Explicit read-only-from-archive indexed copy of per-track Vorbis metadata."""
+    from oscar.collection_tracks import TrackIndexError, index_published_tracks
+    _rip_auth(x_oscar_rip_token, request)
+    try:
+        return index_published_tracks()
+    except (TrackIndexError, OSError, ValueError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.get("/api/collection/tracks")
+def collection_find_tracks(request: Request, search: str = "", role: str = "",
+                           limit: int = 150, offset: int = 0,
+                           x_oscar_rip_token: str | None = Header(default=None)):
+    from oscar.collection_tracks import TrackIndexError, find_tracks
+    _rip_auth(x_oscar_rip_token, request)
+    try:
+        return find_tracks(search=search, role=role, limit=limit, offset=offset)
+    except (TrackIndexError, ValueError, OSError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/collection/enrich-labels")
+def collection_enrich_labels(request: Request,
+                             x_oscar_rip_token: str | None = Header(default=None)):
+    """Opt-in MusicBrainz-only lookup for missing local label fields."""
+    from oscar.collection_labels import LabelEnrichmentError, backfill_labels
+    from oscar.musicbrainz import MusicBrainzError, lookup_enabled
+    _rip_auth(x_oscar_rip_token, request)
+    if not lookup_enabled():
+        raise HTTPException(status_code=403, detail="MusicBrainz lookup disabled")
+    try:
+        return backfill_labels()
+    except (LabelEnrichmentError, MusicBrainzError, OSError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc

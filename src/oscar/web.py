@@ -63,6 +63,7 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 <section><h2>Collection Library (local)</h2>
 <p>Import existing published OSCAR archive manifests into a separate local SQLite catalog. Original FLACs, CUEs and manifests remain untouched. Local records are not Discogs collection entries.</p>
 <button type="button" id="collection-import">Import published archive records</button>
+<button type="button" id="collection-enrich-labels">Fill missing labels from exact MusicBrainz release</button>
 <button type="button" id="collection-refresh">Refresh collection</button>
 <label for="collection-search">Find in collection</label>
 <input id="collection-search" placeholder="Artist, album, label, composer, conductor or soloist" maxlength="150" style="width:350px;max-width:90%">
@@ -76,6 +77,20 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 <button type="button" id="collection-xlsx">Export Excel-compatible (.xlsx)</button>
 <button type="button" id="collection-csv">Export CSV</button>
 <div id="collection-result" aria-live="polite"></div>
+<h3>Track-level catalog (classical &amp; other music)</h3>
+<p>Search each archived FLAC's recorded track title, MusicBrainz Work, composer, conductor, performer or explicitly credited soloist. No missing credits are inferred.</p>
+<button type="button" id="collection-index-tracks">Index verified published tracks</button>
+<label for="track-search">Find track / work / musician</label>
+<input id="track-search" maxlength="150" placeholder="e.g. Boulez, Handel, soprano, or Water Music" style="width:350px;max-width:90%">
+<label for="track-role">Filter to tracks with contributor type</label>
+<select id="track-role">
+<option value="">All roles</option>
+<option value="composer">Composer</option><option value="conductor">Conductor</option>
+<option value="orchestra">Orchestra</option><option value="performer">Performer</option>
+<option value="soloist">Explicit soloist</option>
+</select>
+<button type="button" id="track-search-btn">Find tracks</button>
+<div id="tracks-output" aria-live="polite"></div>
 <h3>Discogs connection (read-only)</h3>
 <p>Your personal token is read only from the Portainer OSCAR_DISCOGS_PAK environment variable. Check account identity and collection folder names without modifying Discogs. The token is never shown or saved to the local catalog.</p>
 <button type="button" id="discogs-check">Check Discogs account and folders</button>
@@ -1406,6 +1421,52 @@ document.getElementById('multi-refresh').onclick=async()=>{
  }catch(e){output.textContent='Drive dashboard unavailable: '+e.message}
 };
 
+async function findArchivedTracks(){
+ const out=document.getElementById('tracks-output');
+ const headers=requestAuthHeaders('Search archived track metadata');if(!headers)return;
+ out.textContent='Searching verified archive track index…';
+ const query=new URLSearchParams({search:document.getElementById('track-search').value.trim(),
+  role:document.getElementById('track-role').value});
+ try{
+  const response=await fetch('/api/collection/tracks?'+query,{headers});
+  const data=await response.json();
+  if(!response.ok)throw new Error(data.detail||'Track lookup failed');
+  out.replaceChildren();
+  const summary=document.createElement('p');
+  summary.textContent=data.total+' indexed track(s), showing '+data.tracks.length+'.';out.append(summary);
+  for(const track of data.tracks){
+   const info=reviewCard(track.track_number+'. '+(track.title||track.filename),
+    track.artist+' — '+track.album+' · '+(track.label||'Unknown record label'));
+   const credits=document.createElement('p');
+   credits.textContent=track.credits.map(x=>x.person_name+' ('+x.credit_role+
+      (x.role_detail?': '+x.role_detail:'')+')').join(' · ')||'No explicit performer relationships';
+   info.append(credits);
+   const works=document.createElement('p');
+   works.textContent=track.works.map(x=>x.work_title+
+      (x.musicbrainz_work_id?' [MB work '+x.musicbrainz_work_id+']':'')).join(' · ')||'No explicit Work relationship';
+   info.append(works);
+   const source=document.createElement('small');
+   source.textContent='Metadata source: archived FLAC Vorbis comments; no inferred credits';
+   info.append(source);out.append(info);
+  }
+ }catch(error){out.textContent='Track search failed: '+error.message}
+}
+document.getElementById('track-search-btn').onclick=findArchivedTracks;
+document.getElementById('collection-index-tracks').onclick=async()=>{
+ const out=document.getElementById('tracks-output');
+ const headers=requestAuthHeaders('Index archived FLAC metadata');if(!headers)return;
+ out.textContent='Checking archive FLAC hashes and indexing tags…';
+ try{
+  const response=await fetch('/api/collection/index-tracks',{method:'POST',headers});
+  const data=await response.json();
+  if(!response.ok)throw new Error(data.detail||'Indexing failed');
+  await findArchivedTracks();
+  const note=document.createElement('p');
+  note.textContent=data.tracks_indexed+' tracks indexed; '+data.albums_skipped+' albums skipped. No source audio modified.';
+  out.prepend(note);
+ }catch(error){out.textContent='Track indexing failed: '+error.message}
+};
+
 async function fetchLocalCollection(){
  const out=document.getElementById('collection-result');
  const headers=requestAuthHeaders('Read local OSCAR collection');if(!headers)return;
@@ -1439,6 +1500,21 @@ async function fetchLocalCollection(){
   out.append(table);
  }catch(error){out.textContent='Collection unavailable: '+error.message}
 }
+document.getElementById('collection-enrich-labels').onclick=async()=>{
+ const out=document.getElementById('collection-result');
+ const headers=requestAuthHeaders('Enrich missing local label metadata');if(!headers)return;
+ out.textContent='Comparing missing labels against exact MusicBrainz releases…';
+ try{
+  const response=await fetch('/api/collection/enrich-labels',{method:'POST',headers});
+  const data=await response.json();
+  if(!response.ok)throw new Error(data.detail||'MusicBrainz label lookup failed');
+  await fetchLocalCollection();
+  const note=document.createElement('p');
+  note.textContent=data.labels_updated+' label(s) added, '+data.unresolved+
+    ' unresolved. Only matching catalog and release IDs accepted.';
+  out.prepend(note);
+ }catch(error){out.textContent='Label enrichment failed: '+error.message}
+};
 document.getElementById('collection-refresh').onclick=fetchLocalCollection;
 document.getElementById('collection-sort').onchange=fetchLocalCollection;
 document.getElementById('collection-search').onchange=fetchLocalCollection;
