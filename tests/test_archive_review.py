@@ -86,6 +86,10 @@ FILE "02 - Unknown track.flac" WAVE
     assert 'TITLE "Aria"' in output["text"]
     assert output["text"].count("INDEX 01 00:00:00")==2
     assert output["text"].count("PREGAP 00:00:32")==1
+    assert 'FILE "01 - Air.flac" WAVE' in output["archive_cue_proposal"]
+    assert 'FILE "02 - Aria.flac" WAVE' in output["archive_cue_proposal"]
+    assert output["archive_cue_proposal"].count("PREGAP 00:00:32")==1
+    assert output["archive_cue_requires_renaming"] is True
     assert (original/"original.cue").read_text()==original_text
 
 
