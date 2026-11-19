@@ -77,6 +77,8 @@ def _observed_phase(job_id, state):
     phase = state.get("status")
     if phase == "failed":
         return "RIP_FAILED"
+    if phase == "interrupted":
+        return "RIP_INTERRUPTED"
     if phase in ("queued", "running"):
         return "RIP_IN_PROGRESS"
     if phase != "needs_verification" or state.get("returncode") != 0:
@@ -99,6 +101,7 @@ def _view(db, job_id):
     result["next_action"] = {
         "RIP_IN_PROGRESS": "Wait for the rip to finish, then refresh this record",
         "RIP_FAILED": "Review the extraction failure; do not publish",
+        "RIP_INTERRUPTED": "Service restarted during extraction; inspect staging; no automatic rerip",
         "VERIFICATION_PENDING": "Run staging verification; original files remain untouched",
         "RELEASE_REVIEW_PENDING": "Review physical edition, catalog and metadata; no release approved automatically",
         "DEFERRED_REVIEW": "Resume review when the physical edition has been resolved",
@@ -117,6 +120,34 @@ def _transition(db, job_id, before, after, reason):
     db.execute("INSERT INTO workflow_events (job_id,phase_before,phase_after,reason,happened_at)"
                " VALUES (?,?,?,?,?)", (job_id,before,after,reason,stamp))
 
+
+
+def register_created(job):
+    """Capture the identification policy at *rip creation*, before cyanrip starts.
+
+    Intended only as the on_created hook for the new Go controller.
+    Failure aborts the ripping worker rather than leaving an untracked rip.
+    """
+    job_id = job.get("id")
+    if not isinstance(job_id, str) or not _JOB_ID.fullmatch(job_id):
+        raise WorkflowError("Invalid created rip ID")
+    if job.get("status") != "queued":
+        raise WorkflowError("Go registration must occur before extraction starts")
+    settings = discover_settings()
+    stamp = _now()
+    with _db() as db:
+        existing = db.execute("SELECT 1 FROM workflow_jobs WHERE job_id=?", (job_id,)).fetchone()
+        if existing:
+            raise WorkflowError("Go rip ID already registered; refusing duplicate start")
+        db.execute("""INSERT INTO workflow_jobs
+            (job_id,disc_id,identification_mode,secure_review_level,phase,created_at,updated_at)
+            VALUES (?,?,?,?,?,?,?)""",
+            (job_id,str(job.get("disc_id") or "")[:28],settings.identification_mode,
+             settings.secure_review_level,"RIP_IN_PROGRESS",stamp,stamp))
+        db.execute("""INSERT INTO workflow_events
+            (job_id,phase_before,phase_after,reason,happened_at) VALUES (?,?,?,?,?)""",
+            (job_id,"UNREGISTERED","RIP_IN_PROGRESS","go_created_before_extraction",stamp))
+        return _view(db,job_id)
 
 def register(job_id):
     """Operator attaches a saved rip; settings are snapshotted ONCE.
@@ -143,6 +174,10 @@ def register(job_id):
 def refresh(job_id):
     """Reconcile durable state with saved rip/verification evidence only."""
     state = _state(job_id)
+    from oscar import ripping
+    active = ripping.status(job_id)
+    if active.get("status") == "interrupted":
+        state["status"] = "interrupted"
     observed = _observed_phase(job_id,state)
     with _db() as db:
         existing = db.execute("SELECT phase FROM workflow_jobs WHERE job_id=?",
@@ -151,7 +186,7 @@ def refresh(job_id):
             raise WorkflowError("Register the staging job first")
         phase = existing["phase"]
         if phase in {"RIP_IN_PROGRESS","VERIFICATION_PENDING"} and observed in {
-                "VERIFICATION_PENDING","RELEASE_REVIEW_PENDING","RIP_FAILED"}:
+                "VERIFICATION_PENDING","RELEASE_REVIEW_PENDING","RIP_FAILED","RIP_INTERRUPTED"}:
             _transition(db,job_id,phase,observed,"source_staging_reconciliation")
         return _view(db,job_id)
 
