@@ -751,6 +751,37 @@ document.getElementById('v2-preview').onclick=async()=>{
      }else{
       note.textContent=state.status+' · '+(state.count??'?')+' FLAC copies · copy ID '+started.copy_id+
        (state.error?' · '+state.error:'')+'. No archive publication.';
+      if(state.status==='classical_v2_ready_for_review'){
+       const inspect=document.createElement('button');inspect.type='button';
+       inspect.textContent='Inspect actual Classical v2 FLAC tags';
+       inspect.onclick=async()=>{
+        const readAccess=requestAuthHeaders('Inspect actual Classical v2 tags');
+        if(!readAccess)return;
+        note.textContent='Reading saved Classical v2 FLAC tags and hashes…';
+        try{
+         const response=await fetch('/api/rip/jobs/'+job+'/metadata/classical-v2/copies/'+started.copy_id+'/inspect',
+          {headers:readAccess});
+         if(!response.ok)throw new Error(await response.text());
+         const results=await response.json();
+         note.textContent='Classical v2 inspection: '+results.status+' · '+results.track_count+' tracks';
+         const table=document.createElement('table');table.style.width='100%';
+         const head=document.createElement('tr');
+         for(const label of ['#','Release section','Title','Work parent','Movement','Aliases','Result']){
+          const th=document.createElement('th');th.textContent=label;
+          th.style.padding='5px';th.style.textAlign='left';head.append(th);
+         }table.append(head);
+         for(const t of results.tracks){
+          const tr=document.createElement('tr');
+          for(const val of [t.number,t.release_section,t.title,
+              (t.work_parent||[]).join(', ')||'—',(t.movement||[]).join(', ')||'—',
+              Object.entries(t.english_aliases||{}).map(x=>x[0]+': '+x[1].join(', ')).join('; ')||'—',t.status]){
+           const td=document.createElement('td');td.textContent=String(val);
+           td.style.padding='5px';td.style.borderBottom='1px solid #324253';tr.append(td);
+          }table.append(tr);
+         }target.append(table);
+        }catch(err){note.textContent='Inspection error: '+err.message}
+       };target.append(inspect);
+      }
      }
     }await poll();
    }catch(e){note.textContent='Classical v2 copy failed: '+e.message}
