@@ -6,6 +6,17 @@
 
 > **How to resume after a chat ends:** Read this document first, then `docs/ARCHITECTURE.md`, `README.md`, recent merged PRs and open PRs, and GitHub Actions for the branch under development. Do not infer that a successful CI run establishes real optical hardware functionality.
 
+## Feature idea / backlog — per-drive progress and ETA in the UI (2026-11-19)
+
+**Status: requested, not implemented.** Low-priority UX enhancement after core Go-controller safety/automation milestones; do not present estimates as measured until instrumented.
+
+- Show one progress panel per enabled optical drive in the Go! / Parallel Drives UI, with drive name/stable ID, active job, disc title when verified, current track/total tracks, extraction phase, completion percentage where supported, throughput if available, and verification progress shown as a **separate phase**. The UI should continue to work with multiple simultaneous drives.
+- Display an **estimated time remaining (ETA)** only when supported by sufficient actual observations (e.g. processed sectors/tracks and rolling speed). Recalculate as the rip progresses, and label it explicitly as an estimate. Optical drives may slow down or retry damaged tracks, so ETA can jump or become unavailable; use “Calculating…” / “Unknown” rather than inventing precise times.
+- Do not treat file count alone as accurate time-weighted rip progress. Ideally derive position from cyanrip's actual bounded progress events or a safe read-only progress stream, not the saved verification-result log alone. Ensure parsing excludes accidental leaks, excessive logs, CPU polling and writes to original audio.
+- Use server-side per-job progress snapshots (and optionally an event stream), so browser closure does not interrupt rip/verification; reconnection should show the most recently known progress. If OSCAR restarts mid-rip, mark the extraction **interrupted** and do not display a fake ongoing percentage/ETA.
+- Accessibility: text alongside the bar, per-phase state labels, mobile-friendly panel and no rapidly oscillating UI announcements. Never confuse the extraction progress bar with successfully **verified** tracks or final archive publication.
+- **Acceptance tests to add later:** two simultaneous drives, a scratched CD with long retries, unequal track lengths, completed extraction awaiting verification, browser close/reopen, and interrupted jobs after container restart.
+
 ## Go controller — first executable safe phase, PR #64 (2026-11-19)
 
 - A new **Go! — rip to verified staging** UI and authenticated `POST /api/go/start` reuse the existing cyanrip rip pipeline, **snapshot the saved identification policy into persistent SQLite BEFORE the ripping worker starts**, and automatically initiate the existing audio verification after a successful rip. If durable registration fails, the rip does not start. Original FLACs/CUE/logs are preserved; no automatic delete.
