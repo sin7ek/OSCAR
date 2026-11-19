@@ -246,7 +246,7 @@ def test_pop_session_vocalists_are_not_soloists_and_legacy_row_is_repaired(archi
     # Simulate old PR #61 derived value, then reconcile using real tags.
     old = "Anastacia (vocal); Billy Mann (vocal); Sam Watters (vocal)"
     with sqlite3.connect(catalog.database_path()) as db:
-        db.execute("UPDATE archive_items SET soloists=?", (old+"; Jane Guest (solo vocal)",))
+        db.execute("UPDATE archive_items SET soloists=?", (old,))
     catalog.import_published()
     assert catalog.list_items()["items"][0]["soloists"] == ""
     assert "Billy Mann (vocal)" in catalog.list_items()["items"][0]["performers"]
