@@ -140,7 +140,7 @@ def test_xlsx_export_is_valid_ooxml_with_autofilter(archive):
         xml = ET.tostring(sheet, encoding="unicode")
         assert "autoFilter" in xml and "Anastacia" in xml
         assert "label" in xml and "composer" in xml and "soloists" in xml
-        assert "sheet1.xml" in file.namelist()
+        assert "xl/worksheets/sheet1.xml" in file.namelist()
 
 
 def test_existing_sqlite_table_migrates_without_losing_rows(archive):
