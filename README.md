@@ -15,7 +15,7 @@ But there was so much more to him than his illnesses.
 
 Besides his love for us, his children, one of his greatest passions was music. His taste was wonderfully eclectic, ranging from Eurodance to Anastacia and Roxy Music. But his greatest musical love was classical music.
 
-At his funeral, we listened to the Adagio from Bruckner's Ninth Symphony, performed by the Royal Concertgebouw Orchestra under Riccardo Chailly. And because this was Oscar, we played it through **his own amplifier and loudspeakers**, which we had brought to the funeral home. It felt only right.
+At his funeral, we listened to the full 27:34 minute *Adagio* from Bruckner's Ninth Symphony, performed by the Royal Concertgebouw Orchestra under Riccardo Chailly. And because this was Oscar, we played it through **his own amplifier and loudspeakers**, which we had brought to the funeral home. It felt only right.
 
 After his passing, he left me something else: **more than 1,000 CDs** - and I had absolutely no idea what to do with them.
 
