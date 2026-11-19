@@ -40,6 +40,19 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 <input id="inspect-copy" maxlength="32" placeholder="32-character tagged copy ID" style="width:340px;max-width:90%">
 <button type="button" id="inspect-start">Inspect saved tags</button>
 <div id="inspect-result" aria-live="polite"></div></section>
+<section><h2>Classical metadata v2 — review</h2>
+<p>Separate the physical CD's suite/section order from MusicBrainz's canonical work relationships. This creates only a NEW tagged staging copy, leaving both earlier copies and the rip untouched.</p>
+<label for="v2-job">Rip job ID</label><input id="v2-job" maxlength="32" style="width:340px;max-width:90%">
+<label for="v2-source">Completed tagged-copy ID</label><input id="v2-source" maxlength="32" style="width:340px;max-width:90%">
+<label for="v2-sections">Reviewed physical-CD sections (one per line: start-end | section title)</label>
+<textarea id="v2-sections" rows="4" style="width:95%;background:#0c131b;color:white;border:1px solid #516376;border-radius:8px;padding:9px">1-12 | Water Music — Suite I (as issued)
+13-22 | Water Music — Suite II (as issued)
+23-28 | Music for the Royal Fireworks</textarea>
+<p>This is a suggested layout for the first Händel CD; check the physical booklet before approving. Nothing is inferred from the HWV number.</p>
+<label for="v2-movements">Optional manually reviewed movement labels (one per line: track number | movement text; leave blank to preserve unknown)</label>
+<textarea id="v2-movements" rows="2" style="width:95%;background:#0c131b;color:white;border:1px solid #516376;border-radius:8px;padding:9px"></textarea>
+<button id="v2-preview" type="button">Preview classical v2 tags</button>
+<div id="v2-output" aria-live="polite"></div></section>
 <button id="save">Save settings</button><p id="status" aria-live="polite"></p>
 <script>
 let settings;
@@ -647,6 +660,103 @@ document.getElementById('inspect-start').onclick=async()=>{
   const footer=document.createElement('p');footer.textContent=(result.notes||[]).join(' ');
   target.append(footer);
  }catch(error){target.textContent='Inspection failed: '+error.message}
+};
+
+
+let v2Current=null;
+function parseV2Lines(value,isMovement){
+ const result=isMovement?{}:[];
+ for(const raw of value.split(/\r?\n/)){
+  const line=raw.trim();if(!line)continue;
+  const pos=line.indexOf('|');
+  if(pos<0)throw new Error('Missing | separator: '+line);
+  const left=line.slice(0,pos).trim(),name=line.slice(pos+1).trim();
+  if(!name)throw new Error('Missing name: '+line);
+  if(isMovement){
+   if(!/^\d+$/.test(left))throw new Error('Invalid track number: '+left);
+   result[String(Number(left))]=name;
+  }else{
+   const m=/^(\d+)\s*-\s*(\d+)$/.exec(left);
+   if(!m)throw new Error('Use start-end | title for every section');
+   result.push({start:Number(m[1]),end:Number(m[2]),name});
+  }
+ }
+ return result;
+}
+document.getElementById('v2-preview').onclick=async()=>{
+ const target=document.getElementById('v2-output');target.replaceChildren();v2Current=null;
+ const job=document.getElementById('v2-job').value.trim().toLowerCase();
+ const source=document.getElementById('v2-source').value.trim().toLowerCase();
+ if(!/^[a-f0-9]{32}$/.test(job)||!/^[a-f0-9]{32}$/.test(source)){
+  target.textContent='Enter both 32-character IDs.';return;
+ }
+ let sections,movements;
+ try{
+  sections=parseV2Lines(document.getElementById('v2-sections').value,false);
+  movements=parseV2Lines(document.getElementById('v2-movements').value,true);
+ }catch(e){target.textContent=e.message;return}
+ const access=requestAuthHeaders('Preview reviewed Classical v2 tags');
+ if(!access)return;
+ target.textContent='Checking completed tagged source and reviewing work identity…';
+ try{
+  const response=await fetch('/api/rip/jobs/'+job+'/metadata/copies/'+source+'/classical-v2/preview',{
+   method:'POST',headers:{'Content-Type':'application/json',...access},
+   body:JSON.stringify({sections,movements})
+  });
+  if(!response.ok)throw new Error(await response.text());
+  const data=await response.json();v2Current=data;
+  target.replaceChildren();
+  const caption=document.createElement('p');caption.textContent=data.track_count+
+    ' tracks · '+data.sections.map(x=>x.name+' ('+x.start+'–'+x.end+')').join(' · ');
+  target.append(caption);
+  const table=document.createElement('table');table.style.width='100%';
+  const head=document.createElement('tr');
+  for(const key of ['#','Release section','CD title','MusicBrainz work','Parent work','Movement','EN aliases']){
+   const th=document.createElement('th');th.textContent=key;th.style.textAlign='left';
+   th.style.padding='5px';head.append(th);
+  }table.append(head);
+  for(const t of data.tracks){
+   const tr=document.createElement('tr');
+   for(const value of [t.number,t.release_section,t.title,
+    (t.work||[]).join('; ')||'—',(t.work_parent||[]).join('; ')||'—',
+    t.movement||'Not documented',Object.entries(t.aliases||{}).map(x=>x[0]+': '+x[1].join(', ')).join('; ')||'—']){
+    const td=document.createElement('td');td.textContent=String(value);
+    td.style.padding='5px';td.style.borderBottom='1px solid #324253';tr.append(td);
+   }table.append(tr);
+  }target.append(table);
+  const notes=document.createElement('p');notes.textContent=data.warnings.join(' ');target.append(notes);
+  const button=document.createElement('button');button.textContent='I reviewed sections — create separate Classical v2 FLAC copies';
+  button.type='button';
+  button.onclick=async()=>{
+   if(!v2Current||v2Current.fingerprint!==data.fingerprint)return;
+   if(!confirm('Create a NEW tagged copy of '+data.track_count+' FLACs using the reviewed CD sections? Original files and previous copies stay unchanged.'))return;
+   const copyAccess=requestAuthHeaders('Confirm Classical v2 staging copy');if(!copyAccess)return;
+   button.disabled=true;
+   const note=document.createElement('p');note.textContent='Creating new FLAC copies…';target.append(note);
+   try{
+    const response=await fetch('/api/rip/jobs/'+job+'/metadata/classical-v2/copy',{
+      method:'POST',headers:{'Content-Type':'application/json',...copyAccess},
+      body:JSON.stringify({preview:data,confirmation:'COPY_CLASSICAL_V2_TO_STAGING'})
+    });
+    if(!response.ok)throw new Error(await response.text());
+    const started=await response.json();
+    async function poll(){
+     const r=await fetch('/api/rip/jobs/'+job+'/metadata/classical-v2/copies/'+started.copy_id,
+                         {headers:copyAccess});
+     if(!r.ok)throw new Error(await r.text());
+     const state=await r.json();
+     if(state.status==='running'){
+      note.textContent='Tagging Classical v2 copy, originals untouched…';
+      setTimeout(()=>poll().catch(e=>note.textContent=e.message),2500);
+     }else{
+      note.textContent=state.status+' · '+(state.count??'?')+' FLAC copies · copy ID '+started.copy_id+
+       (state.error?' · '+state.error:'')+'. No archive publication.';
+     }
+    }await poll();
+   }catch(e){note.textContent='Classical v2 copy failed: '+e.message}
+   finally{button.disabled=false}
+  };target.append(button);
+ }catch(e){target.textContent='Classical metadata preview failed: '+e.message}
 };
 
 document.getElementById('save').onclick=async()=>{
