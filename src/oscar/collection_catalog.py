@@ -140,7 +140,7 @@ def _archive_tag_metadata(album: Path, manifest: dict) -> dict:
         if not isinstance(record, dict):
             continue
         name = record.get("filename")
-        if not isinstance(name, str) or "/" in name or "\\\\" in name or not name.lower().endswith(".flac"):
+        if not isinstance(name, str) or "/" in name or "\\" in name or not name.lower().endswith(".flac"):
             continue
         path = album / name
         if path.is_symlink() or not path.is_file():
