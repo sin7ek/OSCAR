@@ -77,6 +77,8 @@ For a new development session, start with [Project status and handoff](docs/PROJ
 
 For completed staging jobs, [Staging verification](docs/STAGING_VERIFICATION.md) explains how OSCAR checks FLAC decoding, SHA-256 and cyanrip's logged AccurateRip results without modifying the original rip or claiming independent CTDB verification.
 
+After a report passes, [Reviewed metadata and tagged staging copies](docs/METADATA_STAGING.md) describes selecting the exact MusicBrainz release, previewing classical relationships, and making separately tagged FLAC copies without changing the original rip or publishing an archive.
+
 ## Experimental rip token (Unraid / Portainer)
 
 The experimental cyanrip staging rip requires an explicitly configured secret

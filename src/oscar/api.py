@@ -329,3 +329,57 @@ def get_rip_verification(job_id: str, x_oscar_rip_token: str | None = Header(def
         return verification.report(job_id)
     except (RipError, OSError, ValueError) as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+class MetadataPreviewRequest(BaseModel):
+    release_id: str = Field(min_length=36, max_length=36)
+
+
+class MetadataCopyRequest(BaseModel):
+    release_id: str = Field(min_length=36, max_length=36)
+    fingerprint: str = Field(min_length=64, max_length=64)
+    confirmation: str
+
+
+@app.post("/api/rip/jobs/{job_id}/metadata/preview")
+def preview_rip_metadata(job_id: str, request: MetadataPreviewRequest,
+                         x_oscar_rip_token: str | None = Header(default=None)):
+    """Read-only exact-release preview; user still must review physical edition."""
+    from oscar.metadata_staging import MetadataError, preview
+    from oscar.musicbrainz import MusicBrainzError, lookup_enabled
+    from oscar.ripping import RipError
+    _rip_auth(x_oscar_rip_token)
+    if not lookup_enabled():
+        raise HTTPException(status_code=403, detail="MusicBrainz lookup disabled")
+    try:
+        return preview(job_id, request.release_id)
+    except (MetadataError, MusicBrainzError, RipError, ValueError, OSError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/rip/jobs/{job_id}/metadata/copy")
+def create_tagged_staging_copy(job_id: str, request: MetadataCopyRequest,
+                               x_oscar_rip_token: str | None = Header(default=None)):
+    """Explicitly reviewed copy-on-write Vorbis tagging: no archive operations."""
+    from oscar.metadata_staging import MetadataError, start_copy
+    from oscar.musicbrainz import lookup_enabled
+    from oscar.ripping import RipError
+    _rip_auth(x_oscar_rip_token)
+    if not lookup_enabled():
+        raise HTTPException(status_code=403, detail="MusicBrainz lookup disabled")
+    try:
+        return start_copy(job_id, request.release_id, request.fingerprint, request.confirmation)
+    except (MetadataError, RipError, ValueError, OSError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.get("/api/rip/jobs/{job_id}/metadata/copies/{copy_id}")
+def get_tagged_staging_copy(job_id: str, copy_id: str,
+                            x_oscar_rip_token: str | None = Header(default=None)):
+    from oscar.metadata_staging import MetadataError, copy_status
+    from oscar.ripping import RipError
+    _rip_auth(x_oscar_rip_token)
+    try:
+        return copy_status(job_id, copy_id)
+    except (MetadataError, RipError, ValueError, OSError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc

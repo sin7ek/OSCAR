@@ -25,6 +25,8 @@
 
 - Staging verification report (feature in progress): explicit, token-protected per-job verification with cyanrip's recorded AccurateRip v1/v2/EAC CRC32 evidence, per-FLAC SHA-256 rehash and FLAC decoding, CUE file-reference check, log ripping errors and a per-track web table. Persists only a new `verification-report.json`, never modifies staged audio or promotes it. See [STAGING_VERIFICATION.md](STAGING_VERIFICATION.md). Hardware retest against the first 28-track reference job still needed.
 
+- **Reviewed metadata + isolated FLAC tagging** (feature in progress): for verified staging jobs only, choose a particular MusicBrainz physical release with exact Disc ID/track-count match, preview album/date/barcode/catalogue, classical composer/work/conductor/orchestra relationships and track IDs, then explicitly confirm a newly created tagged copy under staging. Mutagen writes FLAC Vorbis comments only to copies, with source SHA-256 and copied audio integrity validation. No original changes, no archive publishing, no alias enrichment in tags yet. See [METADATA_STAGING.md](METADATA_STAGING.md). Hardware test against Händel 28-track rip pending.
+
 **Not implemented:** full unattended CD ripping, independent AccurateRip/CTDB verification, verified CUE and FLAC decode checks, full archive-quality tags, final archive promotion, full release/Disc ID background queueing, or automatic cleanup. The new queue retries only artist/work alias enrichment; deployment requires opting in to the worker. Metadata review does not validate extracted audio.
 
 ## Decisions / invariants
