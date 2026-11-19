@@ -73,6 +73,8 @@ def _track_data(track, position, total, disc_number, disc_total, album):
         "TRACKTOTAL": str(total),
         "DISCNUMBER": str(disc_number),
         "DISCTOTAL": str(disc_total),
+        "RIPPED_WITH": "OSCAR - Preserve Every Note",
+        "RIPPER_URL": "https://github.com/sin7ek/OSCAR",
         "MUSICBRAINZ_ALBUMID": album["musicbrainz_release_id"],
         "MUSICBRAINZ_DISCID": album["musicbrainz_disc_id"],
     }
