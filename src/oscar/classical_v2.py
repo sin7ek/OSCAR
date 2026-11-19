@@ -308,3 +308,74 @@ def copy_status(job_id, copy_id):
     if path.is_file() and not path.is_symlink():
         return json.loads(path.read_text(encoding="utf-8"))
     raise ClassicalError("Classical v2 copy not found or unfinished")
+
+
+def inspect_copy(job_id, copy_id):
+    """Compare actual new v2 Vorbis comments against immutable v2 preview."""
+    from mutagen.flac import FLAC
+    if not _UUID.fullmatch(job_id) or not _UUID.fullmatch(copy_id):
+        raise ClassicalError("Invalid job or copy ID")
+    folder = verification._safe_job(job_id) / ("metadata-v2-" + copy_id)
+    if folder.is_symlink() or not folder.is_dir():
+        raise ClassicalError("Classical v2 copy not found")
+    def read_json(name):
+        path = folder / name
+        if path.is_symlink() or not path.is_file():
+            raise ClassicalError("Incomplete or unsafe Classical v2 copy")
+        return json.loads(path.read_text(encoding="utf-8"))
+    manifest = read_json("classical-v2-manifest.json")
+    saved = read_json("classical-v2-preview.json")
+    if (manifest.get("job_id") != job_id or manifest.get("copy_id") != copy_id
+            or manifest.get("status") != "classical_v2_ready_for_review"
+            or manifest.get("preview_fingerprint") != saved.get("fingerprint")
+            or saved.get("job_id") != job_id):
+        raise ClassicalError("Copy manifest and review fingerprint mismatch")
+    entries = saved.get("tracks") or []
+    files = manifest.get("files") or {}
+    if not isinstance(files, dict) or len(entries) != len(files) or not entries:
+        raise ClassicalError("Incomplete Classical v2 manifest")
+    audio = folder / "audio"
+    if audio.is_symlink() or not audio.is_dir():
+        raise ClassicalError("Unsafe Classical v2 audio directory")
+    tracks = []
+    visited = set()
+    for entry in entries:
+        rel = entry.get("original_file")
+        if not isinstance(rel, str) or not staging._SAFE_FLAC.fullmatch(rel) or rel in visited:
+            raise ClassicalError("Invalid or duplicate FLAC reference")
+        visited.add(rel)
+        record = files.get(rel)
+        if not isinstance(record, dict):
+            raise ClassicalError("FLAC missing from Classical v2 manifest")
+        path = audio / Path(rel).name
+        if path.is_symlink() or not path.is_file():
+            raise ClassicalError("Missing or unsafe Classical v2 FLAC file")
+        actual = FLAC(str(path))
+        tags = {k.upper(): list(v) for k, v in actual.items()}
+        expected = {k.upper(): v if isinstance(v, list) else [str(v)]
+                    for k, v in entry["tags"].items() if v}
+        differences = {
+            key: {"expected": expected.get(key, []), "actual": tags.get(key, [])}
+            for key in set(tags) | set(expected) if tags.get(key, []) != expected.get(key, [])
+        }
+        digest_ok = verification._digest(path) == record.get("tagged_sha256")
+        md5_ok = staging._streaminfo_md5_hex(actual.info.md5_signature) == record.get("audio_streaminfo_md5")
+        tracks.append({
+            "number": entry["number"], "title": tags.get("TITLE", [""])[0],
+            "release_section": tags.get("RELEASE_SECTION", [""])[0],
+            "work": tags.get("WORK", []), "work_parent": tags.get("WORK_PARENT", []),
+            "movement": tags.get("MOVEMENT", []),
+            "english_aliases": {k: v for k, v in tags.items() if k.endswith("_EN")},
+            "tags": tags, "differences": differences,
+            "sha256_matches": digest_ok, "audio_md5_matches": md5_ok,
+            "status": "matches_preview" if not differences and digest_ok and md5_ok else "review_required",
+        })
+    if set(files) != visited:
+        raise ClassicalError("Unexpected extra files in Classical v2 manifest")
+    return {
+        "job_id": job_id, "copy_id": copy_id, "track_count": len(tracks),
+        "status": "tags_match_preview" if all(x["status"] == "matches_preview" for x in tracks)
+                  else "review_required",
+        "tracks": tracks,
+        "note": "Actual saved v2 Vorbis tags and checksums; matches preview, not independent editorial approval."
+    }
