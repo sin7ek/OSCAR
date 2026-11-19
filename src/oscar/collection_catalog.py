@@ -190,10 +190,11 @@ def import_published() -> dict:
             db.execute("""INSERT OR IGNORE INTO archive_items
               (archive_path, artist, title, year, catalog_number, musicbrainz_release_id,
                track_count, archive_status, imported_at, label, composer, conductor,
-               orchestra, soloists, performers, works)
+               orchestra, soloists, performers, works, identification_status,
+               media_condition, sleeve_condition, folder, notes)
               VALUES (:archive_path,:artist,:title,:year,:catalog_number,:musicbrainz_release_id,
                       :track_count,:archive_status,:imported_at,:label,:composer,:conductor,
-                      :orchestra,:soloists,:performers,:works)""",
+                      :orchestra,:soloists,:performers,:works,'HUMAN_REVIEWED','','','','')""",
                        {**fields, "imported_at": datetime.now(timezone.utc).isoformat()})
             inserted += db.total_changes - before
             # Older catalog rows can gain *missing* sourced metadata from
