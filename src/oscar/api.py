@@ -731,3 +731,26 @@ def discogs_account(request: Request, x_oscar_rip_token: str | None = Header(def
         return account_summary()
     except DiscogsError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/collection/index-tracks")
+def collection_index_tracks(request: Request, x_oscar_rip_token: str | None = Header(default=None)):
+    """Explicit read-only-from-archive indexed copy of per-track Vorbis metadata."""
+    from oscar.collection_tracks import TrackIndexError, index_published_tracks
+    _rip_auth(x_oscar_rip_token, request)
+    try:
+        return index_published_tracks()
+    except (TrackIndexError, OSError, ValueError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.get("/api/collection/tracks")
+def collection_find_tracks(request: Request, search: str = "", role: str = "",
+                           limit: int = 150, offset: int = 0,
+                           x_oscar_rip_token: str | None = Header(default=None)):
+    from oscar.collection_tracks import TrackIndexError, find_tracks
+    _rip_auth(x_oscar_rip_token, request)
+    try:
+        return find_tracks(search=search, role=role, limit=limit, offset=offset)
+    except (TrackIndexError, ValueError, OSError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
