@@ -48,3 +48,12 @@ Limitations: no persistent queued jobs, no auto-eject, no disc insertion daemon,
 - Test a standard pop album, a Various Artists compilation and a continuous-mix house/hardcore CD, including per-track artist and tracks/mixed transition handling.
 - Test two then three drives in parallel on Unraid. Verify separate job IDs, logs, outputs, drive offsets and AccurateRip reports.
 - Only after these checks design operator-reviewed archive publication, immutable provenance and recovery-safe persistent queueing. Do not delete original staging files.
+
+## Boulez 32-track hardware feedback: CUE performer provenance and missing work
+
+The first real 32-track Boulez Classical v2 review found matching Cover Art Archive art for the exact physical release, source-index-preserving CUE previews and a successful FLAC tag readback. It also exposed two important shortcomings:
+
+- The generated CUE used the MusicBrainz `ARTIST` credit (`Igor Stravinsky`) as the per-track `PERFORMER`, even on Hugo Wolf compositions and where explicit vocalists, the Ensemble intercontemporain and conductor Pierre Boulez were already documented. A release/track artist credit on classical albums may name a **composer**, and must not be unconditionally converted into a performing musician. New **read-only** proposals prefer explicitly documented recording performer relationships (names only) and a documented common conductor for the album level. For classical tracks without explicit performer evidence, omit rather than invent `PERFORMER`. Pop and dance tracks without classical relationships still use their credited artist. The original cyanrip CUE remains untouched.
+- The summary returned `no_detected_conflicts` while track 24 `Tilim-bom` lacked a MusicBrainz Work relationship. When some tracks have documented Work IDs, other unlinked tracks receive a **review** observation `missing_classical_work_link` (not a factual mismatch and no inferred composition). For the Boulez disc track 24 needs editorial verification; work vs recording identities must stay separate.
+
+Neither the original CUE nor staged audio or tagged files are rewritten. The proposed archive CUE still refers to future files until separately created and validated. CUE INDEX/PREGAP information is still preserved **as reported**, not independently verified. Album artwork remains a review-only candidate.
