@@ -125,3 +125,7 @@ This is a proposed layout, not a deployed configuration.
 
 ## License
 MIT — see [LICENSE](LICENSE).
+
+## Classical metadata review
+
+[Classical Metadata v2](docs/CLASSICAL_METADATA_V2.md) separates operator-reviewed sections of the physical CD from MusicBrainz's canonical work/parent relationships. The review can optionally add explicitly checked movements and cached English aliases. After confirmation it creates only separate new FLAC copies in staging, without altering the first rip or previous copies.
