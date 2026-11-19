@@ -123,8 +123,16 @@ Archive/<label>/[catalog] <release title> (<year>)/
 ```
 This is a proposed layout, not a deployed configuration.
 
+## Credits & acknowledgements
+
+OSCAR stands on the shoulders of remarkable open-source projects and communities. **Thank you to the developers, maintainers and contributors whose work makes OSCAR possible.**
+
+The core CD-ripping engine is **[cyanrip](https://github.com/cyanreg/cyanrip)**. Other essential building blocks include **[FLAC](https://xiph.org/flac/)**, **[libdiscid](https://github.com/metabrainz/libdiscid)**, **[Mutagen](https://github.com/quodlibet/mutagen)**, **[FastAPI](https://github.com/fastapi/fastapi)**, **[Uvicorn](https://github.com/Kludex/uvicorn)** and **[Pydantic](https://github.com/pydantic/pydantic)**. We also thank the **[MusicBrainz / MetaBrainz](https://musicbrainz.org/)** community and the **[Cover Art Archive](https://coverartarchive.org/)** collaboration with the **[Internet Archive](https://archive.org/)** for the metadata and cover-art ecosystem, and acknowledge **[AccurateRip](http://www.accuraterip.com/)** for its checksum reference service used by cyanrip.
+
+See **[Third-party projects & acknowledgements](docs/THIRD_PARTY.md)** for links, roles, relevant licences, and a clear distinction between bundled components, external services, inspiration and planned integrations.
+
 ## License
-MIT — see [LICENSE](LICENSE).
+OSCAR's own code is currently declared **MIT** — see [LICENSE](LICENSE). Third-party components and data retain their respective licences and rights. The project's Docker distribution still needs a full dependency/notice and licence-compatibility review before a stable public release; see [Third-party projects & acknowledgements](docs/THIRD_PARTY.md).
 
 ## Classical metadata review
 
