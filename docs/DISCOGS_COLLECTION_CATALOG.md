@@ -1,6 +1,6 @@
 # OSCAR — Discogs integration and local collection catalog (design proposal)
 
-**Status:** Phase 1 implemented in PR #60 (local published-archive inventory, ODS/CSV export, read-only Discogs account/folders); collection writes, release search and complete owned-copy catalog remain planned. **Date:** 2026-11-19.  
+**Status:** Phase 1 implemented in PR #60; XLSX export and album-level classical/label search added in PR #61 (local published-archive inventory, ODS/CSV export, read-only Discogs account/folders); collection writes, release search and complete owned-copy catalog remain planned. **Date:** 2026-11-19.  
 **Related:** [PROJECT_STATUS.md](PROJECT_STATUS.md), [PROGRESS.md](PROGRESS.md), [ARCHITECTURE.md](ARCHITECTURE.md).  
 **Sources:** https://www.discogs.com/developers/ ; https://support.discogs.com/hc/en-us/articles/360009334593-API-Terms-of-Use ; https://support.discogs.com/hc/en-us/articles/360007425393-How-Can-I-Add-Collection-Wantlist-Notes
 
@@ -58,4 +58,4 @@
 
 **Rip attribution:** New reviewed metadata-tagging copies receive fixed Vorbis Comments `RIPPED_WITH=Ripped with OSCAR - Preserve Every Note.` and `RIPPER_URL=https://github.com/sin7ek/OSCAR`. The original extraction files and old published archives remain untouched. Classical v2 carries the attribution forward by retaining the original tags. Archive copying preserves the verified tagged FLAC bytes. This is an attribution tag, not proof of an independent AccurateRip/CTDB pass.
 
-**Not yet implemented:** Discogs release search and automatic candidate comparison; authenticated Discogs collection writes; media/sleeve/folder/notes editing and remote sync; per-physical-copy ownership records; XLSX export; persistent audit history; unattended orchestration. The read-only Discogs folder lookup is optional and does not require OAuth Consumer Key/Secret when a Personal Access Token is configured.
+**Not yet implemented:** per-track structured soloist/work/role indexing, reliable historical label backfill, Discogs release search and automatic candidate comparison; authenticated Discogs collection writes; media/sleeve/folder/notes editing and remote sync; per-physical-copy ownership records; XLSX export; persistent audit history; unattended orchestration. The read-only Discogs folder lookup is optional and does not require OAuth Consumer Key/Secret when a Personal Access Token is configured.
