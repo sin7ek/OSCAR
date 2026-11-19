@@ -560,3 +560,24 @@ def test_unraid_fuse_rename_fallback_never_overwrites_existing_folder(tmp_path, 
         archive_publish._rename_noreplace(src, dest)
     assert src.is_dir()
     assert dest.is_dir()
+
+
+def test_unraid_fuse_directory_fsync_failure_after_promotion_is_not_false_failure(publishable, monkeypatch):
+    import errno
+    import stat
+
+    real_fsync = archive_publish.os.fsync
+
+    def fuse_fsync(fd):
+        if stat.S_ISDIR(archive_publish.os.fstat(fd).st_mode):
+            raise OSError(errno.EINVAL, "FUSE directory fsync unsupported")
+        return real_fsync(fd)
+
+    monkeypatch.setattr(archive_publish.os, "fsync", fuse_fsync)
+    plan = archive_publish.prepare(JOB, COPY, "original_tags", "standard")
+    result = archive_publish._do_publish(plan, "a" * 32,
+                                        allow_metadata_observations=True)
+    assert result["status"] == "published_verified"
+    assert result["directory_sync"].startswith("unavailable:")
+    archive = publishable[2]
+    assert (archive / result["relative_directory"] / "manifest.json").is_file()
