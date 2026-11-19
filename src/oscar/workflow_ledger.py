@@ -25,7 +25,9 @@ CREATE TABLE IF NOT EXISTS workflow_jobs (
   secure_review_level TEXT NOT NULL,
   phase TEXT NOT NULL,
   created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
+  updated_at TEXT NOT NULL,
+  proposed_release_id TEXT NOT NULL DEFAULT '',
+  release_evidence TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS workflow_events (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -57,6 +59,10 @@ def _db():
     db.row_factory = sqlite3.Row
     db.execute("PRAGMA foreign_keys=ON")
     db.executescript(_SCHEMA)
+    existing = {row[1] for row in db.execute("PRAGMA table_info(workflow_jobs)")}
+    for name in ("proposed_release_id", "release_evidence"):
+        if name not in existing:
+            db.execute("ALTER TABLE workflow_jobs ADD COLUMN " + name + " TEXT NOT NULL DEFAULT ''")
     return db
 
 
@@ -98,6 +104,7 @@ def _view(db, job_id):
         "SELECT phase_before,phase_after,reason,happened_at FROM workflow_events "
         "WHERE job_id=? ORDER BY id", (job_id,))]
     result["automated_actions_enabled"] = False
+    result["release_physically_verified"] = False
     result["next_action"] = {
         "RIP_IN_PROGRESS": "Wait for the rip to finish, then refresh this record",
         "RIP_FAILED": "Review the extraction failure; do not publish",
@@ -190,6 +197,32 @@ def refresh(job_id):
             _transition(db,job_id,phase,observed,"source_staging_reconciliation")
         return _view(db,job_id)
 
+
+
+def remember_suggestion(job_id, release_id, evidence):
+    """Store an *inferred candidate only*, never approve a physical edition."""
+    if not _JOB_ID.fullmatch(job_id):
+        raise WorkflowError("Invalid job ID")
+    if not re.fullmatch(r"[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}", release_id):
+        raise WorkflowError("Invalid MusicBrainz release UUID")
+    if evidence not in {"inferred_disc_id_unique", "inferred_disc_id_ranked"}:
+        raise WorkflowError("Unknown candidate evidence")
+    with _db() as db:
+        item = db.execute("SELECT * FROM workflow_jobs WHERE job_id=?", (job_id,)).fetchone()
+        if not item or item["phase"] != "RELEASE_REVIEW_PENDING":
+            raise WorkflowError("Verified rip review required before saving candidate")
+        if item["identification_mode"] != "best_guess":
+            raise WorkflowError("Cannot infer a physical release in Secure mode")
+        if item["proposed_release_id"]:
+            return _view(db,job_id)
+        stamp = _now()
+        db.execute("""UPDATE workflow_jobs SET proposed_release_id=?,
+            release_evidence=?,updated_at=? WHERE job_id=?""",
+            (release_id,evidence,stamp,job_id))
+        db.execute("""INSERT INTO workflow_events
+            (job_id,phase_before,phase_after,reason,happened_at) VALUES (?,?,?,?,?)""",
+            (job_id,item["phase"],item["phase"],"read_only_inferred_candidate_"+evidence,stamp))
+        return _view(db,job_id)
 
 def review_action(job_id, action):
     """The only manual transitions in v1: defer/resume edition review."""
