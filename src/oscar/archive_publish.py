@@ -93,6 +93,21 @@ def _rename_noreplace(source, destination):
         reason = ctypes.get_errno()
         if reason == errno.EEXIST:
             raise PublishError("Archive target already exists; refusing overwrite")
+        # Unraid /mnt/user is backed by shfs (FUSE). Some mounts reject
+        # renameat2(RENAME_NOREPLACE) with EINVAL/EOPNOTSUPP even when an
+        # ordinary same-directory rename is supported. OSCAR's caller holds
+        # the exclusive cross-process .oscar-publish.lock on this archive
+        # root; the destination is also checked immediately before rename.
+        # The fallback prevents overwrites by cooperating OSCAR publishers.
+        # Use a dedicated archive mount not writable by other processes.
+        if reason in {errno.EINVAL, errno.EOPNOTSUPP, errno.ENOTSUP, errno.ENOSYS}:
+            if destination.exists() or destination.is_symlink():
+                raise PublishError("Archive target already exists; refusing overwrite")
+            try:
+                os.rename(source, destination)
+            except OSError as exc:
+                raise PublishError("Filesystem could not promote verified archive: " + str(exc)) from exc
+            return
         raise PublishError(f"Atomic publication failed: {os.strerror(reason)}")
 
 
