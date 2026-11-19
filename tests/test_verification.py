@@ -176,3 +176,50 @@ def test_successful_report_is_not_overwritten(stage):
     old = {"job_id": JOB, "status": "checks_passed"}
     (stage / "verification-report.json").write_text(json.dumps(old))
     assert verification.start(JOB) == old
+
+
+def test_v2_only_confirmed_is_not_a_rip_failure(stage):
+    def v2only(n):
+        return f"""Track {n}
+  EAC CRC32:     6067096C
+  Accurip:       disc found in database (max confidence: 4)
+    Accurip v2:  66B67734 (accurately ripped, confidence 4)
+
+  Metadata:
+    track:         {n}
+    tracktotal:    2
+    discid:        ROkQlooU5tDdgVZOkfXXTy.S4oU-
+
+  File(s):
+    audio/{n:02d} - Unknown track.flac
+
+"""
+    (stage / "cyanrip-console.log").write_text(v2only(1)+v2only(2)+"Ripping errors: 0\n")
+    report=verification._verify(stage,JOB,runner=mock_flac)
+    assert report["status"]=="checks_passed"
+    assert report["accuraterip_coverage"]=="single_version_on_some_tracks"
+    assert report["single_version_tracks"]==[1,2]
+    assert all(t["accuraterip_assessment"]["absent_versions"]==["v1"] for t in report["tracks"])
+    assert all(t["accuraterip"]["v2"]["confidence"]==4 for t in report["tracks"])
+
+
+def test_explicit_v1_mismatch_with_v2_match_still_requires_review(stage):
+    (stage / "cyanrip-console.log").write_text(
+        log_track(1,match=True).replace(
+            "Accurip v1:  E5AAA4FA (accurately ripped, confidence 26)",
+            "Accurip v1:  E5AAA4FA (not accurately ripped, confidence 0)")
+        +log_track(2)+"Ripping errors: 0\n")
+    report=verification._verify(stage,JOB,runner=mock_flac)
+    assert report["status"]=="review_required"
+    assert report["tracks"][0]["accuraterip_assessment"]["status"]=="review_required"
+    assert not report["tracks"][0]["checks_passed"]
+
+
+def test_missing_both_accuraterip_versions_requires_review(stage):
+    log = log_track(1)+log_track(2)
+    log = "\n".join(line for line in log.splitlines()
+                    if "Accurip v1:" not in line and "Accurip v2:" not in line)
+    (stage / "cyanrip-console.log").write_text(log+"\nRipping errors: 0\n")
+    result=verification._verify(stage,JOB,runner=mock_flac)
+    assert result["status"]=="review_required"
+    assert all(t["accuraterip_assessment"]["status"]=="no_confirmed_match" for t in result["tracks"])

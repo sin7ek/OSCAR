@@ -95,6 +95,34 @@ def parse_cyanrip_log(contents):
     return records
 
 
+
+def accuraterip_assessment(versions):
+    """Treat absent evidence differently from an explicit negative result.
+
+    At least one positively confirmed AccurateRip version is necessary. Any
+    explicitly reported failed version requires review instead of being hidden.
+    """
+    statuses = {version: (versions.get(version) or {}).get("status")
+                for version in ("v1", "v2")}
+    confirmed = [v for v, status in statuses.items() if status == "accurately_ripped"]
+    contradicted = [v for v, status in statuses.items()
+                    if status is not None and status != "accurately_ripped"]
+    if contradicted:
+        status = "review_required"
+    elif len(confirmed) == 2:
+        status = "both_versions_matched"
+    elif len(confirmed) == 1:
+        status = "single_version_matched"
+    else:
+        status = "no_confirmed_match"
+    return {
+        "status": status,
+        "matched_versions": confirmed,
+        "absent_versions": [v for v, state in statuses.items() if state is None],
+        "unconfirmed_versions": contradicted,
+    }
+
+
 def _safe_job(job_id):
     if not re.fullmatch(r"[a-f0-9]{32}", job_id):
         raise ripping.RipError("Invalid job ID")
@@ -199,18 +227,29 @@ def _verify(directory, job_id, runner=subprocess.run):
         if parsed:
             result["eac_crc32"] = parsed["eac_crc32"]
             result["accuraterip"] = parsed["accuraterip"]
+        result["accuraterip_assessment"] = accuraterip_assessment(result["accuraterip"])
         result["checks_passed"] = (
             result["sha256_matches"] and result["flac_decodes"] and
-            all(result["accuraterip"].get(v, {}).get("status") == "accurately_ripped"
-                for v in ("v1", "v2")))
+            result["accuraterip_assessment"]["status"] in
+                ("both_versions_matched", "single_version_matched"))
         tracks.append(result)
     all_passed = (len(files) == expected == len(manifest) == len(evidence)
                   and all(track["checks_passed"] for track in tracks)
                   and cue_ok and ripping_errors == 0
                   and not other_files)
+    single_version = [
+        track["number"] for track in tracks
+        if track["accuraterip_assessment"]["status"] == "single_version_matched"
+    ]
     return {
         "job_id": job_id,
         "status": "checks_passed" if all_passed else "review_required",
+        "accuraterip_coverage": (
+            "both_versions" if all_passed and not single_version
+            else "single_version_on_some_tracks" if all_passed
+            else "requires_review"
+        ),
+        "single_version_tracks": single_version,
         "checked_at": time.time(),
         "expected_tracks": expected,
         "flac_count": len(files),
@@ -219,6 +258,8 @@ def _verify(directory, job_id, runner=subprocess.run):
         "tracks": tracks,
         "notes": [
             "AccurateRip v1/v2 results are transcribed from cyanrip, not independently checked by OSCAR.",
+            "An absent AccurateRip version does not negate a positive match in another version; any explicitly negative version still requires review.",
+            "Check accuraterip_coverage and single_version_tracks. Confidence reflects reported reference matches; no unverified database entries were inferred.",
             "FLAC -t validates each encoded stream; saved SHA-256 checks detect changes since extraction.",
             "No CTDB verification; no archive publication or automatic cleanup.",
             "A passing report never authorizes publishing or deleting staged audio."
