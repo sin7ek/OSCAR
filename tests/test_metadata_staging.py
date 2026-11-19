@@ -210,3 +210,36 @@ def test_browser_has_metadata_preview_and_copy_button(setup):
     html=TestClient(app).get("/").text
     assert "Preview MusicBrainz tags" in html
     assert "COPY_TAGGED_TO_STAGING" in html
+
+
+def test_real_flac_mutagen_streaminfo_md5_roundtrip(tmp_path):
+    """End-to-end actual FLAC: tagging must preserve decoded audio."""
+    import shutil
+    import struct
+    import subprocess
+    import wave
+
+    if shutil.which("flac") is None:
+        pytest.skip("Requires flac binary (installed in OSCAR Docker image)")
+    from mutagen.flac import FLAC
+    wav = tmp_path / "sample.wav"
+    path = tmp_path / "sample.flac"
+    with wave.open(str(wav), "wb") as output:
+        output.setnchannels(1)
+        output.setsampwidth(2)
+        output.setframerate(44100)
+        output.writeframes(struct.pack("<1000h", *[0] * 1000))
+    subprocess.run(["flac", "--silent", "-f", "-o", str(path), str(wav)], check=True)
+    original_sha = hashlib.sha256(path.read_bytes()).hexdigest()
+    audio = FLAC(str(path))
+    assert isinstance(audio.info.md5_signature, int)
+    original_md5 = metadata._streaminfo_md5_hex(audio.info.md5_signature)
+    audio["ALBUM"] = ["Music for the Royal Fireworks"]
+    audio["COMPOSER"] = ["George Frideric Handel"]
+    audio.save()
+    reread = FLAC(str(path))
+    assert reread["album"] == ["Music for the Royal Fireworks"]
+    assert reread["composer"] == ["George Frideric Handel"]
+    assert metadata._streaminfo_md5_hex(reread.info.md5_signature) == original_md5
+    assert hashlib.sha256(path.read_bytes()).hexdigest() != original_sha
+    subprocess.run(["flac", "-t", "--silent", str(path)], check=True)
