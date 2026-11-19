@@ -120,7 +120,7 @@ def resolve_music_profile(tracks, kind, requested="auto"):
 
 def _variant_title(title):
     """Only recognize an explicit reprise suffix, not unrelated work variants."""
-    return re.sub(r"\\s*\\(reprise\\)\\s*$", "", str(title or "").casefold()).strip()
+    return re.sub(r"\s*\(reprise\)\s*$", "", str(title or "").casefold()).strip()
 
 
 def _normal_reprise_pair(titles):
