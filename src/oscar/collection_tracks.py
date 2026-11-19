@@ -211,11 +211,12 @@ def find_tracks(*, search: str = "", role: str = "", limit: int = 150, offset: i
         if search:
             pattern = "%" + search + "%"
             conditions.append("""(t.title LIKE ? OR t.recording_id LIKE ?
-                OR EXISTS (SELECT 1 FROM track_credits c WHERE c.track_id=t.id AND c.person_name LIKE ?)
+                OR EXISTS (SELECT 1 FROM track_credits c WHERE c.track_id=t.id AND c.person_name LIKE ?
+                    AND (?='' OR c.credit_role=?))
                 OR EXISTS (SELECT 1 FROM track_works w WHERE w.track_id=t.id AND w.work_title LIKE ?)
                 OR EXISTS (SELECT 1 FROM archive_items a WHERE a.archive_path=t.archive_path AND
                     (a.title LIKE ? OR a.artist LIKE ? OR a.label LIKE ?)))""")
-            args.extend([pattern]*7)
+            args.extend([pattern,pattern,pattern,role,role,pattern,pattern,pattern,pattern])
         if role:
             conditions.append("EXISTS (SELECT 1 FROM track_credits c WHERE c.track_id=t.id AND c.credit_role=?)")
             args.append(role)
