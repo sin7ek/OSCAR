@@ -77,6 +77,8 @@ def test_preview_exact_medium_and_classical_roles(setup):
     first=plan["tracks"][0]["tags"]
     assert first["TITLE"]=="Water Music, movement 1"
     assert first["MUSICBRAINZ_ALBUMID"]==RELEASE
+    assert first["RIPPED_WITH"] == "Ripped with OSCAR - Preserve Every Note."
+    assert first["RIPPER_URL"] == "https://github.com/sin7ek/OSCAR"
     assert first["COMPOSER"]==["George Frideric Handel"]
     assert first["CONDUCTOR"]==["Jordi Savall"]
     assert first["ORCHESTRA"]==["Le Concert des Nations"]

@@ -6,6 +6,14 @@
 
 > **How to resume after a chat ends:** Read this document first, then `docs/ARCHITECTURE.md`, `README.md`, recent merged PRs and open PRs, and GitHub Actions for the branch under development. Do not infer that a successful CI run establishes real optical hardware functionality.
 
+## Local collection catalog and read-only Discogs PAK integration — PR #60 (2026-11-19)
+
+- New local SQLite database of **OSCAR published archive items** (not yet a complete physical ownership inventory), in persistent `/config/catalog.sqlite3` by default; explicit import of `published_verified` archive manifests, skip previously imported paths, preserve local records, never modify `/archive`. Searchable/sortable web inventory and CSV/ODS export.
+- The `OSCAR_DISCOGS_PAK` Portainer environment variable is a **Discogs personal access token** and can be sent as `Authorization: Discogs token=<value>` to `https://api.discogs.com/oauth/identity`. A read-only button requests identity and the authenticated account's collection-folder list. Token stays in process memory, never returned, exported, logged or committed. Discogs collection writes are **NOT** implemented. Consumer Key/Secret not required for PAK authentication.
+- Fixed `RIPPED_WITH=Ripped with OSCAR - Preserve Every Note.` and `RIPPER_URL=https://github.com/sin7ek/OSCAR` Vorbis Comments added in newly generated original-tagged FLAC copies, preserved in Classical v2 copies and byte-for-byte published archive copies. Original ripped FLAC files and old archives do not change. The tag describes the ripper, not independently verified audio.
+- This PR is **not** an implementation of Discogs release candidate search, collection write/condition management or two-copy physical ownership records. These remain follow-up milestones. User has not yet carried out actual Unraid acceptance for this feature; GitHub CI must be checked.
+- See [DISCOGS_COLLECTION_CATALOG.md](DISCOGS_COLLECTION_CATALOG.md) for scope, privacy rules, milestones and acceptance criteria.
+
 ## Discogs and OSCAR-owned collection catalog — design proposal (2026-11-19)
 
 **Design specification:** [DISCOGS_COLLECTION_CATALOG.md](DISCOGS_COLLECTION_CATALOG.md). User requested: Discogs metadata as secondary physical-edition evidence; optional post-archive Discogs collection entry with per-copy Media Condition, Sleeve Condition, Notes and Folder; OSCAR-managed sortable collection database exportable preferably to **ODS**, with CSV and optional XLSX. This is **not yet implemented**: no API auth, writes, persistent local catalog or spreadsheet exporter exists in OSCAR today.

@@ -1,6 +1,6 @@
 # OSCAR — Discogs integration and local collection catalog (design proposal)
 
-**Status:** Proposed, not yet implemented. **Date:** 2026-11-19.  
+**Status:** Phase 1 implemented in PR #60 (local published-archive inventory, ODS/CSV export, read-only Discogs account/folders); collection writes, release search and complete owned-copy catalog remain planned. **Date:** 2026-11-19.  
 **Related:** [PROJECT_STATUS.md](PROJECT_STATUS.md), [PROGRESS.md](PROGRESS.md), [ARCHITECTURE.md](ARCHITECTURE.md).  
 **Sources:** https://www.discogs.com/developers/ ; https://support.discogs.com/hc/en-us/articles/360009334593-API-Terms-of-Use ; https://support.discogs.com/hc/en-us/articles/360007425393-How-Can-I-Add-Collection-Wantlist-Notes
 
@@ -54,4 +54,8 @@
 - Provider rate-limit/auth errors never affect ripping or immutable archive publication.
 - GitHub CI, actual Unraid hardware acceptance and user-visible sync results recorded separately in `PROJECT_STATUS.md`; progress percentages change only with evidence.
 
-**Not included now:** Database migrations, Discogs credentials, live API calls, actual collection writes, ODS/XLSX files, UI or automation.
+**Phase 1 implemented (PR #60):** SQLite catalog stored in `/config/catalog.sqlite3` (override `OSCAR_CATALOG_DB`), explicit idempotent import from OSCAR `published_verified` archive manifests, sortable and searchable local web inventory, ODS/CSV export, Discogs account/folder discovery using only `OSCAR_DISCOGS_PAK` at runtime (no token stored in SQLite or Git). Imported records describe *published archives*, not a complete inventory of separately owned physical copies. No provider-derived restricted data is exported.
+
+**Rip attribution:** New reviewed metadata-tagging copies receive fixed Vorbis Comments `RIPPED_WITH=Ripped with OSCAR - Preserve Every Note.` and `RIPPER_URL=https://github.com/sin7ek/OSCAR`. The original extraction files and old published archives remain untouched. Classical v2 carries the attribution forward by retaining the original tags. Archive copying preserves the verified tagged FLAC bytes. This is an attribution tag, not proof of an independent AccurateRip/CTDB pass.
+
+**Not yet implemented:** Discogs release search and automatic candidate comparison; authenticated Discogs collection writes; media/sleeve/folder/notes editing and remote sync; per-physical-copy ownership records; XLSX export; persistent audit history; unattended orchestration. The read-only Discogs folder lookup is optional and does not require OAuth Consumer Key/Secret when a Personal Access Token is configured.

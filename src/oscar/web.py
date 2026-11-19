@@ -60,6 +60,26 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 </section>
 <section><h2>Language &amp; names</h2><label for="name-display">Show names</label><select id="name-display"><option value="original_and_english">Original + English (when available)</option><option value="original">Original only</option><option value="english">English preferred (original preserved)</option></select><label for="alias-fallback">When no English alias exists</label><select id="alias-fallback"><option value="original">Use original</option><option value="sort_name">Allow artist sort-name as transliteration (not a translation)</option></select><p>English aliases are fetched on demand from MusicBrainz. Original names and entity IDs are always retained. These settings do not tag audio files.</p></section>
 <section><h2>Optical drives</h2><div id="drives"></div><button id="probe" type="button">Check inserted discs</button><p id="media-status" aria-live="polite"></p><div id="toc-results"></div></section>
+<section><h2>Collection Library (local)</h2>
+<p>Import existing published OSCAR archive manifests into a separate local SQLite catalog. Original FLACs, CUEs and manifests remain untouched. Local records are not Discogs collection entries.</p>
+<button type="button" id="collection-import">Import published archive records</button>
+<button type="button" id="collection-refresh">Refresh collection</button>
+<label for="collection-search">Find in collection</label>
+<input id="collection-search" placeholder="Artist, album or catalog number" maxlength="150" style="width:350px;max-width:90%">
+<label for="collection-sort">Sort collection</label>
+<select id="collection-sort">
+<option value="artist">Artist</option><option value="title">Album title</option>
+<option value="year">Year</option><option value="catalog_number">Catalog number</option>
+<option value="archive_status">Archive status</option>
+</select>
+<button type="button" id="collection-ods">Export OpenDocument (.ods)</button>
+<button type="button" id="collection-csv">Export CSV</button>
+<div id="collection-result" aria-live="polite"></div>
+<h3>Discogs connection (read-only)</h3>
+<p>Your personal token is read only from the Portainer OSCAR_DISCOGS_PAK environment variable. Check account identity and collection folder names without modifying Discogs. The token is never shown or saved to the local catalog.</p>
+<button type="button" id="discogs-check">Check Discogs account and folders</button>
+<div id="discogs-result" aria-live="polite"></div>
+</section>
 <section><h2>Staging verification (experimental)</h2>
 <p>Review an already completed OSCAR rip. Reads cyanrip AccurateRip evidence, checks saved SHA-256, decodes each FLAC and validates CUE references. No tagging, archiving or cleanup.</p>
 <label for="verify-job">Staging rip job ID (32 hexadecimal characters)</label>
@@ -1383,6 +1403,91 @@ document.getElementById('multi-refresh').onclick=async()=>{
   }output.append(grid);
   output.append(reviewCard('Multidrive safety',data.note));
  }catch(e){output.textContent='Drive dashboard unavailable: '+e.message}
+};
+
+async function fetchLocalCollection(){
+ const out=document.getElementById('collection-result');
+ const headers=requestAuthHeaders('Read local OSCAR collection');if(!headers)return;
+ out.textContent='Loading local archive collection…';
+ try{
+  const query=new URLSearchParams({
+   search:document.getElementById('collection-search').value.trim(),
+   sort_by:document.getElementById('collection-sort').value,limit:'250'
+  });
+  const response=await fetch('/api/collection?'+query,{headers});
+  const data=await response.json();
+  if(!response.ok)throw new Error(data.detail||'Collection unavailable');
+  out.replaceChildren();
+  const summary=document.createElement('p');
+  summary.textContent=data.total+' local archive record(s); showing '+data.items.length+'.';
+  out.append(summary);
+  const table=document.createElement('table');table.style.width='100%';
+  const head=document.createElement('tr');
+  for(const label of ['Artist','Album','Year','Catalog','Tracks','Status']){
+    const th=document.createElement('th');th.textContent=label;head.append(th);
+  }
+  table.append(head);
+  for(const item of data.items){
+    const row=document.createElement('tr');
+    for(const value of [item.artist,item.title,item.year,item.catalog_number,item.track_count,item.archive_status]){
+      const td=document.createElement('td');td.textContent=String(value);td.style.padding='5px';
+      row.append(td);
+    }
+    table.append(row);
+  }
+  out.append(table);
+ }catch(error){out.textContent='Collection unavailable: '+error.message}
+}
+document.getElementById('collection-refresh').onclick=fetchLocalCollection;
+document.getElementById('collection-sort').onchange=fetchLocalCollection;
+document.getElementById('collection-search').onchange=fetchLocalCollection;
+document.getElementById('collection-import').onclick=async()=>{
+ const out=document.getElementById('collection-result');
+ const headers=requestAuthHeaders('Import existing OSCAR archive records');if(!headers)return;
+ out.textContent='Scanning verified published manifests (read-only archive)…';
+ try{
+  const response=await fetch('/api/collection/import-archives',{method:'POST',headers});
+  const data=await response.json();
+  if(!response.ok)throw new Error(data.detail||'Import failed');
+  await fetchLocalCollection();
+  const msg=document.createElement('p');
+  msg.textContent='Imported '+data.imported+' new archive record(s).';
+  out.prepend(msg);
+ }catch(error){out.textContent='Import failed: '+error.message}
+};
+async function downloadCatalog(format){
+ const out=document.getElementById('collection-result');
+ const headers=requestAuthHeaders('Export OSCAR collection');if(!headers)return;
+ try{
+  const response=await fetch('/api/collection/export?'+new URLSearchParams({format}),{headers});
+  if(!response.ok)throw new Error((await response.json()).detail||'Export failed');
+  const blob=await response.blob();
+  const url=URL.createObjectURL(blob);
+  const link=document.createElement('a');link.href=url;link.download='oscar-collection.'+format;
+  document.body.append(link);link.click();link.remove();URL.revokeObjectURL(url);
+ }catch(error){out.textContent='Export failed: '+error.message}
+}
+document.getElementById('collection-ods').onclick=()=>downloadCatalog('ods');
+document.getElementById('collection-csv').onclick=()=>downloadCatalog('csv');
+document.getElementById('discogs-check').onclick=async()=>{
+ const out=document.getElementById('discogs-result');
+ const headers=requestAuthHeaders('Read Discogs account and folders');if(!headers)return;
+ out.textContent='Checking Discogs identity and folders…';
+ try{
+  const response=await fetch('/api/discogs/account',{headers});
+  const data=await response.json();
+  if(!response.ok)throw new Error(data.detail||'Discogs unavailable');
+  out.replaceChildren();
+  const msg=document.createElement('p');
+  msg.textContent=data.connected?'Discogs account: '+data.username+' (read-only)':
+    data.message;
+  out.append(msg);
+  for(const folder of data.folders||[]){
+    const p=document.createElement('p');
+    p.textContent=folder.name+' · folder '+folder.id+' · '+(folder.count??'?')+' items';
+    out.append(p);
+  }
+ }catch(error){out.textContent='Discogs unavailable: '+error.message}
 };
 
 function updateIdentificationMode(){
