@@ -6,7 +6,7 @@ OSCAR's first Händel hardware test (`f41806152a614b1a9006b10456b9bbd4`) and suc
 
 1. Deploy the updated OSCAR Docker image and open **Classical metadata v2 — review**.
 2. Enter the original rip ID and **the completed tagged-copy ID**, not the original raw ripping folder or a partially failed copy.
-3. Review the proposed **physical CD sections**. Every track must belong to precisely one explicitly named range; overlaps and gaps are rejected. The on-page starting ranges for the first Händel reference CD are only suggestions and must be checked against the liner notes.
+3. Click **Fill example for first Handel CD** if testing OSCAR's original 28-track reference; section fields are otherwise empty by default. Review the proposed **physical CD sections**. Every track must belong to precisely one explicitly named range; overlaps and gaps are rejected. The on-page starting ranges for the first Händel reference CD are only suggestions and must be checked against the liner notes.
 4. Optional movement titles may be supplied per track, **explicitly**. OSCAR never infers movement numbers/titles from punctuation, track numbers, Roman numerals or work titles. When not reviewed, the MOVEMENT field stays absent.
 5. Click **Preview classical v2 tags**. OSCAR verifies the actual saved tagged FLACs and the original MusicBrainz preview from staging, then constructs a separate new metadata proposal. No MusicBrainz request is needed to inspect this existing release; supplemental English aliases are used only when already present in the local alias cache, with no machine translation.
 6. Only after reviewing the per-track proposal and confirming the action may OSCAR create a **new** `metadata-v2-<UUID>/audio` subdirectory under the *same rip job*. It writes modified Vorbis comments only to newly copied FLAC files, runs `flac -t` on each, confirms the audio STREAMINFO MD5 is unchanged and writes `classical-v2-preview.json` and `classical-v2-manifest.json` on completion.
@@ -36,3 +36,7 @@ The previous overloaded `GROUPING` field is deliberately removed **from the new 
 - Cached English aliases are displayed as extra fields and never replace original names. Missing aliases remain absent, not a failure; remote alias enrichment happens through the separate cache/worker workflow.
 - There is no automatic creation of a release CUE, cover art, Navidrome-specific tag mapping or final file naming in this version.
 - An explicit operator-approved CD section is editorial metadata distinct from a MusicBrainz composition relationship; both can be valid concurrently.
+
+## After the Classical v2 copy
+
+A completed new copy has status `classical_v2_ready_for_review`. Click **Inspect actual Classical v2 FLAC tags** to read the real Vorbis comments from the new files, compare them with the reviewed v2 preview and recheck each copied file SHA-256 and audio STREAMINFO MD5. The readback status `tags_match_preview` confirms tag fidelity, not a musicological endorsement. The read-only API is `GET /api/rip/jobs/{job_id}/metadata/classical-v2/copies/{copy_id}/inspect`.
