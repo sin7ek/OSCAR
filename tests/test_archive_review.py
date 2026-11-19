@@ -391,6 +391,7 @@ def test_safe_publisher_writes_verified_new_files_and_preserves_original(publish
     assert (destination / "album.cue").is_file()
     assert (destination / "manifest.json").is_file()
     assert (destination / "SOURCES.txt").is_file()
+    assert (destination / "ExtractionEvidence" / "audio" / "original.cue").read_bytes() == original_cue
     assert 'FILE "01 - Air.flac" WAVE' in (destination / "album.cue").read_text()
     assert 'FILE "02 - Aria.flac" WAVE' in (destination / "album.cue").read_text()
     assert (job / "audio" / "original.cue").read_bytes() == original_cue
@@ -398,6 +399,7 @@ def test_safe_publisher_writes_verified_new_files_and_preserves_original(publish
         assert hashlib.sha256((original / rel).read_bytes()).hexdigest() == sha
     evidence = json.loads((destination / "manifest.json").read_text())
     assert evidence["cue"]["original_indexes_preserved_as_reported"]
+    assert evidence["source_evidence"][0]["sha256"] == hashlib.sha256(original_cue).hexdigest()
     assert evidence["source_preview_fingerprint"] == "f" * 64
     assert evidence["files"][0]["sha256"] == before["audio/01 - Unknown track.flac"]
     with pytest.raises(archive_publish.PublishError, match="exists"):
@@ -581,3 +583,39 @@ def test_unraid_fuse_directory_fsync_failure_after_promotion_is_not_false_failur
     assert result["directory_sync"].startswith("unavailable:")
     archive = publishable[2]
     assert (archive / result["relative_directory"] / "manifest.json").is_file()
+
+
+def test_publisher_preserves_cyanrip_extraction_logs(publishable):
+    job, _, archive, _ = publishable
+    (job / "cyanrip-console.log").write_bytes(b"cyanrip console original")
+    (job / "audio" / "original.log").write_bytes(b"cyanrip extraction original")
+    originals = {name: (job / name).read_bytes() for name in
+                 ("cyanrip-console.log", "audio/original.log", "audio/original.cue")}
+    plan = archive_publish.prepare(JOB, COPY, "original_tags", "standard")
+    result = archive_publish._do_publish(plan, "1" * 32, allow_metadata_observations=True)
+    dest = archive / result["relative_directory"]
+    manifest = json.loads((dest / "manifest.json").read_text())
+    for record in manifest["source_evidence"]:
+        raw = originals[record["original_staging_path"]]
+        assert (dest / record["filename"]).read_bytes() == raw
+        assert record["sha256"] == hashlib.sha256(raw).hexdigest()
+
+
+def test_publisher_rejects_changed_extraction_log(publishable):
+    job, _, archive, _ = publishable
+    original_log = job / "cyanrip-console.log"
+    original_log.write_text("original")
+    plan = archive_publish.prepare(JOB, COPY, "original_tags", "standard")
+    original_log.write_text("changed")
+    with pytest.raises(archive_publish.PublishError, match="preview changed"):
+        archive_publish._do_publish(plan, "2" * 32, allow_metadata_observations=True)
+    assert not list(archive.rglob("manifest.json"))
+
+
+def test_publisher_rejects_symlinked_extraction_log(publishable, tmp_path):
+    job, _, _, _ = publishable
+    outside = tmp_path / "outside.log"
+    outside.write_text("private")
+    (job / "audio" / "unknown.log").symlink_to(outside)
+    with pytest.raises(archive_publish.PublishError, match="Unsafe original extraction log"):
+        archive_publish.prepare(JOB, COPY, "original_tags", "standard")
