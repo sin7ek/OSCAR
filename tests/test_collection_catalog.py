@@ -130,3 +130,94 @@ def test_discogs_token_in_header_and_never_in_response(monkeypatch):
 def test_discogs_absent_token_does_not_call_provider(monkeypatch):
     monkeypatch.delenv("OSCAR_DISCOGS_PAK", raising=False)
     assert not discogs.account_summary()["connected"]
+
+
+def test_xlsx_export_is_valid_ooxml_with_autofilter(archive):
+    import xml.etree.ElementTree as ET
+    catalog.import_published()
+    with ZipFile(io.BytesIO(catalog.export_xlsx())) as file:
+        sheet = ET.fromstring(file.read("xl/worksheets/sheet1.xml"))
+        xml = ET.tostring(sheet, encoding="unicode")
+        assert "autoFilter" in xml and "Anastacia" in xml
+        assert "label" in xml and "composer" in xml and "soloists" in xml
+        assert "xl/worksheets/sheet1.xml" in file.namelist()
+
+
+def test_existing_sqlite_table_migrates_without_losing_rows(archive):
+    import sqlite3
+    from pathlib import Path
+    db = catalog.database_path()
+    with sqlite3.connect(db) as conn:
+        conn.execute("""CREATE TABLE archive_items (
+            id INTEGER PRIMARY KEY, archive_path TEXT NOT NULL UNIQUE,
+            artist TEXT NOT NULL, title TEXT NOT NULL, year TEXT NOT NULL,
+            catalog_number TEXT NOT NULL, musicbrainz_release_id TEXT NOT NULL,
+            track_count INTEGER NOT NULL, archive_status TEXT NOT NULL,
+            identification_status TEXT NOT NULL, media_condition TEXT NOT NULL,
+            sleeve_condition TEXT NOT NULL, folder TEXT NOT NULL,
+            notes TEXT NOT NULL, imported_at TEXT NOT NULL)""")
+        conn.execute("""INSERT INTO archive_items (
+            archive_path,artist,title,year,catalog_number,musicbrainz_release_id,
+            track_count,archive_status,identification_status,media_condition,
+            sleeve_condition,folder,notes,imported_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            ("/archive/example","Anastacia","Freak of Nature","2001","504757 2",
+             RELEASE,12,"published_verified","HUMAN_REVIEWED","","","","","now"))
+    result = catalog.list_items(sort_by="label")
+    assert result["total"] == 1
+    assert result["items"][0]["label"] == ""
+    assert result["items"][0]["title"] == "Freak of Nature"
+    assert catalog.import_published()["imported"] == 1
+
+
+def test_archived_classical_tag_metadata_and_manifest_label(archive, monkeypatch):
+    from oscar import collection_catalog
+    root, old_album, config = archive
+    classical = root / "George Frideric Handel" / "[E 8512] Water Music (1993) [09fe4a40]"
+    classical.mkdir(parents=True)
+    file = classical / "01.flac"
+    file.write_bytes(b"placeholder")
+    manifest = {"status": "published_verified",
+                "release_id": "09fe4a40-7d2b-400e-b3de-b148f55fbcad",
+                "label_info": [{"name": "Deutsche Grammophon", "catalog_number": "E 8512"}],
+                "files": [{"filename": "01.flac", "track": 1}]}
+    (classical / "manifest.json").write_text(json.dumps(manifest))
+    class FakeFLAC:
+        def __init__(self, path):
+            self.tags = {
+                "COMPOSER": ["George Frideric Handel"],
+                "CONDUCTOR": ["Jordi Savall"],
+                "ORCHESTRA": ["Le Concert des Nations"],
+                "PERFORMER": ["Jane Example (soprano)", "Jordi Savall (conductor)"],
+                "WORK": ["Water Music"],
+            }
+        def get(self, name, default=None):
+            return self.tags.get(name, default if default is not None else [])
+    # The runtime import is deliberately confined to verified manifest filenames.
+    import mutagen.flac
+    monkeypatch.setattr(mutagen.flac, "FLAC", FakeFLAC)
+    assert catalog.import_published()["imported"] == 2
+    row = next(x for x in catalog.list_items(search="Savall")["items"] if x["title"] == "Water Music")
+    assert row["label"] == "Deutsche Grammophon"
+    assert row["composer"] == "George Frideric Handel"
+    assert row["conductor"] == "Jordi Savall"
+    assert row["soloists"] == "Jane Example (soprano)"
+    assert catalog.list_items(search="Deutsche Grammophon")["total"] == 1
+    assert catalog.list_items(sort_by="label")["total"] == 2
+
+
+def test_spreadsheet_guards_formula_in_xlsx(archive):
+    catalog.import_published()
+    import sqlite3
+    with sqlite3.connect(catalog.database_path()) as db:
+        db.execute("UPDATE archive_items SET label='=CMD(1)'")
+    with ZipFile(io.BytesIO(catalog.export_xlsx())) as z:
+        xml = z.read("xl/worksheets/sheet1.xml").decode()
+        assert "'=CMD(1)" in xml
+        assert "<f>" not in xml
+
+
+def test_xlsx_endpoint_and_ui_visible(archive, monkeypatch):
+    html = TestClient(app).get("/").text
+    assert "collection-xlsx" in html
+    assert "Record label" in html

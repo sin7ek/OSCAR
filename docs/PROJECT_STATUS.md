@@ -6,6 +6,15 @@
 
 > **How to resume after a chat ends:** Read this document first, then `docs/ARCHITECTURE.md`, `README.md`, recent merged PRs and open PRs, and GitHub Actions for the branch under development. Do not infer that a successful CI run establishes real optical hardware functionality.
 
+## Collection spreadsheet interoperability and classical search — PR #61 (2026-11-19)
+
+- Adds standards-based **XLSX** export in addition to ODS/CSV; XLSX uses inline text, an AutoFilter row and frozen header, and never creates formulas or macros. Intended for Nextcloud + Collabora and ONLYOFFICE. No Microsoft software or proprietary binary writer is required.
+- Extends local collection SQLite schema with **label, composer, conductor, orchestra, soloists, performers, works**. Migration adds the fields to existing `/config/catalog.sqlite3` without removing prior local data. The **explicit** Import published archive records action reads only the archived FLAC Vorbis Comments and sourced `label_info` in *new* OSCAR publication manifests, and fills missing fields without overwriting existing user data.
+- New archive manifests preserve `label_info` from their reviewed, selected MusicBrainz release. Older releases such as Anastacia were published without `label_info`; missing label stays blank, **do not invent Epic or others from artist/title**. This change does not retroactively edit existing archives or query MusicBrainz to enrich them.
+- SOLOISTS field is derived only from explicit recognized performer role annotations; **not** an authoritative work/soloist relationship database. Future next step: durable *per-track* MusicBrainz recording/work/contributor relations, role/instrument IDs, multiple discs and indexed multi-valued relationships; display unknown source data as empty, not fabricated. Search/sort currently works on album-wide aggregated values.
+- UI supports sorting by label, composer, conductor, orchestra and soloists; search across all those fields. Existing verified audio integrity and physical-release confirmation policies unchanged. CI not a substitute for Unraid, and XLSX needs real Nextcloud editors acceptance.
+- Official compatibility documentation: https://nextcloud.com/collabora/ and https://api.onlyoffice.com/docs/docs-api/get-started/ready-to-use-connectors/nextcloud-integration .
+
 ## Local collection catalog and read-only Discogs PAK integration — PR #60 (2026-11-19)
 
 - New local SQLite database of **OSCAR published archive items** (not yet a complete physical ownership inventory), in persistent `/config/catalog.sqlite3` by default; explicit import of `published_verified` archive manifests, skip previously imported paths, preserve local records, never modify `/archive`. Searchable/sortable web inventory and CSV/ODS export.

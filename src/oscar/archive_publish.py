@@ -384,6 +384,7 @@ def _do_publish(plan, publish_id, *, allow_metadata_observations, cover_download
                 "status": "published_verified", "publish_id": publish_id,
                 "job_id": job_id, "copy_id": copy_id,
                 "release_id": new_plan["release_id"], "profile": new_plan["profile"],
+                "label_info": new_plan["album"].get("labels") or [],
                 "disc_number": new_plan["disc_number"],
                 "disc_total": new_plan["disc_total"],
                 "source_preview_fingerprint": new_plan["original_preview_fingerprint"],
