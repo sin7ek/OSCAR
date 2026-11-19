@@ -296,3 +296,97 @@ def copy_status(job_id, copy_id):
     if path.is_file() and not path.is_symlink():
         return json.loads(path.read_text(encoding="utf-8"))
     raise MetadataError("Tagged copy not found or unfinished")
+
+
+def inspect_copy(job_id, copy_id):
+    """Read back actual Vorbis comments from a completed, new tagged staging copy.
+
+    No MusicBrainz/network call, and no source modifications. The saved
+    metadata-preview.json is the source of *expected* fields.
+    """
+    from mutagen.flac import FLAC
+    if not _COPY_ID.fullmatch(copy_id):
+        raise MetadataError("Invalid metadata copy ID")
+    source = verification._safe_job(job_id)
+    folder = source / ("metadata-copy-" + copy_id)
+    if folder.is_symlink() or not folder.is_dir():
+        raise MetadataError("Tagged copy not found")
+    def json_file(name):
+        target = folder / name
+        if target.is_symlink() or not target.is_file():
+            raise MetadataError("Missing or unsafe copy metadata file")
+        return json.loads(target.read_text(encoding="utf-8"))
+    manifest = json_file("metadata-manifest.json")
+    expected = json_file("metadata-preview.json")
+    if (manifest.get("job_id") != job_id or manifest.get("copy_id") != copy_id
+            or manifest.get("status") != "tagged_copy_ready_for_review"):
+        raise MetadataError("Only a completed tagged copy can be inspected")
+    if (expected.get("job_id") != job_id
+            or expected.get("fingerprint") != manifest.get("preview_fingerprint")
+            or expected.get("release_id") != manifest.get("release_id")):
+        raise MetadataError("Stored preview does not match copy manifest")
+    tracks = expected.get("tracks") or []
+    recorded = manifest.get("files") or {}
+    if not isinstance(recorded, dict) or not (1 <= len(tracks) == len(recorded) <= 150):
+        raise MetadataError("Copy track manifest is incomplete")
+    audio_folder = folder / "audio"
+    if audio_folder.is_symlink() or not audio_folder.is_dir():
+        raise MetadataError("Unsafe copy audio directory")
+    results = []
+    used = set()
+    for entry in tracks:
+        original = entry.get("original_file")
+        if not isinstance(original, str) or not _SAFE_FLAC.fullmatch(original):
+            raise MetadataError("Unexpected original FLAC name in saved preview")
+        relative = original
+        if relative in used:
+            raise MetadataError("Duplicate track in saved preview")
+        used.add(relative)
+        info = recorded.get(relative)
+        if not isinstance(info, dict):
+            raise MetadataError("Copy manifest lacks a reviewed track")
+        path = audio_folder / Path(relative).name
+        if path.is_symlink() or not path.is_file() or path.parent.resolve() != audio_folder.resolve():
+            raise MetadataError("Missing or unsafe tagged FLAC")
+        actual = FLAC(str(path))
+        actual_tags = {k.upper(): list(v) for k, v in actual.items()}
+        planned = entry.get("tags") or {}
+        expected_tags = {str(k).upper(): (v if isinstance(v, list) else [str(v)])
+                         for k, v in planned.items() if v}
+        differences = {}
+        for key, values in expected_tags.items():
+            if actual_tags.get(key) != values:
+                differences[key] = {"expected": values, "actual": actual_tags.get(key, [])}
+        # Preserve and display additional tags rather than silently marking
+        # a successful match when surprising/unreviewed tags are present.
+        for key, values in actual_tags.items():
+            if key not in expected_tags:
+                differences[key] = {"expected": [], "actual": values}
+        current_hash = verification._digest(path)
+        hash_matches = current_hash == info.get("tagged_sha256")
+        audio_md5 = _streaminfo_md5_hex(actual.info.md5_signature)
+        audio_matches = audio_md5 == info.get("audio_streaminfo_md5")
+        results.append({
+            "track": entry["number"], "file": relative,
+            "tags": actual_tags, "expected_tags": expected_tags,
+            "differences": differences, "tags_match": not differences,
+            "sha256_matches": hash_matches, "audio_streaminfo_md5_matches": audio_matches,
+            "status": "matches_preview" if not differences and hash_matches and audio_matches else "review_required"
+        })
+    if set(recorded) != used:
+        raise MetadataError("Copy manifest contains extra or missing tracks")
+    return {
+        "job_id": job_id, "copy_id": copy_id,
+        "release_id": manifest["release_id"],
+        "album": expected.get("album", {}),
+        "track_count": len(results),
+        "status": "tags_match_preview" if all(t["status"] == "matches_preview" for t in results)
+                  else "review_required",
+        "tracks": results,
+        "notes": [
+            "Tags were read directly from the completed tagged FLAC copies using Mutagen.",
+            "SHA-256 was recalculated against the tagged-copy manifest, and STREAMINFO MD5 was compared.",
+            "Matching the saved preview does not certify MusicBrainz editorial correctness, cover art, or independent AccurateRip/CTDB.",
+            "Original FLACs, CUE, rip logs and archive were not modified."
+        ]
+    }
