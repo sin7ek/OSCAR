@@ -188,6 +188,7 @@ def prepare(job_id, copy_id, kind="original_tags", profile="auto",
         records.append({"number": track["number"], "source": rel,
                         "filename": filename, "expected_sha256": expected,
                         "audio_md5": audio_md5})
+    evidence = _source_evidence(job_id)
     cue = review["cue"]["archive_cue_proposal"]
     referenced = [match.group(1) for line in cue.splitlines()
                   if (match := archive_review._CUEFILE.match(line))]
@@ -203,7 +204,8 @@ def prepare(job_id, copy_id, kind="original_tags", profile="auto",
             "release_id": review["release_id"], "album": review["album"],
             "relative_directory": relative.as_posix(),
             "disc_number": disc_number, "disc_total": disc_total,
-            "tracks": records, "cue": cue, "include_cover": bool(include_cover),
+            "tracks": records, "cue": cue, "source_evidence": evidence,
+            "include_cover": bool(include_cover),
             "metadata_observations": review["consistency"]["flags"],
             "original_preview_fingerprint": saved_preview.get("fingerprint"),
             "requires_explicit_review": True,
@@ -219,6 +221,55 @@ def prepare(job_id, copy_id, kind="original_tags", profile="auto",
         fingerprint_input, sort_keys=True, ensure_ascii=False,
         separators=(",", ":")).encode("utf-8")).hexdigest()
     return plan
+
+
+def _source_evidence(job_id):
+    """Read-only inventory of original CUE and available cyanrip logs."""
+    job = verification._safe_job(job_id)
+    audio = job / "audio"
+    if audio.is_symlink() or not audio.is_dir():
+        raise PublishError("Unsafe original audio folder")
+    cues = list(audio.glob("*.cue"))
+    if len(cues) != 1 or cues[0].is_symlink() or not cues[0].is_file():
+        raise PublishError("Exactly one safe original CUE required")
+    paths = [cues[0]]
+    for folder in (job, audio):
+        for path in sorted(folder.glob("*.log")):
+            if path.is_symlink() or not path.is_file():
+                raise PublishError("Unsafe original extraction log")
+            paths.append(path)
+    return [{"source": path.relative_to(job).as_posix(),
+             "sha256": _hash(path), "size": path.stat().st_size}
+            for path in paths]
+
+
+def _copy_source_evidence(job_id, entries, temp):
+    """Preserve CUE/log bytes and their hashes without altering staging."""
+    job = verification._safe_job(job_id)
+    folder = temp / "ExtractionEvidence"
+    folder.mkdir(mode=0o700)
+    output = []
+    for entry in entries:
+        relative = Path(entry["source"])
+        if relative.is_absolute() or ".." in relative.parts or len(relative.parts) not in (1, 2):
+            raise PublishError("Unsafe source evidence path")
+        source = job / relative
+        if source.is_symlink() or not source.is_file() or source.parent not in (job, job / "audio"):
+            raise PublishError("Source evidence missing or unsafe")
+        if _hash(source) != entry["sha256"] or source.stat().st_size != entry["size"]:
+            raise PublishError("Source evidence changed since review")
+        target = folder / relative
+        target.parent.mkdir(exist_ok=True)
+        with source.open("rb") as inp, target.open("xb") as out:
+            shutil.copyfileobj(inp, out, 1024 * 1024)
+            out.flush()
+            os.fsync(out.fileno())
+        if _hash(target) != entry["sha256"] or target.stat().st_size != entry["size"]:
+            raise PublishError("Published evidence does not match original")
+        output.append({"filename": target.relative_to(temp).as_posix(),
+                       "original_staging_path": entry["source"],
+                       "sha256": entry["sha256"], "size": entry["size"]})
+    return output
 
 
 def _cover(release_id, target, *, opener=None):
@@ -316,6 +367,7 @@ def _do_publish(plan, publish_id, *, allow_metadata_observations, cover_download
                 raise PublishError("Published CUE filename order differs from actual files")
             if not all((temp / name).is_file() for name in cue_names):
                 raise PublishError("Published CUE references missing FLAC files")
+            evidence_copies = _copy_source_evidence(job_id, new_plan["source_evidence"], temp)
             artwork = (cover_download or _cover)(new_plan["release_id"], temp) if new_plan["include_cover"] else None
             sources = (
                 "OSCAR archived copy — original ripping evidence remains in staging\n"
@@ -323,6 +375,7 @@ def _do_publish(plan, publish_id, *, allow_metadata_observations, cover_download
                 f"MusicBrainz physical release: https://musicbrainz.org/release/{new_plan['release_id']}\n"
                 f"Processing profile: {new_plan['profile']}\n"
                 "AccurateRip confidence is from cyanrip's saved verification report, not a new independent lookup.\n"
+                "The original CUE and available extraction logs are also preserved in ExtractionEvidence/.\n"
                 "The originally ripped CUE, logs and FLACs remain in their original staging folder.\n"
                 "This folder contains reviewed copies, not new recordings or rewritten audio.\n"
             )
@@ -338,6 +391,7 @@ def _do_publish(plan, publish_id, *, allow_metadata_observations, cover_download
                 "metadata_observations": new_plan["metadata_observations"],
                 "observations_acknowledged": bool(allow_metadata_observations),
                 "files": published,
+                "source_evidence": evidence_copies,
                 "cue": {"filename": "album.cue", "sha256": _hash(cue_path),
                         "original_indexes_preserved_as_reported": True},
                 "artwork": artwork,
