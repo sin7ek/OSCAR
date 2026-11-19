@@ -432,3 +432,62 @@ def inspect_tagged_staging_copy(job_id: str, copy_id: str, request: Request,
         return inspect_copy(job_id, copy_id)
     except (MetadataError, RipError, ValueError, OSError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+class ClassicalSection(BaseModel):
+    start: int = Field(ge=1, le=150)
+    end: int = Field(ge=1, le=150)
+    name: str = Field(min_length=1, max_length=120)
+
+
+class ClassicalPreviewRequest(BaseModel):
+    sections: list[ClassicalSection] = Field(min_length=1, max_length=30)
+    movements: dict[str, str] = Field(default_factory=dict)
+
+
+class ClassicalCopyRequest(BaseModel):
+    preview: dict
+    confirmation: str
+
+
+@app.post("/api/rip/jobs/{job_id}/metadata/copies/{copy_id}/classical-v2/preview")
+def preview_classical_v2(job_id: str, copy_id: str, body: ClassicalPreviewRequest,
+                         http_request: Request, x_oscar_rip_token: str | None = Header(default=None)):
+    """Review CD section labels separately from MusicBrainz compositions."""
+    from oscar.classical_v2 import ClassicalError, create_preview
+    from oscar.metadata_staging import MetadataError
+    from oscar.ripping import RipError
+    _rip_auth(x_oscar_rip_token, http_request)
+    try:
+        return create_preview(job_id, copy_id, [x.model_dump() for x in body.sections],
+                              body.movements)
+    except (ClassicalError, MetadataError, RipError, ValueError, OSError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/rip/jobs/{job_id}/metadata/classical-v2/copy")
+def create_classical_v2_copy(job_id: str, body: ClassicalCopyRequest,
+                             http_request: Request, x_oscar_rip_token: str | None = Header(default=None)):
+    """Create a new separately tagged copy only after explicit review."""
+    from oscar.classical_v2 import ClassicalError, start_copy
+    from oscar.metadata_staging import MetadataError
+    from oscar.ripping import RipError
+    _rip_auth(x_oscar_rip_token, http_request)
+    if body.preview.get("job_id") != job_id:
+        raise HTTPException(status_code=422, detail="Preview job does not match requested rip")
+    try:
+        return start_copy(body.preview, body.confirmation)
+    except (ClassicalError, MetadataError, RipError, ValueError, OSError, KeyError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.get("/api/rip/jobs/{job_id}/metadata/classical-v2/copies/{copy_id}")
+def classical_v2_copy_status(job_id: str, copy_id: str, request: Request,
+                             x_oscar_rip_token: str | None = Header(default=None)):
+    from oscar.classical_v2 import ClassicalError, copy_status
+    from oscar.ripping import RipError
+    _rip_auth(x_oscar_rip_token, request)
+    try:
+        return copy_status(job_id, copy_id)
+    except (ClassicalError, RipError, OSError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
