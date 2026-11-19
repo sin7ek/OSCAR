@@ -6,11 +6,19 @@
 
 > **How to resume after a chat ends:** Read this document first, then `docs/ARCHITECTURE.md`, `README.md`, recent merged PRs and open PRs, and GitHub Actions for the branch under development. Do not infer that a successful CI run establishes real optical hardware functionality.
 
+## Go Semi Automatic — phase-one release approval (PR #66, 2026-11-19)
+
+- Separate top-level `identification_mode=semi_automatic` is now selectable and persisted, without modifying existing `best_guess` or `secure` settings/jobs.
+- After mandatory saved rip verification, Go freezes the server-discovered MusicBrainz candidate UUID list in the workflow database (first snapshot wins). The user can **choose a candidate, explicitly accept inferred identification, or defer/resume**. Only UUIDs in that saved list are accepted; acceptance is authenticated, idempotent for the same UUID, fails closed on a different later choice, and is journaled with a timestamp. Accepted release remains **INFERRED_OPERATOR_ACCEPTED**; never physically verified.
+- Go's new terminal `RELEASE_ACCEPTED` phase **does not tag, copy metadata, preview, publish, catalog-index or write to Discogs**. The separate final publication confirmation is a follow-on milestone, not silently implemented. The existing manual archive publisher retains its own independent physical-edition review; approving a Semi Automatic candidate is not equivalent to approving final publication.
+- Real Unraid acceptance and Docker deploy still needed; tests use mocked cyanrip and MusicBrainz data.
+- The original optical rip, verification evidence and other jobs are unchanged. Existing Secure submode `on_ambiguity` is renamed in the UI to **Review on ambiguity**, avoiding collision with new Semi Automatic terminology.
+
 ## Three Go operating modes — design request (2026-11-19)
 
 **Desired policy hierarchy: Best Guess (Full Automatic) → Semi Secure (Semi Automatic) → Secure.** The middle mode must be a *separate top-level* operator policy, not silently identified with the existing Secure review-level names. Semi Automatic automatically rips, verifies and proposes MusicBrainz candidates, but the operator must approve/replace the proposed release before tagged copy creation, then separately approve publication. If the operator accepts an edition without proof, the resulting release identity remains **INFERRED, OPERATOR_ACCEPTED** rather than PHYSICALLY_VERIFIED. The verified original rip remains untouched and can be deferred at either review gate. Best Guess explicitly allows automated use of a credible inferred candidate; Secure demands physical edition corroboration and policy-required review. Audio checks are identical in all modes, and no credible candidate means preserve and defer.
 
-**Not yet implemented:** the currently deployed Go phase 1, settings validation, snapshot ledger and UI only support `best_guess` and `secure`; new `semi_automatic` setting, approval UI and guarded resumable state transitions need a follow-up implementation with tests and real Unraid acceptance. Full specification and Essential Dance Traxx / inferred Ibiza Party case: [docs/AUTOMATION_ROADMAP.md](AUTOMATION_ROADMAP.md).
+**Implementation update (PR #66):** the third setting, release-review UI, guarded acceptance and persisted accepted state are implemented on the feature branch. **Not implemented:** the automatic tagging/metadata-copy handoff, post-approval preview and separate final publication acceptance; production availability awaits merge, container deployment and real Unraid acceptance. Full specification and Essential Dance Traxx / inferred Ibiza Party case: [docs/AUTOMATION_ROADMAP.md](AUTOMATION_ROADMAP.md).
 
 ## Drive read-offset reliability and unsaved-mode UX — follow-up (2026-11-19)
 
