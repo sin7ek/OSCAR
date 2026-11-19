@@ -491,3 +491,15 @@ def classical_v2_copy_status(job_id: str, copy_id: str, request: Request,
         return copy_status(job_id, copy_id)
     except (ClassicalError, RipError, OSError) as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/api/rip/jobs/{job_id}/metadata/classical-v2/copies/{copy_id}/inspect")
+def inspect_classical_v2_copy(job_id: str, copy_id: str, request: Request,
+                              x_oscar_rip_token: str | None = Header(default=None)):
+    from oscar.classical_v2 import ClassicalError, inspect_copy
+    from oscar.ripping import RipError
+    _rip_auth(x_oscar_rip_token, request)
+    try:
+        return inspect_copy(job_id, copy_id)
+    except (ClassicalError, RipError, OSError, ValueError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
