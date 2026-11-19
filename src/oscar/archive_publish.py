@@ -7,6 +7,8 @@ Neither original rips nor tagged staging copies are ever touched.
 from __future__ import annotations
 
 import fcntl
+import ctypes
+import errno
 import hashlib
 import json
 import os
@@ -44,8 +46,13 @@ def archive_root():
     root = Path(configured)
     if not root.is_absolute() or root.is_symlink() or not root.is_dir():
         raise PublishError("Configured archive root must be an existing, real, absolute directory")
-    if root.resolve() == Path("/") or root.resolve() == Path("/staging"):
-        raise PublishError("Refusing dangerous archive root")
+    from oscar.ripping import staging_root
+    stage = staging_root().resolve()
+    resolved = root.resolve()
+    if resolved == Path("/") or resolved == stage or resolved.is_relative_to(stage) or stage.is_relative_to(resolved):
+        raise PublishError("Archive must be on a separate, dedicated mount outside staging")
+    if root != resolved:
+        raise PublishError("Archive root must not contain symbolic links in its path")
     return root
 
 
@@ -60,12 +67,33 @@ def _hash(path):
 def _check_directory(path, root):
     if not path.is_relative_to(root):
         raise PublishError("Unsafe archive destination")
-    for item in [root] + list(reversed(list(path.parents)))[len(root.parents):]) + [path]:
-        # Inspect only existing directories; do not follow a symlink in the chain.
-        if item.is_symlink():
+    current = root
+    for component in path.relative_to(root).parts:
+        current = current / component
+        if current.is_symlink():
             raise PublishError("Symlink in archive path")
-    if path.exists() and not path.is_dir():
-        raise PublishError("Archive destination path is not a directory")
+        if current.exists() and not current.is_dir():
+            raise PublishError("Archive destination path is not a directory")
+
+
+def _rename_noreplace(source, destination):
+    """Linux renameat2(RENAME_NOREPLACE): never replace another publisher's path."""
+    libc = ctypes.CDLL(None, use_errno=True)
+    try:
+        method = libc.renameat2
+    except AttributeError as exc:
+        raise PublishError("Kernel/libc lacks safe no-replace directory rename") from exc
+    method.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int,
+                       ctypes.c_char_p, ctypes.c_uint]
+    method.restype = ctypes.c_int
+    at_fdcwd = -100
+    status = method(at_fdcwd, os.fsencode(source), at_fdcwd,
+                    os.fsencode(destination), 1)  # RENAME_NOREPLACE
+    if status != 0:
+        reason = ctypes.get_errno()
+        if reason == errno.EEXIST:
+            raise PublishError("Archive target already exists; refusing overwrite")
+        raise PublishError(f"Atomic publication failed: {os.strerror(reason)}")
 
 
 def _names(review):
@@ -309,7 +337,7 @@ def _do_publish(plan, publish_id, *, allow_metadata_observations, cover_download
             # same filesystem (under lock) only after full verification.
             if destination.exists() or destination.is_symlink():
                 raise PublishError("Archive target appeared during staging; refusing overwrite")
-            os.rename(temp, destination)
+            _rename_noreplace(temp, destination)
             dir_fd = os.open(parent, os.O_RDONLY | os.O_DIRECTORY)
             try:
                 os.fsync(dir_fd)
