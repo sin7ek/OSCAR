@@ -15,7 +15,7 @@
 | FLAC & staging verification | **85%** | `████████▌░` | FLAC decode, SHA-256, CUE and cyanrip evidence; independent verification is separate |
 | MusicBrainz & release selection | **75%** | `███████▌░░` | Physical release comparison and reviewed metadata copies work; ambiguity still requires intervention |
 | Classical metadata | **70%** | `███████░░░` | Works, performers and multidisc review; further edge cases remain |
-| Archive publishing | **85%** | `████████▌░` | Anastacia published and manifest independently checked; source-evidence feature awaits hardware acceptance |
+| Archive publishing | **85%** | `████████▌░` | Anastacia published; new read-only auditor tested on Unraid with expected legacy evidence warning; source-evidence embedding still awaits hardware acceptance |
 | Independent AccurateRip / CTDB | **20%** | `██░░░░░░░░` | Cyanrip AccurateRip evidence is parsed; no independent full verification engine |
 | Automatic end-to-end workflow | **30%** | `███░░░░░░░` | Operator review and manual transitions still required |
 | Recovery, resume & cleanup | **20%** | `██░░░░░░░░` | Delayed cleanup, crash recovery and safe resume remain major work |
@@ -45,11 +45,12 @@ xychart-beta
 
 | Date | Change | Evidence |
 |---|---|---|
+| 2026-11-19 | Reassessed; no percentage change. PR #52's archive-audit CLI ran on real Unraid: 1 album, 12 FLACs, PASS_WITH_WARNINGS (expected EVIDENCE_NOT_EMBEDDED). Source-evidence embedding from PR #51 and independent CTDB are still untested. | User's terminal output of `docker exec oscar python -m oscar.archive_audit /archive`; [PROJECT_STATUS.md](PROJECT_STATUS.md) |
 | 2026-11-19 | Initial baseline: 90 / 85 / 75 / 70 / 85 / 20 / 30 / 20 | Physical multi-drive tests, verified Anastacia archive publishing (PR #50), source evidence preservation (PR #51, CI-tested), read-only archive auditor (PR #52, CI-tested), documented in [PROJECT_STATUS.md](PROJECT_STATUS.md) |
 
 ## Development priorities
 
-- Test PR #51 embedded extraction evidence and PR #52 read-only auditor on real Unraid.
+- Test PR #51 embedded extraction evidence in a *new* archive publication; PR #52's initial read-only audit has now passed on real Unraid for Anastacia.
 - Add archive audit results to the web UI without overstating verification.
 - Investigate independent AccurateRip/CTDB checks and source confidence.
 - Build resumable workflow orchestration and safe, evidence-based automatic progression.
