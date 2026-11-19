@@ -154,3 +154,39 @@ def test_api_auth_and_html_controls(source):
     html=client.get("/").text
     assert "Preview classical v2 tags" in html
     assert "COPY_CLASSICAL_V2_TO_STAGING" in html
+
+
+def test_v2_inspector_reads_back_actual_vorbis_comments(source):
+    p = v2.create_preview(JOB, COPY, sections(), {"1": "Reviewed movement"})
+    output = v2._do_copy(p, "b" * 32)
+    assert output["status"] == "classical_v2_ready_for_review"
+    result = v2.inspect_copy(JOB, "b" * 32)
+    assert result["status"] == "tags_match_preview"
+    assert result["track_count"] == 3
+    assert result["tracks"][0]["release_section"] == "Suite I on this physical CD"
+    assert result["tracks"][0]["movement"] == ["Reviewed movement"]
+    assert all(x["sha256_matches"] and x["audio_md5_matches"] for x in result["tracks"])
+
+
+def test_v2_inspector_detects_tampered_copy(source):
+    p = v2.create_preview(JOB, COPY, sections())
+    v2._do_copy(p, "c" * 32)
+    changed = source.parent / ("metadata-v2-" + "c"*32) / "audio" / "01 - Unknown track.flac"
+    obj = FLAC(str(changed))
+    obj["RELEASE_SECTION"] = ["Incorrect suite"]
+    obj.save()
+    report = v2.inspect_copy(JOB, "c" * 32)
+    assert report["status"] == "review_required"
+    assert "RELEASE_SECTION" in report["tracks"][0]["differences"]
+    assert not report["tracks"][0]["sha256_matches"]
+
+
+def test_v2_inspector_api_requires_auth(source):
+    client = TestClient(app)
+    p = v2.create_preview(JOB, COPY, sections())
+    v2._do_copy(p, "d"*32)
+    url = f"/api/rip/jobs/{JOB}/metadata/classical-v2/copies/{'d'*32}/inspect"
+    assert client.get(url).status_code == 403
+    r = client.get(url, headers={"X-OSCAR-RIP-TOKEN": TOKEN})
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "tags_match_preview"
