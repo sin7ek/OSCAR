@@ -675,3 +675,48 @@ def rip_drives_dashboard(request: Request, x_oscar_rip_token: str | None = Heade
         return dashboard()
     except (RipError, OSError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+# Local collection inventory is separate from Discogs and never writes to /archive.
+@app.get("/api/collection")
+def collection_list(request: Request, search: str = "", sort_by: str = "artist",
+                    descending: bool = False, limit: int = 250, offset: int = 0,
+                    x_oscar_rip_token: str | None = Header(default=None)):
+    from oscar.collection_catalog import CatalogError, list_items
+    _rip_auth(x_oscar_rip_token, request)
+    try:
+        return list_items(search=search, sort_by=sort_by, descending=descending,
+                          limit=limit, offset=offset)
+    except (CatalogError, OSError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/collection/import-archives")
+def collection_import_archives(request: Request,
+                               x_oscar_rip_token: str | None = Header(default=None)):
+    """Explicitly scan published OSCAR archive manifests; never modify archives."""
+    from oscar.collection_catalog import CatalogError, import_published
+    _rip_auth(x_oscar_rip_token, request)
+    try:
+        return import_published()
+    except (CatalogError, OSError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.get("/api/collection/export")
+def collection_export(request: Request, format: str = "ods",
+                      x_oscar_rip_token: str | None = Header(default=None)):
+    from fastapi.responses import Response
+    from oscar.collection_catalog import CatalogError, export_csv, export_ods
+    _rip_auth(x_oscar_rip_token, request)
+    if format not in {"ods", "csv"}:
+        raise HTTPException(status_code=422, detail="Export must be ods or csv")
+    try:
+        body = export_ods() if format == "ods" else export_csv()
+    except (CatalogError, OSError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return Response(content=body,
+                    media_type=("application/vnd.oasis.opendocument.spreadsheet"
+                                if format == "ods" else "text/csv; charset=utf-8"),
+                    headers={"Content-Disposition": f'attachment; filename="oscar-collection.{format}"',
+                             "Cache-Control": "no-store"})
