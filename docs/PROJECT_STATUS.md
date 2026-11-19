@@ -12,6 +12,14 @@
 
 > **This section supersedes outdated historical statements below** that say archive publishing is unimplemented, hardware acceptance is pending, or no audit exists. Earlier incident descriptions remain as a historical record, not current instructions.
 
+### Risk-based physical edition discovery — 2026-11-19 (new feature; CI/hardware status below)
+
+- Inserted-disc MusicBrainz candidate lookup now classifies **one candidate**, **multiple candidates**, **no candidate**, **catalog conflict**, **one catalog candidate** and **multiple catalog matches**. It does **not** equate unique Disc ID match with proof of the physical edition: an unlinked edition (as in Händel E 8512) might be missing.
+- With one Disc ID candidate and no conflicting evidence, OSCAR automatically opens its **read-only medium/tracklist inspection** without asking a catalog number up front. With multiple Disc ID candidates, it asks for the **printed catalog number** to narrow them. When that catalog matches none, it offers the existing independent catalog-number search. Where catalog numbers conflict, it disables mismatching candidate inspections, not just display a warning.
+- All returned candidates remain `physical_edition_approved=false`: a catalog match is only evidence for selection. **No automatic final tagging, physical-edition approval, MusicBrainz editing, Disc ID linking, or archive publishing is enabled by this feature.**
+- **Design decision:** eventual unattended tagging/publishing is appropriate when sufficient *independent physical-release evidence* is available and persisted, ambiguity checks are clean, and the user has explicitly configured automation policy. A single Disc ID candidate **alone** is insufficient to establish that state. The persistent catalog/barcode evidence store and enforcement at the metadata-copy/publisher API boundaries are not implemented yet; do not represent this PR as the complete automatic physical edition gate.
+- Test cases cover one candidate, multiple candidates, matching and conflicting catalogs, no candidates, invalid catalogs, UI integration and preservation of raw search results. **GitHub CI is not a substitute for real Unraid acceptance.**
+
 ### Händel physical-edition correction — 2026-11-19 (publication blocked)
 
 - The 28-track verified rip job `f41806152a614b1a9006b10456b9bbd4` and existing tagged copy `3ac951bdd5b74ad8b484aaea955eb757` were reviewed as MusicBrainz release `4a8cbc25-21a0-4a24-8bb8-2f388164d544` (Astrée Auvidis **ES 99220**, 1999), with classical publication preview target `[ES 99220] Water Music Music for the Royal Fireworks (1999) [4a8cbc25]`. **DO NOT PUBLISH this proposal:** user found that the actual physical booklet corresponds to **E 8512**, not ES 99220. Original CD/source files stay untouched; no final Händel archive has been confirmed.
