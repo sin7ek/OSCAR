@@ -207,13 +207,31 @@ def cue_preview(root, tracks, album_title, album_artist):
         prefix.append(f'PERFORMER "{_escape_cue(album_artist)}"')
     if set(emitted) != set(range(1, len(tracks) + 1)):
         raise ReviewError("Unable to preserve CUE TRACK structure")
+    # A second proposal describes target filenames for a future publisher.
+    # These files do not exist yet. It is NOT a playable/archive CUE until the
+    # reviewed publisher actually creates exactly these target names.
+    from oscar.archive_naming import safe_component
+    proposed = [f'{t["number"]:02d} - {safe_component(t["title"])}.flac' for t in tracks]
+    renamed = []
+    index = 0
+    for line in prefix + out:
+        if _CUEFILE.match(line.strip()):
+            renamed.append('FILE "' + _escape_cue(proposed[index]) + '" WAVE')
+            index += 1
+        else:
+            renamed.append(line)
+    if index != len(proposed) or len(set(proposed)) != len(proposed):
+        raise ReviewError("Unable to build distinct archive CUE filename proposal")
     return {
         "status": "preview_requires_review",
         "text": "\n".join(prefix + out) + "\n",
+        "archive_cue_proposal": "\n".join(renamed) + "\n",
+        "proposed_filenames": proposed,
+        "archive_cue_requires_renaming": True,
         "original_cue": cues[0].name,
         "track_count": len(tracks),
         "preserves_original_indices": True,
-        "note": "Original INDEX/PREGAP lines are preserved, not independently validated. FILE names still point to the existing staged FLAC basenames. Review before final publication.",
+        "note": "Both CUE proposals preserve the original INDEX/PREGAP lines without independent validation. The first points to current staged files; the second names proposed future archive files that do not exist yet. Review before publication.",
     }
 
 
