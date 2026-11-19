@@ -754,3 +754,18 @@ def collection_find_tracks(request: Request, search: str = "", role: str = "",
         return find_tracks(search=search, role=role, limit=limit, offset=offset)
     except (TrackIndexError, ValueError, OSError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/collection/enrich-labels")
+def collection_enrich_labels(request: Request,
+                             x_oscar_rip_token: str | None = Header(default=None)):
+    """Opt-in MusicBrainz-only lookup for missing local label fields."""
+    from oscar.collection_labels import LabelEnrichmentError, backfill_labels
+    from oscar.musicbrainz import MusicBrainzError, lookup_enabled
+    _rip_auth(x_oscar_rip_token, request)
+    if not lookup_enabled():
+        raise HTTPException(status_code=403, detail="MusicBrainz lookup disabled")
+    try:
+        return backfill_labels()
+    except (LabelEnrichmentError, MusicBrainzError, OSError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
