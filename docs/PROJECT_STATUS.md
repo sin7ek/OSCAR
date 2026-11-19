@@ -6,6 +6,12 @@
 
 > **How to resume after a chat ends:** Read this document first, then `docs/ARCHITECTURE.md`, `README.md`, recent merged PRs and open PRs, and GitHub Actions for the branch under development. Do not infer that a successful CI run establishes real optical hardware functionality.
 
+## Three Go operating modes — design request (2026-11-19)
+
+**Desired policy hierarchy: Best Guess (Full Automatic) → Semi Secure (Semi Automatic) → Secure.** The middle mode must be a *separate top-level* operator policy, not silently identified with the existing Secure review-level names. Semi Automatic automatically rips, verifies and proposes MusicBrainz candidates, but the operator must approve/replace the proposed release before tagged copy creation, then separately approve publication. If the operator accepts an edition without proof, the resulting release identity remains **INFERRED, OPERATOR_ACCEPTED** rather than PHYSICALLY_VERIFIED. The verified original rip remains untouched and can be deferred at either review gate. Best Guess explicitly allows automated use of a credible inferred candidate; Secure demands physical edition corroboration and policy-required review. Audio checks are identical in all modes, and no credible candidate means preserve and defer.
+
+**Not yet implemented:** the currently deployed Go phase 1, settings validation, snapshot ledger and UI only support `best_guess` and `secure`; new `semi_automatic` setting, approval UI and guarded resumable state transitions need a follow-up implementation with tests and real Unraid acceptance. Full specification and Essential Dance Traxx / inferred Ibiza Party case: [docs/AUTOMATION_ROADMAP.md](AUTOMATION_ROADMAP.md).
+
 ## Drive read-offset reliability and unsaved-mode UX — follow-up (2026-11-19)
 
 **Status: documented for investigation; not fixed.** Real Unraid observations: AccurateRip database offset lookup produced HTTP **503 Service Unavailable**, with UI detail `Offset database response too large`, on LG GH24NS95 and HP DH16AAL; Optiarc AD-7200S returned an ambiguous/no unambiguous offset suggestion. Disc-based `cyanrip -f` returned HTTP 200 from OSCAR but no unambiguous reported offset for at least one drive. Existing manually entered offsets (+6 LG, +48 Optiarc, +6 HP in the shown UI) are **user settings, not proven database lookup results**; do not overwrite or assume their calibration is independently confirmed.
