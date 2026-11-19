@@ -818,3 +818,34 @@ def workflow_jobs(request: Request, x_oscar_rip_token: str | None = Header(defau
         return list_jobs()
     except (WorkflowError, OSError, ValueError) as exc:
         raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.post("/api/go/start")
+def go_start(request: RipRequest, http_request: Request,
+             x_oscar_rip_token: str | None = Header(default=None)):
+    """Start tracked extraction, with same explicit staging confirmation."""
+    from oscar.go_controller import GoError, start
+    from oscar.ripping import RipError
+    from oscar.workflow_ledger import WorkflowError
+    _rip_auth(x_oscar_rip_token,http_request)
+    if request.confirmation != "RIP_TO_STAGING":
+        raise HTTPException(status_code=422, detail="Explicit rip-to-staging confirmation required")
+    try:
+        return start(request.stable_id)
+    except (GoError,RipError,WorkflowError,OSError,ValueError) as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.post("/api/go/jobs/{job_id}/advance")
+def go_advance(job_id: str, request: Request,
+               x_oscar_rip_token: str | None = Header(default=None)):
+    """Advance only safely supported rip/verification/identification operations."""
+    from oscar.go_controller import GoError, advance
+    from oscar.workflow_ledger import WorkflowError
+    from oscar.musicbrainz import MusicBrainzError
+    from oscar.ripping import RipError
+    _rip_auth(x_oscar_rip_token,request)
+    try:
+        return advance(job_id)
+    except (GoError,WorkflowError,MusicBrainzError,RipError,OSError,ValueError) as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
