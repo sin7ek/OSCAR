@@ -154,13 +154,16 @@ def assess_disc_candidates(result: dict, catalog_number: str | None = None) -> d
     does not prove the catalog/pressing: an unlinked edition can still exist.
     """
     import copy
+    import re
 
     output = copy.deepcopy(result)
     candidates = output.get("releases") or []
     if not isinstance(candidates, list):
         raise MusicBrainzError("Invalid release candidates")
+    if not isinstance(catalog_number, (str, type(None))):
+        raise MusicBrainzError("Invalid catalog number")
     raw = (catalog_number or "").strip()
-    if not isinstance(catalog_number, (str, type(None))) or len(raw) > 100 or any(ord(ch) < 32 for ch in raw):
+    if len(raw) > 100 or any(ord(ch) < 32 for ch in raw):
         raise MusicBrainzError("Invalid catalog number")
     def norm(value):
         return re.sub(r"[^a-z0-9]+", "", str(value or "").casefold())
