@@ -51,6 +51,14 @@ class TrackIndexError(RuntimeError):
     pass
 
 
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def _single(tags, field):
     values = tags.get(field, [])
     return str(values[0])[:500] if values else ""
@@ -153,8 +161,7 @@ def index_published_tracks() -> dict:
                     if audio.is_symlink() or not audio.is_file():
                         raise TrackIndexError("Missing archived track")
                     expected = entry.get("sha256", "")
-                    if expected and (not re.fullmatch(r"[a-f0-9]{64}", expected)
-                                     or catalog._sha256(audio) != expected):
+                    if not isinstance(expected, str) or not re.fullmatch(r"[a-f0-9]{64}", expected) or _sha256(audio) != expected:
                         raise TrackIndexError("Archive track hash failed; do not index")
                     tags = _safe_tags(audio)
                     if (_single(tags, "MUSICBRAINZ_ALBUMID") and
