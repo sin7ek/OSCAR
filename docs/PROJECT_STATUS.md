@@ -8,6 +8,8 @@
 
 ## CURRENT STATE — authoritative update after PR #52 (2026-11-19)
 
+**Progress dashboard:** [PROGRESS.md](PROGRESS.md) records eight qualitative completion estimates, a Markdown table and a bar chart. Update it at each meaningful feature PR alongside this handoff; no silent percentage increases. Progress figures are editorial, not objective CI/engineering metrics.
+
 > **This section supersedes outdated historical statements below** that say archive publishing is unimplemented, hardware acceptance is pending, or no audit exists. Earlier incident descriptions remain as a historical record, not current instructions.
 
 ### Confirmed on real Unraid (user-reported, independently inspected where indicated)
