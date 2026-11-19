@@ -6,6 +6,44 @@
 
 > **How to resume after a chat ends:** Read this document first, then `docs/ARCHITECTURE.md`, `README.md`, recent merged PRs and open PRs, and GitHub Actions for the branch under development. Do not infer that a successful CI run establishes real optical hardware functionality.
 
+## CURRENT HANDOFF — verified on 2026-11-19 (read this first)
+
+**Canonical project state:** Earlier notes below record the history of prototype development; statements such as *feature in progress*, *hardware test pending* or *next* from early iterations are **historical, not the current state**. Use this section plus GitHub merged PRs/CI as the authoritative starting point for a new chat. The user actively tests OSCAR on Unraid/Portainer; don't claim deployment or hardware success merely because CI passed.
+
+### What works on real Unraid hardware
+
+1. Three optical drives have ripped concurrently and **all 58 tracks were subsequently verified** by OSCAR's staging verifier (FLAC decoding, SHA-256 hashes, CUE references, cyanrip AccurateRip logs). Original rips, source logs and CUEs are immutable; there is no archive publishing. AccurateRip evidence is *cyanrip-reported*, not independent OSCAR AR/CTDB lookup.
+2. **Boulez Conducts Stravinsky**, Deutsche Grammophon 6CD box, disc 6 of 6, catalog `6CD 477 8730 GB6`, 2010-01-04; MusicBrainz release `423f636d-742d-47b0-9ba2-51515a6fdfd2`; original job `699e010ffdda46ea80cc67b07b72a28e`; original metadata copy `331f89f080d747a381dae81c8d01f799`; 32/32 Classical v2 tags inspected `tags_match_preview` with optional physical sections left blank (PR #36). Archive Review shows the sourced performers (Pierre Boulez, Ensemble intercontemporain, actual vocalists) instead of Igor Stravinsky incorrectly being listed as performer; release-specific cover candidate found (minor sticker difference on public image vs user's physical box). Exactly **one review observation**: track 24 *Tilim-bom*, MB recording `608f8f1f-3d08-48c5-80b5-ffb0a3a4fbdb`, has no explicit Work relation; **never infer** it equals track 23's Work. CUE proposals still reference original `Unknown track.flac` names or future proposed names. PR #37 fixes performer attribution and missing-work observation.
+3. **Anastacia — Freak of Nature**, original Epic single CD, printed catalog `504757 2`, barcode `5099750475720`, release `4b370e6c-e6d2-36a5-8c47-5337a2d77d69`, 2001-11-26, 12 tracks; verified original job `0c81d7d445ce4e29aa95da10c866bcf9`. Disc ID `fHRjyL_F16yLkOO1ddr2Hedl0A0-` matches multiple editions, so we require the exact physical release. User tested Physical Release Comparison (PR #38): catalog, barcode, Disc ID on medium and track count **all matched**. They reviewed an existing **original MusicBrainz tagged copy** with Archive Review profile `auto`; it selected `standard`, **0 review observations**, CUE PERFORMER = **Anastacia** for all 12 tracks, the original/reprise *Overdue Goodbye* pair is recognized as benign same-Work/different-Recording. Artwork candidate found. This is a **successful real hardware acceptance of PR #41**. Do **not** run this pop album through Classical v2; don't rerip or retag for read-only Archive Review.
+4. **Various — Essential Dance Traxx**, Citycat Club, Europe 1997, printed catalog `CCC 97001`, 14 tracks; verified rip job `95dbf0da233d4a3887800a517a149b3c`, Disc ID `UNzDV9I7c4DxDxpasZu014z4sQs-`; 14/14 FLAC verified with cyanrip AccurateRip v2-only evidence (confidence 4). Its Disc ID points to an **unrelated 14-track release (Ibiza Party)**, so DO NOT select it. A proper MusicBrainz physical release ID for Citycat has **not** yet been verified. The next feature is independent release discovery by printed catalog `CCC 97001` and title `Essential Dance Traxx`. If not present, prepare a properly evidenced MusicBrainz release edit, never fabricate recording/work IDs or incorrectly tag against the unrelated release.
+
+### Current shipping features and boundaries
+
+- Merged **#36**: optional, reviewed Classical v2 release sections, general-purpose UI, no Handel-specific demo defaults.
+- Merged **#37**: CUE performers based on explicit performer relations for classical; missing classical Work link flagged for review.
+- Merged **#38**: read-only Physical Release Comparison using printed catalog, barcode, linked Disc ID and track count; no physical edition *approval* is automated.
+- Merged **#41**: Archive Review processing policies: `auto` chooses classical from Classical v2 copy or majority conductor credits, otherwise `standard`; standard CUE uses primary ARTIST and keeps session players in FLAC; normal `(reprise)` shared Work is not flagged. Optional manual read-only `standard`/`classical` override. **This is not a full genre classifier or automatic rip/tag workflow.**
+- **New candidate discovery feature (this change):** read-only MusicBrainz search by `catno` or `release` title, no Disc ID/physical edition matching. It helps find the Citycat release even if Disc ID lookup returns only Ibiza Party. Candidate validation still requires the separate Physical Release Comparison and an exact Disc ID-linked medium for tagging. No external fallback such as Discogs/GnuDB has shipped.
+- MusicBrainz alias cache and retry queue operate for artist/work **aliases only**. Full release cache, Discogs/GnuDB adapters, AcoustID corroboration and auto-approval are **not yet implemented** (see #40).
+- Final archive publisher, atomic filename changes, corresponding playable CUE, cover selection/embedding, and post-publish integrity checks **not yet implemented** (see #39). `NN - Unknown track.flac` is an intentional raw/staging filename, *not* the desired final archive name. Existing proposed rename CUE is not yet a usable archive CUE.
+- Automation profiles / safe automatic insertion→Go remain future work (issue #32). Never conflate technical audio verification with physical release metadata correctness.
+
+### Resume instructions / immediate next actions
+
+1. After this PR's **successful main-branch CI and Docker publication**, deploy `ghcr.io/sin7ek/oscar:main` in the user's existing Portainer stack; do not change mounts or persistent `/config` without review.
+2. In **Find a physical release without a Disc ID match**, search by catalog `CCC 97001`; if none, search title `Essential Dance Traxx`. Return full candidate names, dates, catalog and MusicBrainz release UUIDs; **do not** select Ibiza Party from a shared Disc ID.
+3. For a promising candidate, use Citycat's verified job `95dbf0da233d4a3887800a517a149b3c` in **Physical release comparison** with physically printed `CCC 97001`. Compare titles, tracklist and art independently, document unresolved discrepancies. If MusicBrainz doesn't contain the correct release, plan adding it from the physical CD/booklet or reliable secondary sources; no guessed recordings.
+4. Next code milestone: candidate resolver/cache in #40 (catalog-first and independent evidence, persistent full MusicBrainz release snapshots); archive publisher with safe naming/CUE and integrity in #39 after physical identity is settled. Test Anastacia and Boulez as regression cases.
+5. Update this handoff after **every** merged feature and each hardware result, noting exact job/copy IDs where provided. For later chats ask for `docs/PROJECT_STATUS.md` on `main` and the latest completed GitHub Actions status. No need to redo prior tests.
+
+### Related tracker
+
+- [#32 — Safe automation modes](https://github.com/sin7ek/OSCAR/issues/32)
+- [#39 — Safe final FLAC naming and archive publication](https://github.com/sin7ek/OSCAR/issues/39)
+- [#40 — Metadata resolver, full-release cache and fallback providers](https://github.com/sin7ek/OSCAR/issues/40)
+- [Physical release review](PHYSICAL_RELEASE_REVIEW.md)
+- [Archive review and multidrive](ARCHIVE_REVIEW_AND_MULTIDRIVE.md)
+
 ## Current implementation (v0.1.0-alpha)
 
 - Read-only FastAPI/HTML UI for enabled optical drive configuration, device probing and TOC / MusicBrainz Disc ID inspection, subject to opt-in flags and hardware/container permissions.
@@ -60,15 +98,9 @@
 - **First full three-drive hardware acceptance success — 2026-11-19:** Three CD jobs run concurrently on GH24NS95 `/dev/sr1` (`0c81d7d445ce4e29aa95da10c866bcf9`, 12 tracks), Optiarc AD-7200S `/dev/sr2` (`699e010ffdda46ea80cc67b07b72a28e`, 32 tracks), and hp DH16AAL `/dev/sr3` (`95dbf0da233d4a3887800a517a149b3c`, 14 tracks). All 58/58 FLAC files passed fresh FLAC decoding and SHA-256 rechecks, all CUE file references matched, no ripping errors, and all three verification reports now show `checks_passed`. The 12-track CD has AccurateRip v1/v2 confidence 200 for all tracks; the 32-track CD has v1 confidence 8 and v2 64–65; the 14-track CD has v2-only confidence 4 for every track, no v1 reported, correctly accepted with disclosed single-version coverage after PR #35. This proves three simultaneous extraction jobs and subsequent staged verification on the user's Unraid hardware, **not** metadata correctness, CTDB validation, archive publication or restart recovery. Next: identify each job's exact Boulez/house/pop physical release and test distinct tagging/consistency workflows.
 - **Safety note:** these checks concern metadata identification only, not secure ripping or AccurateRip validation.
 
-## Next steps in priority order
+## Prioritized actions
 
-1. Confirm PR #18 merged after CI; deploy newly built `ghcr.io/sin7ek/oscar:main` to Unraid and re-test Tchaikovsky conductor spelling against real MusicBrainz alias availability.
-2. Validate the metadata retry queue on Unraid with `OSCAR_ENABLE_METADATA_WORKER=1`; then extend queue to Disc ID/release lookups, add cancellation and per-task progress in the GUI. Never block rip verification on MusicBrainz.
-3. Validate archive naming preview on single-composer and mixed-composer classical CDs; refine album/work/movement/performer tag plan, catalog numbers, collision checks and correct boxset disc numbering; maintain source provenance.
-4. Test the experimental cyanrip staging rip on one real optical drive using /mnt/user/ai-workspace only; inspect CLI log, CUE/FLAC output and drive permissions; no archive access.
-5. Exercise the staging verification report on the original 28-track Handel reference job; implement independent AccurateRip/CTDB verification later, including confidence provenance and FLAC integrity. Logged cyanrip matches are strong evidence, but not an independent OSCAR database query.
-6. Implement staged, collision-safe archive publication with a manifest and conservative cleanup policy.
-7. Test unattended insert→Go workflow only after the above has proven safe.
+**Use the CURRENT HANDOFF above for priority and real-world status.** The earlier action list was created before the completed three-drive hardware acceptance and is now superseded.
 
 ## Deployment and safety reminders
 
