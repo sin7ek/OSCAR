@@ -67,8 +67,12 @@ def _validated_source(job_id, copy_id):
 
 def validate_sections(sections, total):
     """A named section must have an explicit, nonoverlapping track range."""
-    if not isinstance(sections, list) or not 1 <= len(sections) <= 30:
-        raise ClassicalError("Supply one to thirty reviewed CD sections")
+    if not isinstance(sections, list) or len(sections) > 30:
+        raise ClassicalError("Supply at most thirty reviewed CD sections")
+    if not sections:
+        # No physical-release section was reviewed. This is legitimate: work
+        # relationships can still be shown without inventing an edition layout.
+        return [], {}
     ranges = {}
     normalized = []
     for item in sections:
@@ -142,7 +146,10 @@ def create_preview(job_id, copy_id, sections, movements=None):
         n = entry["number"]
         tags = dict(entry["tags"])
         tags.pop("GROUPING", None)
-        tags["RELEASE_SECTION"] = by_track[n]
+        if n in by_track:
+            tags["RELEASE_SECTION"] = by_track[n]
+        else:
+            tags.pop("RELEASE_SECTION", None)
         # Distinguish the linked work from its parent, regardless of the
         # division of the physical CD into suites/sections.
         parents = [p for w in entry.get("works") or []
@@ -163,7 +170,7 @@ def create_preview(job_id, copy_id, sections, movements=None):
         tracks.append({
             "number": n, "original_file": entry["original_file"],
             "title": tags.get("TITLE"),
-            "release_section": by_track[n],
+            "release_section": by_track.get(n),
             "work": tags.get("WORK", []),
             "work_parent": tags.get("WORK_PARENT", []),
             "movement": explicit_movements.get(n),
@@ -178,10 +185,11 @@ def create_preview(job_id, copy_id, sections, movements=None):
         "sections": checked_sections, "tracks": tracks, "track_count": total,
         "status": "requires_review",
         "warnings": [
-            "RELEASE_SECTION is a reviewed physical-CD section; WORK_PARENT is MusicBrainz composition hierarchy.",
+            "RELEASE_SECTION is written only for an explicitly reviewed physical-CD section; WORK_PARENT comes from MusicBrainz composition hierarchy.",
             "MOVEMENT is written only when explicitly supplied by the reviewer, never inferred from punctuation or numbering.",
             "English aliases come from the local MusicBrainz alias cache and supplement original names; absent aliases remain absent.",
             "WORK retains all explicitly linked work titles and IDs; source tags and original FLACs remain untouched.",
+            "No RELEASE_SECTION has been assigned; physical-CD sections may be supplied later after checking the booklet." if not checked_sections else "Physical-CD sections were explicitly supplied by the reviewer.",
         ],
     }
     canonical = json.dumps(result, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode()
