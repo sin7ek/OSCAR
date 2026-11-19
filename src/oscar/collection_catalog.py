@@ -157,7 +157,7 @@ def _archive_tag_metadata(album: Path, manifest: dict) -> dict:
         # Explicitly sourced performer role strings only: do not guess which
         # performers are soloists from name or album artist credits.
         for value in tags.get("PERFORMER", []):
-            if re.search(r"\\((?:solo|soloist|violin|cello|piano|soprano|tenor|mezzo-soprano|bass|baritone|flute|clarinet|harp|voice|vocal)\\)", value, re.I):
+            if re.search(r"\((?:solo|soloist|violin|cello|piano|soprano|tenor|mezzo-soprano|bass|baritone|flute|clarinet|harp|voice|vocal)\)", value, re.I):
                 add("soloists", value)
     return {key: "; ".join(groups[key]) for key in _ENRICHED}
 
