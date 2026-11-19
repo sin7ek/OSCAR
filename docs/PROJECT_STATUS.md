@@ -12,6 +12,15 @@
 
 > **This section supersedes outdated historical statements below** that say archive publishing is unimplemented, hardware acceptance is pending, or no audit exists. Earlier incident descriptions remain as a historical record, not current instructions.
 
+### Configurable release identification modes — PR #58, 2026-11-19
+
+- User design decision: **Best Guess Mode = intended Full Automatic** and **Secure Mode = adjustable from Semi Automatic to Full Manual**. These are *two identification policies*, not different audio verification rigor. Default mode is Secure.
+- Implemented in this PR: persistent, validated `/config/settings.json` preferences `identification_mode: secure | best_guess` and `secure_review_level: on_ambiguity | before_archive | every_step`; settings UI explains modes, shows three Secure review intensities, and correctly hides the inactive Secure options in Best Guess view. Old settings files load as Secure / on_ambiguity. No change to existing drive settings or filenames.
+- Intended future **Best Guess / Full Automatic**: select highest-quality MusicBrainz candidate using Disc ID, TOC, track count and available source evidence; emit explicit `INFERRED` provenance and allow safe unattended transitions only after strict audio checks and explicit opt-in. No candidate/conflicting integrity => preserve for deferred review; NEVER forge or misrepresent physical edition confidence.
+- Intended future **Secure / Semi Automatic (`on_ambiguity`)**: proceed without interruptions when identity evidence is strong; pause on ambiguous/conflicting physical edition. **Secure / Review before archive (`before_archive`)**: require final edition and publication preview review. **Secure / Full Manual (`every_step`)**: user approves each critical transition, but same preservation rules.
+- **Critical implementation boundary:** this PR saves settings and exposes UI only. **There is NO automated rip→tag→archive orchestration engine here, and no new bypass of the existing exact-medium requirements, manual copy confirmation or publishing safeguards.** Future PR must implement a tested, server-side evidence/approval policy, provenance fields, persistent per-job mode snapshot, correction/re-tag from original staging without rerip, and end-to-end workflow. Avoid interpreting the 'Best Guess' setting as immediately enabling full automation.
+- Test scope: default/legacy migration, all mode and Secure-level round trips, invalid values, rendered UI and setting validation. CI and Unraid acceptance must be recorded separately.
+
 ### Risk-based physical edition discovery — 2026-11-19 (new feature; CI/hardware status below)
 
 - Inserted-disc MusicBrainz candidate lookup now classifies **one candidate**, **multiple candidates**, **no candidate**, **catalog conflict**, **one catalog candidate** and **multiple catalog matches**. It does **not** equate unique Disc ID match with proof of the physical edition: an unlinked edition (as in Händel E 8512) might be missing.
