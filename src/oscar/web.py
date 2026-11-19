@@ -96,6 +96,17 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 <button type="button" id="discogs-check">Check Discogs account and folders</button>
 <div id="discogs-result" aria-live="polite"></div>
 </section>
+<section><h2>Persistent workflow ledger · towards CD in → Go!</h2>
+<p>Register an already saved OSCAR rip in a persistent, restart-safe review ledger. It preserves your identification-mode choice, tracks verified staging and lets you defer/resume physical edition review. <strong>This does not yet rip, tag or publish automatically.</strong></p>
+<label for="workflow-job">Staging rip job ID</label>
+<input id="workflow-job" maxlength="32" placeholder="32-character saved OSCAR job ID" style="width:350px;max-width:95%">
+<button type="button" id="workflow-register">Register saved rip</button>
+<button type="button" id="workflow-refresh">Refresh from staging</button>
+<button type="button" id="workflow-defer">Defer edition review</button>
+<button type="button" id="workflow-resume">Resume edition review</button>
+<button type="button" id="workflow-list">View tracked jobs</button>
+<div id="workflow-result" aria-live="polite"></div>
+</section>
 <section><h2>Staging verification (experimental)</h2>
 <p>Review an already completed OSCAR rip. Reads cyanrip AccurateRip evidence, checks saved SHA-256, decodes each FLAC and validates CUE references. No tagging, archiving or cleanup.</p>
 <label for="verify-job">Staging rip job ID (32 hexadecimal characters)</label>
@@ -1567,6 +1578,55 @@ document.getElementById('discogs-check').onclick=async()=>{
   }
  }catch(error){out.textContent='Discogs unavailable: '+error.message}
 };
+
+async function workflowAction(kind, action=''){
+ const out=document.getElementById('workflow-result');
+ const headers=requestAuthHeaders('Inspect saved OSCAR workflow');if(!headers)return;
+ const job=document.getElementById('workflow-job').value.trim().toLowerCase();
+ if(kind!=='list'&&!/^[a-f0-9]{32}$/.test(job)){
+  out.textContent='Enter a valid existing staging rip job ID.';return;
+ }
+ let url='/api/workflow/jobs', options={headers};
+ if(kind!=='list'){
+  url+='/'+job+'/'+(kind==='review'?'review':kind);
+  options.method='POST';
+  if(kind==='review'){
+   options.headers={'Content-Type':'application/json',...headers};
+   options.body=JSON.stringify({action});
+  }
+ }
+ out.textContent='Reading persistent workflow ledger…';
+ try{
+  const response=await fetch(url,options);
+  const data=await response.json();
+  if(!response.ok)throw new Error(data.detail||'Workflow ledger failed');
+  out.replaceChildren();
+  if(kind==='list'){
+   const summary=document.createElement('p');
+   summary.textContent=data.jobs.length+' tracked jobs. Automatic engine not yet running.';
+   out.append(summary);
+   for(const item of data.jobs){
+    const p=document.createElement('p');
+    p.textContent=item.job_id+' · '+item.phase+' · '+item.identification_mode;
+    out.append(p);
+   }
+  }else{
+   const status=document.createElement('p');
+   status.textContent='Job '+data.job_id+' · '+data.phase+
+     ' · identification '+data.identification_mode+
+     ' / '+data.secure_review_level;out.append(status);
+   const next=document.createElement('p');next.textContent=data.next_action;out.append(next);
+   const history=document.createElement('small');
+   history.textContent=data.events.length+' persisted workflow event(s). Source rip and archive unchanged.';
+   out.append(history);
+  }
+ }catch(error){out.textContent='Workflow ledger: '+error.message}
+}
+document.getElementById('workflow-register').onclick=()=>workflowAction('register');
+document.getElementById('workflow-refresh').onclick=()=>workflowAction('refresh');
+document.getElementById('workflow-defer').onclick=()=>workflowAction('review','defer');
+document.getElementById('workflow-resume').onclick=()=>workflowAction('review','resume');
+document.getElementById('workflow-list').onclick=()=>workflowAction('list');
 
 function updateIdentificationMode(){
  const guess=document.getElementById('identification-mode').value==='best_guess';
