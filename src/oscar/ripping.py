@@ -185,7 +185,8 @@ def plan(stable_id):
     if not _DISC.fullmatch(disc_id):
         raise RipError("Unexpected MusicBrainz Disc ID")
     return {"stable_id": stable_id, "device": device, "offset_samples": offset,
-            "disc_id": disc_id, "track_count": len(toc["tracks"]),
+            "disc_id": disc_id, "toc_string": toc.get("toc_string", ""),
+            "track_count": len(toc["tracks"]),
             "output_root": str(root), "command": make_command(device, offset),
             "warning": "Experimental extraction only; no verified archive or automatic cleanup"}
 
