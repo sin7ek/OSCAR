@@ -14,6 +14,9 @@
 
 ### Confirmed on real Unraid (user-reported, independently inspected where indicated)
 
+- **PR #52 archive audit — first real Unraid acceptance (2026-11-19):** User ran `docker exec oscar python -m oscar.archive_audit /archive`. Actual result: `OSCAR archive audit: PASS_WITH_WARNINGS | 1 releases | 12 FLACs`; album `Anastacia/[504757 2] Freak of Nature (2001) [4b370e6c]` classified `PHYSICAL_CD_RIP`, status `PASS_WITH_WARNINGS`. Sole warning: `EVIDENCE_NOT_EMBEDDED` because this album was published before PR #51. Auditor correctly states `AccurateRip/CTDB: not independently checked by this auditor.` No audio errors reported. This verifies the CLI runs on actual Unraid with existing archive; it is not a test of future PR #51 embedded evidence, multi-album handling or independent CTDB verification.
+
+
 - **First successful published archive: Anastacia — Freak of Nature (2001), catalog 504757 2.** Verified original staging rip job `0c81d7d445ce4e29aa95da10c866bcf9`, selected physical MusicBrainz release `4b370e6c-e6d2-36a5-8c47-5337a2d77d69`, 12 FLACs. Publication target: `/archive/Anastacia/[504757 2] Freak of Nature (2001) [4b370e6c]`. OSCAR reported `published_verified`, and the user independently listed all 12 FLACs plus `album.cue`, `SOURCES.txt` and `manifest.json` in the final directory. The resulting manifest SHA-256 `cc1f92ea7b6317d32e5e3fc11f74122d0760b82aa88ad733c5a5f2c38c3f5851` matches OSCAR's publication response.
 - **CUE preservation checked:** compared cyanrip's original `Unknown disc (5099).cue` with OSCAR's proposed `album.cue`. All 12 track indices (INDEX 01), all ISRCs, MCN and disc IDs are retained; neither source nor adapted CUE contains INDEX 00/PREGAP. This does *not* prove hardware-level absence of gaps or HTOA.
 - **Unraid FUSE fix accepted on actual hardware:** PR [#50](https://github.com/sin7ek/OSCAR/pull/50) fixed `renameat2(RENAME_NOREPLACE)` fallback for shfs/FUSE and separately reports unsupported parent directory fsync. Original rip and tagged staging remain preserved. Old failed publication temporary folder `/archive/Anastacia/.oscar-unpublished-e18c51ec667e42da99dcb598a745e2a8` was identified; **removal/quarantine was proposed but not confirmed**. Never assume it has been deleted.
@@ -25,7 +28,7 @@
 |---|---|---|---|
 | [#50](https://github.com/sin7ek/OSCAR/pull/50) | Unraid-safe final archive publication + conditional confirmation UI | Passed | **Confirmed:** Anastacia published, final files and manifest independently checked |
 | [#51](https://github.com/sin7ek/OSCAR/pull/51) | Copy original cyanrip CUE and existing logs to `ExtractionEvidence/` at publication, hash in manifest, reject changed evidence | Tests + Docker build passed | **Not yet tested on Unraid**; applies to subsequent publications, does not retroactively change the Anastacia archive |
-| [#52](https://github.com/sin7ek/OSCAR/pull/52) | Standalone read-only provenance-aware archive integrity CLI (`python -m oscar.archive_audit /archive [--json]`) | Tests + Docker build passed | **Not yet tested on Unraid**; no UI or scheduled runner yet |
+| [#52](https://github.com/sin7ek/OSCAR/pull/52) | Standalone read-only provenance-aware archive integrity CLI (`python -m oscar.archive_audit /archive [--json]`) | Tests + Docker build passed | **Confirmed on Unraid**: Anastacia 1 album, 12 FLACs, PASS_WITH_WARNINGS, expected EVIDENCE_NOT_EMBEDDED; no UI/scheduler yet |
 
 PR #51 merged at `b307b8248f0c64997ffd79973bfab44a88704003`; PR #52 merged at `b1ad817db3b68d76f07e3b9401d8bb8e54873238`.
 
@@ -43,7 +46,7 @@ PR #51 merged at `b307b8248f0c64997ffd79973bfab44a88704003`; PR #52 merged at `b
 
 ### Next priorities
 
-1. **Hardware acceptance for PR #52:** update image only after new main image publication, run `docker exec oscar python -m oscar.archive_audit /archive`; expect a documentation warning for Anastacia, which predates PR #51, rather than silently assuming evidence was embedded. Review all genuine errors before acting. Do not alter old archives automatically.
+1. **PR #52 basic hardware acceptance completed:** the existing Anastacia archive passed with the expected missing-embedded-evidence warning. Next test a future publication containing PR #51 evidence and rerun the same read-only audit; review all genuine errors before acting. Do not alter old archives automatically.
 2. **Real publish test for PR #51** using a new, reviewed, verified release; inspect `ExtractionEvidence/`, manifest entries and staged-original byte preservation. No need to rerip or republish Anastacia solely to test this.
 3. **Make the audit visible in the UI** with clearly distinct technical integrity, provenance/documentation, AccurateRip and CTDB statuses. No invented independent verification or destructive repair.
 4. **Investigate independent CTDB** on Linux, with truthful confidence and provenance (especially 1/1 matches).
