@@ -63,3 +63,45 @@ def test_read_only_inventory_unknown_directory(tmp_path: Path):
 def test_drive_id_rejects_paths():
     with pytest.raises(ValidationError):
         DriveSettings(stable_id="../../etc/passwd", label="bad")
+
+
+def test_default_identification_policy_is_secure_and_existing_configs_migrate(tmp_path):
+    path = tmp_path / "existing.json"
+    path.write_text('{"profile":"archival","drives":[]}', encoding="utf-8")
+    settings = read_settings(path)
+    assert settings.identification_mode == "secure"
+    assert settings.secure_review_level == "on_ambiguity"
+    assert read_settings(tmp_path / "missing.json").identification_mode == "secure"
+
+
+@pytest.mark.parametrize("mode,level", [
+    ("best_guess", "on_ambiguity"),
+    ("secure", "on_ambiguity"),
+    ("secure", "before_archive"),
+    ("secure", "every_step"),
+])
+def test_identification_preferences_round_trip(tmp_path, mode, level):
+    path = tmp_path / "settings.json"
+    settings = OscarSettings(identification_mode=mode, secure_review_level=level)
+    save_settings(settings, path)
+    assert read_settings(path) == settings
+
+
+@pytest.mark.parametrize("bad", [
+    {"identification_mode": "full_auto"},
+    {"identification_mode": "unsafe"},
+    {"secure_review_level": "skip_all"},
+])
+def test_invalid_identification_preferences_rejected(bad):
+    with pytest.raises(ValidationError):
+        OscarSettings(**bad)
+
+
+def test_identification_modes_visible_but_not_misrepresented_as_active():
+    from fastapi.testclient import TestClient
+    from oscar.api import app
+    html = TestClient(app).get("/").text
+    for text in ("identification-mode", "secure-review-level", "best_guess",
+                 "on_ambiguity", "before_archive", "every_step",
+                 "fully automatic tagging/publishing engine is not implemented yet"):
+        assert text in html
