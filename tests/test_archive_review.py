@@ -455,6 +455,9 @@ def test_archive_publisher_ui_present():
     assert 'id="publish-preview"' in html
     assert 'id="publish-start"' in html
     assert 'id="publish-physical"' in html
+    assert "[hidden]{display:none!important}" in html
+    assert 'id="publish-observation-label" hidden' in html
+    assert 'id="publish-cover-label" hidden' in html
     assert "Preview not started: OSCAR rip token was not supplied" in html
     assert "Preparing archive preview authorization" in html
     assert "Archive preview authorization unavailable" in html
