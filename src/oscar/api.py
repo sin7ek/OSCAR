@@ -441,7 +441,7 @@ class ClassicalSection(BaseModel):
 
 
 class ClassicalPreviewRequest(BaseModel):
-    sections: list[ClassicalSection] = Field(min_length=1, max_length=30)
+    sections: list[ClassicalSection] = Field(default_factory=list, max_length=30)
     movements: dict[str, str] = Field(default_factory=dict)
 
 
