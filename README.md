@@ -17,11 +17,9 @@ Besides his love for us, his children, one of his greatest passions was music. H
 
 At his funeral, we listened to the Adagio from Bruckner's Ninth Symphony, performed by the Royal Concertgebouw Orchestra under Riccardo Chailly. And because this was Oscar, we played it through **his own amplifier and loudspeakers**, which we had brought to the funeral home. It felt only right.
 
-After his passing, he left me something else: **more than 1,000 CDs**.
+After his passing, he left me something else: **more than 1,000 CDs** - and I had absolutely no idea what to do with them.
 
-And I had absolutely no idea what to do with them.
-
-I couldn't bring myself to get rid of them, but manually ripping a thousand CDs wasn't particularly appealing either. I experimented with Automatic Ripping Machine, but even that required more manual work than I was willing to put in.
+I couldn't bring myself to get rid of them, but manually ripping a thousand CDs wasn't particularly appealing either. I experimented with Automatic Ripping Machine, but even that required more manual work than I could put in.
 
 So, naturally, I did what any reasonable person would do: **I spent five years not solving the problem.**
 
@@ -29,7 +27,7 @@ Eventually, with a little help from ChatGPT, I started building something of my 
 
 On November 19, 2026, exactly five years after my dad passed away, OSCAR successfully ripped and AccurateRip-verified its very first audio track.
 
-Five years, more than a thousand CDs, and quite a few lines of code later, OSCAR was finally making music again.
+Five years, still thousand CDs to go, and quite a few lines of code later, OSCAR was finally recording music again. Something my dad always enjoyed doing.
 
 **OSCAR lives on.**
 
