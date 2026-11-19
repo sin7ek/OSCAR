@@ -2,20 +2,28 @@
 
 **State:** plans and implemented foundations as of November 19, 2026. This is *not* a completed automatic pipeline.
 
-## One audio pipeline; two identification policies
+## One verified audio pipeline; three top-level operating modes (design decision, 2026-11-19)
 
-Audio checks are equally strict in every mode: verified staging, FLAC decode, SHA-256, CUE consistency, original extraction evidence, and preserved source. A MusicBrainz Disc ID by itself never proves a pressing.
+**Requested ordering:** **Best Guess (Full Automatic) → Semi Secure (Semi Automatic) → Secure**. This is the intended future policy design; the current persisted configuration and Go! phase 1 still only implement `best_guess` and `secure`. Do not claim `semi_automatic` is available until its UI, configuration, ledger and transition guards are implemented and tested.
 
-| Step | Best Guess (Full Automatic intention) | Secure: Semi Automatic | Secure: Review before Archive | Secure: Full Manual |
-|---|---|---|---|---|
-| Disc detection and candidate search | Automatic | Automatic | Automatic | User starts |
-| Physical edition | Plausible highest-evidence candidate, marked INFERRED | Corroborated edition evidence or pause | Same plus final preview review | Explicit review |
-| Ambiguity, missing metadata | Preserve verified rip and defer; never invent IDs | Ask catalog/barcode or defer | Same | Same |
-| Audio integrity verification | Mandatory | Mandatory | Mandatory | Mandatory |
-| Tag/classical Work mapping | Only supported source relationships | Same | Same | Same |
-| Publishing | User-enabled automation after independent checks | Only after evidence gate | Explicit approval | Explicit approval |
-| Local catalog | Update after verified publish | Same | Same | Same |
-| Discogs collection write | Separate opt-in per physical copy | Same | Same | Same |
+Audio checks remain equally strict in **all three** modes: cyanrip extraction into preserved original staging, FLAC decode, SHA-256, CUE consistency, audio verification and immutable evidence. A matching MusicBrainz Disc ID is candidate evidence, **not** proof of physical pressing. The three modes differ in how much release-identity uncertainty and operator interaction they permit—not in audio-integrity standards.
+
+| Policy | Best Guess — Full Automatic | Semi Secure — Semi Automatic | Secure — evidence-first |
+|---|---|---|---|
+| Rip and verify | Automatic | Automatic | Automatic |
+| Disc ID / TOC / MusicBrainz candidate ranking | Automatic | Automatic | Automatic |
+| Candidate selection | Highest credible candidate may be automatically selected and marked `INFERRED` | System proposes a candidate, **operator reviews/accepts or replaces it**, even if inferred | Requires physical edition corroboration (catalog/barcode/other reliable pressing evidence) or stops for review |
+| Wrong pressing risk | Deliberately accepted by mode choice; never mislabel inference as physically verified | Explicitly accepted **per proposed release** by operator if selected without physical confirmation | Must not silently accept inferred pressing as physically verified |
+| No credible release candidate | Verified original rip kept for review; no invented identity | Verified original rip kept for review | Verified original rip kept for review |
+| Metadata tagging and copy | Future: automatically, after verification and valid source-based metadata; inferred attribution retained | Future: prepare non-destructive preview; **only after operator release approval** create tagged copy | Future: only after strict edition evidence and required reviews |
+| Archive publication | Future: automatic only when Full Automatic explicitly enabled and all integrity gates pass | Future: **requires final operator approval before publication** | Future: requires strict physical edition gate, plus configured review level |
+| Collection/index | Only after successful publication; preserve inference status | Only after approved publication; preserve inferred vs verified status | Only after approved publication; preserve verified status |
+
+**Semi Automatic user journey:** **Go! → rip → verify → candidate(s) + evidence → [Approve this release / Choose another / Save for later] → tagged-copy preview → [Publish / Save for later]**. Release acceptance and archive publication are two separate approvals; avoid a single misleading “Approve everything” click by default. A reviewed inferred candidate stays `INFERRED, OPERATOR_ACCEPTED`, **not** `PHYSICALLY_VERIFIED`, unless independent physical evidence is actually recorded. A review action is idempotent, persisted against the exact job/MB release UUID, and blocked if the candidate or staged files have changed.
+
+**Secure submodes remain configurable** as they are today (`on_ambiguity`, `before_archive`, `every_step`). Semi Automatic is a **separate top-level mode**, not a new spelling for the existing `Secure: Semi Automatic` column or `secure_review_level`. When the new mode ships, rename legacy UI wording to avoid confusion and preserve previously saved `secure` and `best_guess` values and existing jobs unchanged. Suggested stable setting: `identification_mode=semi_automatic`, with a dedicated persisted ledger state. It must never silently migrate an existing Secure job to a more permissive policy.
+
+**Real acceptance example:** Essential Dance Traxx absent from MusicBrainz can legitimately produce an inferred *Ibiza Party* Disc ID candidate. Best Guess may accept that risk under its configured automation policy. Semi Automatic must **show the candidate for approval before use**. Secure pauses until physical edition evidence is sufficient. Never invent a missing release or claim the other album is the owned physical pressing.
 
 ## Second implementation increment — PR #64 Go! controller
 
@@ -25,7 +33,7 @@ Still to build: evidence-based physical edition resolver with persistent catalog
 
 ## First implementation increment — PR #63 persistent job ledger
 
-A separate SQLite ledger can now **manually** register an existing saved staging rip, snapshot the user's selected Best Guess or Secure review policy, record immutable stage transitions and allow review deferral/resume. It reconciles its phase with actual staging verification evidence, without touching audio. This is persistence only: it does **not** create jobs at disc insertion, resume interrupted cyanrip, decide editions, generate tags, or publish archives. Real automatic scheduling requires the next milestones below.
+A separate SQLite ledger can now **manually** register an existing saved staging rip, snapshot the user's selected currently supported Best Guess or Secure review policy, record immutable stage transitions and allow review deferral/resume. It reconciles its phase with actual staging verification evidence, without touching audio. This is persistence only: it does **not** create jobs at disc insertion, resume interrupted cyanrip, decide editions, generate tags, or publish archives. Real automatic scheduling requires the next milestones below.
 
 ## Current foundations
 
