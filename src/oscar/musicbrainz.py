@@ -80,3 +80,68 @@ def lookup_releases(disc_id: str, toc: str, opener=None) -> dict:
 
 def lookup_enabled() -> bool:
     return os.environ.get("OSCAR_ENABLE_MUSICBRAINZ") == "1"
+
+
+def search_release_candidates(*, catalog_number=None, title=None, opener=None):
+    """Find physical-release *candidates* without a Disc ID lookup.
+
+    Catalog and release title searches are separate evidence sources. Query
+    tokens are quoted as Lucene string literals, not raw search syntax.
+    No search result implies a Disc ID attachment or physical-edition match.
+    """
+    import re
+    values = [("catalog_number", catalog_number), ("title", title)]
+    if not any(value for _, value in values):
+        raise MusicBrainzError("Enter a catalog number or release title")
+    for field, value in values:
+        if value is not None and (
+            not isinstance(value, str) or not 1 <= len(value.strip()) <= 100
+            or any(ord(ch) < 32 for ch in value)
+        ):
+            raise MusicBrainzError(f"Invalid {field}")
+    if catalog_number and title:
+        raise MusicBrainzError("Search one evidence field at a time")
+    field = "catno" if catalog_number else "release"
+    query_value = (catalog_number or title).strip()
+    # Quote and escape all search syntax so user-supplied search values
+    # remain literal rather than injecting Lucene operators or filters.
+    escaped = re.sub(r'([\\\\"])', r'\\\\\1', query_value)
+    expression = f'{field}:"{escaped}"'
+    url = "https://musicbrainz.org/ws/2/release/?" + urllib.parse.urlencode({
+        "query": expression, "limit": "25", "fmt": "json",
+    })
+    request = urllib.request.Request(url, headers={
+        "User-Agent": _UA, "Accept": "application/json",
+    })
+    from oscar.mb_client import fetch_json
+    payload = fetch_json(request, opener=opener, timeout=12,
+                         max_bytes=1_000_000)
+    releases = []
+    for item in payload.get("releases") or []:
+        if not isinstance(item, dict) or not re.fullmatch(
+            r"[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}",
+            str(item.get("id") or ""),
+        ):
+            continue
+        labels = [{"name": (x.get("label") or {}).get("name"),
+                   "catalog_number": x.get("catalog-number")}
+                  for x in item.get("label-info") or [] if isinstance(x, dict)]
+        artist = "".join(
+            x.get("name", "") + x.get("joinphrase", "")
+            if isinstance(x, dict) else str(x)
+            for x in item.get("artist-credit") or []
+        )
+        releases.append({
+            "id": item["id"], "title": item.get("title"), "artist": artist,
+            "date": item.get("date"), "country": item.get("country"),
+            "barcode": item.get("barcode"), "labels": labels,
+            "search_score": item.get("score"),
+            "provenance": f"musicbrainz_search_{field}",
+        })
+    return {
+        "status": "candidates" if releases else "no_match",
+        "query_kind": field, "query_value": query_value,
+        "releases": releases, "requires_review": True,
+        "disc_id_compared": False, "physical_edition_approved": False,
+        "note": "Search candidates are not Disc ID or track-count matches. Inspect the exact release medium and physical evidence separately before tagging.",
+    }
