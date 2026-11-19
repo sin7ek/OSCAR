@@ -96,6 +96,15 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 <button type="button" id="discogs-check">Check Discogs account and folders</button>
 <div id="discogs-result" aria-live="polite"></div>
 </section>
+<section><h2>Go! · tracked CD ripping (phase 1)</h2>
+<p>Start a new rip and persist your saved Best Guess or Secure policy before extraction. Verification automatically starts after ripping. The controller checks MusicBrainz candidates only after verified audio. <strong>Automatic tagging, physical edition approval and archive publication are not enabled yet.</strong></p>
+<label for="go-drive">Enabled optical drive</label><select id="go-drive"></select>
+<button type="button" id="go-start">Go! — rip to verified staging</button>
+<label for="go-job">Go job ID</label>
+<input id="go-job" maxlength="32" placeholder="Created automatically or paste existing Go job ID" style="width:350px;max-width:95%">
+<button type="button" id="go-advance">Check next safe step</button>
+<div id="go-result" aria-live="polite"></div>
+</section>
 <section><h2>Persistent workflow ledger · towards CD in → Go!</h2>
 <p>Register an already saved OSCAR rip in a persistent, restart-safe review ledger. It preserves your identification-mode choice, tracks verified staging and lets you defer/resume physical edition review. <strong>This does not yet rip, tag or publish automatically.</strong></p>
 <label for="workflow-job">Staging rip job ID</label>
@@ -238,6 +247,11 @@ async function init(){
  const [a,b]=await Promise.all([fetch('/api/settings'),fetch('/api/drives')]);
  if(!a.ok||!b.ok)throw new Error('Unable to load configuration');
  settings=await a.json();const live=await b.json();
+ const goDrive=document.getElementById('go-drive');goDrive.replaceChildren();
+ for(const drive of settings.drives.filter(d=>d.enabled)){
+  const option=document.createElement('option');
+  option.value=drive.stable_id;option.textContent=drive.label;goDrive.append(option);
+ }
  document.getElementById('profile').value=settings.profile;
  document.getElementById('identification-mode').value=settings.identification_mode||'secure';
  document.getElementById('secure-review-level').value=settings.secure_review_level||'on_ambiguity';
@@ -1577,6 +1591,69 @@ document.getElementById('discogs-check').onclick=async()=>{
     out.append(p);
   }
  }catch(error){out.textContent='Discogs unavailable: '+error.message}
+};
+
+let goPoll=null;
+let goSessionHeaders=null;
+async function goAdvance(){
+ const output=document.getElementById('go-result');
+ const id=document.getElementById('go-job').value.trim().toLowerCase();
+ if(!/^[a-f0-9]{32}$/.test(id)){output.textContent='Enter a valid Go rip job ID.';return}
+ const headers=goSessionHeaders||requestAuthHeaders('Advance verified Go workflow');
+ if(!headers)return;
+ try{
+  const response=await fetch('/api/go/jobs/'+id+'/advance',{method:'POST',headers});
+  const data=await response.json();
+  if(!response.ok)throw new Error(data.detail||'Go step failed');
+  const state=data.workflow||{};
+  output.replaceChildren();
+  const summary=document.createElement('p');
+  summary.textContent='Job '+id+' · '+state.phase+' · '+state.identification_mode+
+   ' · '+data.action;output.append(summary);
+  const explanation=document.createElement('p');
+  explanation.textContent=data.message||state.next_action||'Review needed';output.append(explanation);
+  if(data.release_id){
+   const selected=document.createElement('p');
+   selected.textContent='Proposed MusicBrainz release '+data.release_id+
+    ' · INFERRED, NOT physically verified';output.append(selected);
+  }
+  for(const item of data.candidates||[]){
+   const link=document.createElement('a');
+   link.href='https://musicbrainz.org/release/'+encodeURIComponent(item.release_id);
+   link.textContent=(item.title||item.release_id)+' · '+(item.date||'unknown date')+
+    ' · '+(item.labels||[]).map(x=>x.catalog_number||'').filter(Boolean).join(', ');
+   link.target='_blank';link.rel='noopener noreferrer';
+   const row=document.createElement('p');row.append(link);output.append(row);
+  }
+  if(['ripping','verifying'].includes(data.action)){
+   if(goPoll)clearTimeout(goPoll);
+   goPoll=setTimeout(goAdvance,4000);
+  }else{
+   if(goPoll)clearTimeout(goPoll);goPoll=null;goSessionHeaders=null;
+  }
+ }catch(error){
+  if(goPoll)clearTimeout(goPoll);goPoll=null;goSessionHeaders=null;
+  output.textContent='Go controller stopped safely: '+error.message;
+ }
+}
+document.getElementById('go-advance').onclick=goAdvance;
+document.getElementById('go-start').onclick=async()=>{
+ const output=document.getElementById('go-result');
+ const drive=document.getElementById('go-drive').value;
+ if(!drive){output.textContent='Enable an optical drive and save settings first.';return}
+ const headers=requestAuthHeaders('Go! — start staged CD rip');if(!headers)return;
+ if(!window.confirm('Start a new CD rip to staging with saved OSCAR settings? No tags or archives will be published.'))return;
+ output.textContent='Registering Go job and starting CD extraction…';
+ try{
+  const response=await fetch('/api/go/start',{method:'POST',
+   headers:{'Content-Type':'application/json',...headers},
+   body:JSON.stringify({stable_id:drive,confirmation:'RIP_TO_STAGING'})});
+  const data=await response.json();
+  if(!response.ok)throw new Error(data.detail||'Go start failed');
+  document.getElementById('go-job').value=data.job.id;
+  goSessionHeaders=headers;
+  await goAdvance();
+ }catch(error){output.textContent='Go start blocked safely: '+error.message}
 };
 
 async function workflowAction(kind, action=''){

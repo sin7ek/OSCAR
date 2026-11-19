@@ -6,6 +6,15 @@
 
 > **How to resume after a chat ends:** Read this document first, then `docs/ARCHITECTURE.md`, `README.md`, recent merged PRs and open PRs, and GitHub Actions for the branch under development. Do not infer that a successful CI run establishes real optical hardware functionality.
 
+## Go controller — first executable safe phase, PR #64 (2026-11-19)
+
+- A new **Go! — rip to verified staging** UI and authenticated `POST /api/go/start` reuse the existing cyanrip rip pipeline, **snapshot the saved identification policy into persistent SQLite BEFORE the ripping worker starts**, and automatically initiate the existing audio verification after a successful rip. If durable registration fails, the rip does not start. Original FLACs/CUE/logs are preserved; no automatic delete.
+- `POST /api/go/jobs/{job_id}/advance` advances only safe stages: observe rip state, trigger verification when not yet started, read saved verified report, and discover MusicBrainz candidates using **the TOC stored at extraction time**, not the current drive. A provider or verification failure stops before tagging.
+- **Best Guess:** deterministic candidate *suggestion* from linked Disc ID releases using a metadata-completeness rank (NOT physical edition proof), persisted with `release_evidence=inferred_disc_id_unique|inferred_disc_id_ranked`. Does not tag/archive or claim a physically verified release. **Secure:** returns candidate list requiring physical catalog/barcode review; never persists inferred release or silently approves edition.
+- Existing `/api/rip/start` behavior is retained. The Go button tracks its new job in the UI and polls the server; extraction and verification are server-side tasks. On restart during an extraction, its staging evidence is retained and phase becomes `RIP_INTERRUPTED`—never silently rerips. Restart of an interrupted cyanrip, permanent background scheduler, fully automated tagging/archive and post-publication catalog insert remain **unimplemented**.
+- Existing verification uses saved cyanrip AccurateRip v1/v2 evidence, FLAC decode, SHA-256/CUE; independent CTDB/AccurateRip is not newly implemented. GitHub checks must pass and physical Unraid acceptance must be recorded separately.
+- Next milestone is a **server-side policy-enforced exact-release resolver and safe tagged-copy/archive handoff**, including recovery, concurrency, user-reviewed Secure evidence and explicit opt-in Best Guess publication. No shortcut around Physical Edition Identification Gate.
+
 ## Persistent workflow ledger — PR #63 (2026-11-19)
 
 - Adds SQLite `/config/workflow.sqlite3` (configurable `OSCAR_WORKFLOW_DB`) storing an existing staging job's saved status, persisted event log, and immutable snapshot of `identification_mode` and `secure_review_level` **when that job is manually registered**.

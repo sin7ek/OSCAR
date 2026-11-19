@@ -17,6 +17,12 @@ Audio checks are equally strict in every mode: verified staging, FLAC decode, SH
 | Local catalog | Update after verified publish | Same | Same | Same |
 | Discogs collection write | Separate opt-in per physical copy | Same | Same | Same |
 
+## Second implementation increment — PR #64 Go! controller
+
+Implemented: operator clicks Go!, a persistently snapshotted workflow is created **before** the cyanrip worker starts, successful extraction triggers verification automatically, a read-only next-step endpoint checks saved TOC against MusicBrainz after verification, and Best Guess can persist a *clearly inferred suggestion*; Secure returns a physical-review requirement. The existing recording and archive publishing APIs are NOT automatically invoked, and source evidence is never deleted. GUI polling is only a progress display; verified audio work runs server-side. A restart during extraction is surfaced as interrupted and deliberately not retried automatically.
+
+Still to build: evidence-based physical edition resolver with persistent catalog/barcode, provider-limited restart-safe job scheduler, safe automatic metadata-copy and publish flow with per-mode validation, automatic post-publication catalog-index update and recoverable errors. See priorities below.
+
 ## First implementation increment — PR #63 persistent job ledger
 
 A separate SQLite ledger can now **manually** register an existing saved staging rip, snapshot the user's selected Best Guess or Secure review policy, record immutable stage transitions and allow review deferral/resume. It reconciles its phase with actual staging verification evidence, without touching audio. This is persistence only: it does **not** create jobs at disc insertion, resume interrupted cyanrip, decide editions, generate tags, or publish archives. Real automatic scheduling requires the next milestones below.

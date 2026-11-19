@@ -131,7 +131,7 @@ def _snapshot(job):
                        "warning", "error", "files_sha256")}
 
 
-def _run(job, device, offset, workdir, runner):
+def _run(job, device, offset, workdir, runner, on_completed=None):
     try:
         job["status"] = "running"
         job["started_at"] = time.time()
@@ -170,6 +170,13 @@ def _run(job, device, offset, workdir, runner):
         job["finished_at"] = time.time()
         try:
             _atomic_json(workdir / "state.json", _snapshot(job))
+            if on_completed is not None:
+                try:
+                    on_completed(_snapshot(job))
+                except Exception:
+                    # A post-rip callback must never change a successful
+                    # extraction into an apparent rip failure or alter audio.
+                    pass
         finally:
             with _LOCK:
                 _ACTIVE.discard(job["stable_id"])
@@ -185,12 +192,13 @@ def plan(stable_id):
     if not _DISC.fullmatch(disc_id):
         raise RipError("Unexpected MusicBrainz Disc ID")
     return {"stable_id": stable_id, "device": device, "offset_samples": offset,
-            "disc_id": disc_id, "track_count": len(toc["tracks"]),
+            "disc_id": disc_id, "toc_string": toc.get("toc_string", ""),
+            "track_count": len(toc["tracks"]),
             "output_root": str(root), "command": make_command(device, offset),
             "warning": "Experimental extraction only; no verified archive or automatic cleanup"}
 
 
-def start(stable_id, *, runner=subprocess.run):
+def start(stable_id, *, runner=subprocess.run, on_created=None, on_completed=None):
     information = plan(stable_id)
     root = staging_root()
     with _LOCK:
@@ -207,10 +215,15 @@ def start(stable_id, *, runner=subprocess.run):
                "disc_id": information["disc_id"], "status": "queued",
                "created_at": time.time()}
         _atomic_json(directory / "plan.json", information)
+        # Record durable workflow state before any extraction worker starts.
+        # A callback failure prevents cyanrip from starting; staging remains
+        # for examination and is never deleted automatically.
+        if on_created is not None:
+            on_created(_snapshot(job))
         _JOBS[job_id] = job
         worker = threading.Thread(target=_run,
                                   args=(job, information["device"],
-                                        information["offset_samples"], directory, runner),
+                                        information["offset_samples"], directory, runner, on_completed),
                                   daemon=True, name="oscar-rip-" + job_id[:8])
         worker.start()
         return _snapshot(job)
