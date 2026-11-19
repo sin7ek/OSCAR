@@ -3,7 +3,7 @@ import os
 import threading
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 
 from oscar.settings import OscarSettings, discover_settings, inspect_drives, save_settings
 from oscar.web import settings_page
@@ -187,20 +187,56 @@ class RipRequest(BaseModel):
     confirmation: str
 
 
-def _rip_auth(token: str | None):
+def _rip_auth(token: str | None, request: Request | None = None):
+    """Normal token mode, or explicitly opted-in trusted UI without a token.
+
+    Trusted UI is intended ONLY behind an authenticated reverse proxy or
+    tightly isolated local network. Same-origin + a non-simple request header
+    reduce browser CSRF risk; they are not user authentication.
+    """
+    from urllib.parse import urlsplit
+    from ipaddress import ip_address
     from oscar.ripping import RipError, authorize, enabled
     if not enabled():
         raise HTTPException(status_code=403, detail="Experimental ripping disabled")
+    if token:
+        try:
+            authorize(token)
+        except RipError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        return
+    if os.environ.get("OSCAR_TRUSTED_LOCAL_UI") != "1" or request is None:
+        raise HTTPException(status_code=403, detail="Rip token required; trusted UI mode disabled")
+    if request.headers.get("x-oscar-ui-action") != "confirmed":
+        raise HTTPException(status_code=403, detail="Explicit OSCAR UI action header required")
+    source = request.client.host if request.client else ""
     try:
-        authorize(token)
-    except RipError as exc:
-        raise HTTPException(status_code=403, detail=str(exc)) from exc
+        if not (ip_address(source).is_private or ip_address(source).is_loopback):
+            raise ValueError("Untrusted source address")
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail="Trusted UI requires local/private network access") from exc
+    host = request.headers.get("host") or ""
+    origin = request.headers.get("origin")
+    if origin:
+        parsed = urlsplit(origin)
+        if parsed.scheme not in ("http", "https") or parsed.netloc.lower() != host.lower():
+            raise HTTPException(status_code=403, detail="Cross-origin action denied")
+    elif request.method not in ("GET", "HEAD"):
+        raise HTTPException(status_code=403, detail="Same-origin request required for actions")
+    if request.headers.get("sec-fetch-site") not in (None, "same-origin", "none"):
+        raise HTTPException(status_code=403, detail="Cross-site request denied")
+
+
+@app.get("/api/ui/access")
+def get_ui_access():
+    """No credentials in responses; help the UI choose its auth workflow."""
+    return {"trusted_local_ui": os.environ.get("OSCAR_TRUSTED_LOCAL_UI") == "1"}
 
 
 @app.get("/api/rip/plan")
-def get_rip_plan(stable_id: str, x_oscar_rip_token: str | None = Header(default=None)):
+def get_rip_plan(stable_id: str, request: Request, x_oscar_rip_token: str | None = Header(default=None)):
     from oscar.ripping import RipError, plan
-    _rip_auth(x_oscar_rip_token)
+    _rip_auth(x_oscar_rip_token, request)
     try:
         return plan(stable_id)
     except (RipError, OSError) as exc:
@@ -208,9 +244,9 @@ def get_rip_plan(stable_id: str, x_oscar_rip_token: str | None = Header(default=
 
 
 @app.post("/api/rip/start")
-def start_rip(request: RipRequest, x_oscar_rip_token: str | None = Header(default=None)):
+def start_rip(request: RipRequest, http_request: Request, x_oscar_rip_token: str | None = Header(default=None)):
     from oscar.ripping import RipError, start
-    _rip_auth(x_oscar_rip_token)
+    _rip_auth(x_oscar_rip_token, http_request)
     if request.confirmation != "RIP_TO_STAGING":
         raise HTTPException(status_code=422, detail="Explicit staging confirmation required")
     try:
@@ -220,9 +256,9 @@ def start_rip(request: RipRequest, x_oscar_rip_token: str | None = Header(defaul
 
 
 @app.get("/api/rip/jobs/{job_id}")
-def get_rip_status(job_id: str, x_oscar_rip_token: str | None = Header(default=None)):
+def get_rip_status(job_id: str, request: Request, x_oscar_rip_token: str | None = Header(default=None)):
     from oscar.ripping import RipError, status
-    _rip_auth(x_oscar_rip_token)
+    _rip_auth(x_oscar_rip_token, request)
     try:
         return status(job_id)
     except (RipError, OSError) as exc:
@@ -270,11 +306,11 @@ def drive_offset_lookup(stable_id: str):
 
 
 @app.post("/api/drive-offset/from-disc")
-def drive_offset_from_disc(request: RipRequest, x_oscar_rip_token: str | None = Header(default=None)):
+def drive_offset_from_disc(request: RipRequest, http_request: Request, x_oscar_rip_token: str | None = Header(default=None)):
     """User-triggered reference-disc calibration, no rip and no settings write."""
     from oscar.drive_offset import OffsetError, disc_calibration
     from oscar.ripping import selected_drive, _ACTIVE, _LOCK, RipError
-    _rip_auth(x_oscar_rip_token)
+    _rip_auth(x_oscar_rip_token, http_request)
     if request.confirmation != "CALIBRATE_OFFSET":
         raise HTTPException(status_code=422, detail="Explicit calibration confirmation required")
     try:
@@ -308,11 +344,11 @@ def selected_drive_for_calibration(stable_id: str):
 
 
 @app.post("/api/rip/jobs/{job_id}/verification")
-def start_rip_verification(job_id: str, x_oscar_rip_token: str | None = Header(default=None)):
+def start_rip_verification(job_id: str, request: Request, x_oscar_rip_token: str | None = Header(default=None)):
     """Explicit post-rip verification; does not use drive or modify FLAC/CUE."""
     from oscar import verification
     from oscar.ripping import RipError
-    _rip_auth(x_oscar_rip_token)
+    _rip_auth(x_oscar_rip_token, request)
     try:
         return verification.start(job_id)
     except (RipError, OSError, ValueError) as exc:
@@ -320,11 +356,11 @@ def start_rip_verification(job_id: str, x_oscar_rip_token: str | None = Header(d
 
 
 @app.get("/api/rip/jobs/{job_id}/verification")
-def get_rip_verification(job_id: str, x_oscar_rip_token: str | None = Header(default=None)):
+def get_rip_verification(job_id: str, request: Request, x_oscar_rip_token: str | None = Header(default=None)):
     """Read saved verification evidence, or current in-process progress."""
     from oscar import verification
     from oscar.ripping import RipError
-    _rip_auth(x_oscar_rip_token)
+    _rip_auth(x_oscar_rip_token, request)
     try:
         return verification.report(job_id)
     except (RipError, OSError, ValueError) as exc:
@@ -343,12 +379,12 @@ class MetadataCopyRequest(BaseModel):
 
 @app.post("/api/rip/jobs/{job_id}/metadata/preview")
 def preview_rip_metadata(job_id: str, request: MetadataPreviewRequest,
-                         x_oscar_rip_token: str | None = Header(default=None)):
+                         http_request: Request, x_oscar_rip_token: str | None = Header(default=None)):
     """Read-only exact-release preview; user still must review physical edition."""
     from oscar.metadata_staging import MetadataError, preview
     from oscar.musicbrainz import MusicBrainzError, lookup_enabled
     from oscar.ripping import RipError
-    _rip_auth(x_oscar_rip_token)
+    _rip_auth(x_oscar_rip_token, http_request)
     if not lookup_enabled():
         raise HTTPException(status_code=403, detail="MusicBrainz lookup disabled")
     try:
@@ -359,12 +395,12 @@ def preview_rip_metadata(job_id: str, request: MetadataPreviewRequest,
 
 @app.post("/api/rip/jobs/{job_id}/metadata/copy")
 def create_tagged_staging_copy(job_id: str, request: MetadataCopyRequest,
-                               x_oscar_rip_token: str | None = Header(default=None)):
+                               http_request: Request, x_oscar_rip_token: str | None = Header(default=None)):
     """Explicitly reviewed copy-on-write Vorbis tagging: no archive operations."""
     from oscar.metadata_staging import MetadataError, start_copy
     from oscar.musicbrainz import lookup_enabled
     from oscar.ripping import RipError
-    _rip_auth(x_oscar_rip_token)
+    _rip_auth(x_oscar_rip_token, http_request)
     if not lookup_enabled():
         raise HTTPException(status_code=403, detail="MusicBrainz lookup disabled")
     try:
@@ -375,11 +411,24 @@ def create_tagged_staging_copy(job_id: str, request: MetadataCopyRequest,
 
 @app.get("/api/rip/jobs/{job_id}/metadata/copies/{copy_id}")
 def get_tagged_staging_copy(job_id: str, copy_id: str,
-                            x_oscar_rip_token: str | None = Header(default=None)):
+                            request: Request, x_oscar_rip_token: str | None = Header(default=None)):
     from oscar.metadata_staging import MetadataError, copy_status
     from oscar.ripping import RipError
-    _rip_auth(x_oscar_rip_token)
+    _rip_auth(x_oscar_rip_token, request)
     try:
         return copy_status(job_id, copy_id)
     except (MetadataError, RipError, ValueError, OSError) as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/api/rip/jobs/{job_id}/metadata/copies/{copy_id}/inspect")
+def inspect_tagged_staging_copy(job_id: str, copy_id: str, request: Request,
+                                 x_oscar_rip_token: str | None = Header(default=None)):
+    """Read real FLAC tags from a finished tagged copy; no MusicBrainz call."""
+    from oscar.metadata_staging import MetadataError, inspect_copy
+    from oscar.ripping import RipError
+    _rip_auth(x_oscar_rip_token, request)
+    try:
+        return inspect_copy(job_id, copy_id)
+    except (MetadataError, RipError, ValueError, OSError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
