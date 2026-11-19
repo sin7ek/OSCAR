@@ -76,6 +76,9 @@ def _load(job_id, copy_id, kind):
             "file": relative,
             "title": (tags.get("TITLE") or [""])[0],
             "artist": (tags.get("ARTIST") or [""])[0],
+            "composer": tags.get("COMPOSER", []),
+            "conductor": tags.get("CONDUCTOR", []),
+            "documented_performers": tags.get("PERFORMER", []),
             "recording_id": (tags.get("MUSICBRAINZ_TRACKID") or [""])[0],
             "work_ids": tags.get("MUSICBRAINZ_WORKID", []),
             "work_names": tags.get("WORK", []),
@@ -95,6 +98,7 @@ def consistency(tracks):
     flags = []
     by_work = defaultdict(list)
     by_recording = defaultdict(list)
+    classical_with_work_links = any(t.get("work_ids") for t in tracks)
     for t in tracks:
         n = t["number"]
         if not t["title"]:
@@ -106,6 +110,9 @@ def consistency(tracks):
         if not t["artist"]:
             flags.append({"severity": "review", "code": "missing_artist",
                           "tracks": [n], "message": "Track artist credit is missing"})
+        if classical_with_work_links and not t["work_ids"]:
+            flags.append({"severity": "review", "code": "missing_classical_work_link",
+                          "tracks": [n], "message": "No MusicBrainz Work relationship is documented on this track while other tracks on the release have linked works. This may be legitimate; do not infer a work from the title."})
         for work in set(t["work_ids"]):
             by_work[work].append(t)
         if t["recording_id"]:
@@ -153,6 +160,49 @@ def _escape_cue(value):
     return str(value or "").replace("\r", " ").replace("\n", " ").replace('"', "'")[:500]
 
 
+
+def _documented_cue_performer(track):
+    """Select documented performing artists, never a composer just by ARTIST.
+
+    FLAC PERFORMER values are OSCAR's explicitly sourced MusicBrainz recording
+    relationships and include role suffixes for provenance. In a CUE sheet,
+    use the names as a display credit; the full tagged roles remain available.
+    """
+    names = []
+    for value in track.get("documented_performers") or []:
+        if not isinstance(value, str):
+            continue
+        name = re.sub(r"\\s+\\((?:conductor|performer|instrument|vocal|orchestra|performing orchestra|choir|chorus master|concertmaster|solo|voice actor)\\)$",
+                      "", value.strip(), flags=re.I).strip()
+        if name and name not in names:
+            names.append(name)
+    if names:
+        return "; ".join(names)
+    # In pop/dance, ARTIST can legitimately name the credited performing artist.
+    # But do not put the composer's name into PERFORMER on a classical track.
+    composer = track.get("composer") or []
+    artist = (track.get("artist") or "").strip()
+    if composer and artist and any(artist.casefold() == str(c).casefold() for c in composer):
+        return None
+    return artist or None
+
+
+def _album_cue_performer(tracks, album_artist):
+    """Prefer a documented common conductor where one is credited."""
+    conductors = [
+        {str(name) for name in t.get("conductor") or [] if name}
+        for t in tracks
+    ]
+    if conductors and all(conductors):
+        common = set.intersection(*conductors)
+        if common:
+            return "; ".join(sorted(common))
+    # Release artist credit is not always performing artist credit (classical).
+    # Avoid using composer-heavy artist credit as an invented performer.
+    if any(t.get("composer") or t.get("documented_performers") for t in tracks):
+        return None
+    return album_artist or None
+
 def cue_preview(root, tracks, album_title, album_artist):
     raw_audio = root / "audio"
     if not raw_audio.is_dir() or raw_audio.is_symlink():
@@ -171,6 +221,7 @@ def cue_preview(root, tracks, album_title, album_artist):
     if markers != list(range(1, len(tracks) + 1)):
         return {"status": "needs_review", "reason": "Original CUE TRACK numbering mismatched"}
     # Keep original time indexes / pregaps exactly as captured; edit display text only.
+    album_cue_performer = _album_cue_performer(tracks, album_artist)
     out = []
     inside = None
     global_title = global_performer = False
@@ -181,7 +232,9 @@ def cue_preview(root, tracks, album_title, album_artist):
             inside = int(marker.group(1))
             out.append(line)
             out.append(f'    TITLE "{_escape_cue(tracks[inside - 1]["title"])}"')
-            out.append(f'    PERFORMER "{_escape_cue(tracks[inside - 1]["artist"] or album_artist)}"')
+            performer = _documented_cue_performer(tracks[inside - 1])
+            if performer:
+                out.append(f'    PERFORMER "{_escape_cue(performer)}"')
             emitted.add(inside)
             continue
         label = line.strip().upper()
@@ -192,8 +245,8 @@ def cue_preview(root, tracks, album_title, album_artist):
                     global_title = True
                 continue
             if label.startswith("PERFORMER "):
-                if not global_performer:
-                    out.append(f'PERFORMER "{_escape_cue(album_artist)}"')
+                if not global_performer and album_cue_performer:
+                    out.append(f'PERFORMER "{_escape_cue(album_cue_performer)}"')
                     global_performer = True
                 continue
         else:
@@ -203,8 +256,8 @@ def cue_preview(root, tracks, album_title, album_artist):
     prefix = []
     if not global_title:
         prefix.append(f'TITLE "{_escape_cue(album_title)}"')
-    if not global_performer:
-        prefix.append(f'PERFORMER "{_escape_cue(album_artist)}"')
+    if not global_performer and album_cue_performer:
+        prefix.append(f'PERFORMER "{_escape_cue(album_cue_performer)}"')
     if set(emitted) != set(range(1, len(tracks) + 1)):
         raise ReviewError("Unable to preserve CUE TRACK structure")
     # A second proposal describes target filenames for a future publisher.
@@ -231,6 +284,7 @@ def cue_preview(root, tracks, album_title, album_artist):
         "original_cue": cues[0].name,
         "track_count": len(tracks),
         "preserves_original_indices": True,
+        "performer_provenance": "Explicit recorded performer/conductor relationships where available; otherwise non-composer track credit. Uncertain credits omitted.",
         "note": "Both CUE proposals preserve the original INDEX/PREGAP lines without independent validation. The first points to current staged files; the second names proposed future archive files that do not exist yet. Review before publication.",
     }
 
