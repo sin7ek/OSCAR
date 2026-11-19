@@ -28,6 +28,44 @@ class RipError(RuntimeError):
     pass
 
 
+def max_concurrent_rips():
+    """Operator-controlled safety cap for independent optical drives (1–16)."""
+    raw = os.environ.get("OSCAR_MAX_CONCURRENT_RIPS", "3")
+    if not re.fullmatch(r"[1-9][0-9]?", raw) or not 1 <= int(raw) <= 16:
+        raise RipError("OSCAR_MAX_CONCURRENT_RIPS must be between 1 and 16")
+    return int(raw)
+
+
+def dashboard():
+    """Show enabled detected optical drives and in-memory running rip jobs."""
+    configured = {d.stable_id: d for d in discover_settings().drives if d.enabled}
+    detected = {str(d["stable_id"]): d for d in inspect_drives()}
+    with _LOCK:
+        active = set(_ACTIVE)
+        jobs = [_snapshot(dict(job)) for job in _JOBS.values()]
+    drives = []
+    for stable_id, drive in configured.items():
+        present = detected.get(stable_id) or {}
+        relevant = sorted(
+            [j for j in jobs if j["stable_id"] == stable_id],
+            key=lambda j: j.get("created_at", 0), reverse=True)
+        drives.append({
+            "stable_id": stable_id, "label": drive.label,
+            "device": present.get("device"), "present": bool(present),
+            "offset_set": drive.offset_samples is not None,
+            "status": "ripping" if stable_id in active else
+                      "ready" if present and drive.offset_samples is not None else "not_ready",
+            "job": relevant[0] if relevant else None,
+        })
+    return {
+        "max_concurrent_rips": max_concurrent_rips(),
+        "active_count": len(active),
+        "slots_available": max(0, max_concurrent_rips() - len(active)),
+        "drives": drives,
+        "note": "Parallel ripping is supported per distinct enabled drive. This is not a persistent queue; active jobs may be interrupted by service restarts.",
+    }
+
+
 def enabled():
     return os.environ.get("OSCAR_ENABLE_RIPPING") == "1"
 
@@ -158,6 +196,8 @@ def start(stable_id, *, runner=subprocess.run):
     with _LOCK:
         if stable_id in _ACTIVE:
             raise RipError("A rip is already running on this drive")
+        if len(_ACTIVE) >= max_concurrent_rips():
+            raise RipError("All concurrent rip slots are in use; finish a rip before starting another")
         _ACTIVE.add(stable_id)
     try:
         job_id = uuid.uuid4().hex
