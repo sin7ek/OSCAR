@@ -1098,15 +1098,32 @@ document.getElementById('publish-preview').onclick=async()=>{
  if(!/^[a-f0-9]{32}$/.test(job)||!/^[a-f0-9]{32}$/.test(copy)){
   plan.textContent='Enter the completed rip job ID and tagged copy ID.';return
  }
- const headers=requestAuthHeaders('Preview archive publication');if(!headers)return;
+ plan.textContent='Preparing archive preview authorization…';
+ let headers;
+ try{
+  headers=requestAuthHeaders('Preview archive publication');
+ }catch(error){
+  plan.textContent='Archive preview authorization unavailable: '+error.message+
+   '. Verify that browser dialogs are allowed for OSCAR.';return;
+ }
+ if(!headers){
+  plan.textContent='Preview not started: OSCAR rip token was not supplied (or the browser dialog was cancelled/blocked). '+
+   'Enter the configured OSCAR rip token when prompted, or use explicitly enabled trusted local UI mode.';return;
+ }
  plan.textContent='Checking saved verification, tags, naming, CUE and target directory…';
  try{
   const r=await fetch('/api/rip/jobs/'+job+'/archive-publish/preview',{
    method:'POST',headers:{'Content-Type':'application/json',...headers},
    body:JSON.stringify({copy_id:copy,kind,profile,include_cover:includeCover})
   });
-  const data=await r.json();
-  if(!r.ok)throw Error(typeof data.detail==='string'?data.detail:'Preview failed');
+  let data;
+  try{data=await r.json()}catch(error){
+   throw Error('OSCAR returned an unreadable response (HTTP '+r.status+'). Check browser Network and Portainer logs.');
+  }
+  if(!r.ok){
+   const reason=typeof data.detail==='string'?data.detail:'Preview failed';
+   throw Error('HTTP '+r.status+': '+reason);
+  }
   reviewedArchivePlan={...data,headers,job,copy,kind,profile,includeCover};
   plan.replaceChildren();
   const heading=document.createElement('h3');heading.textContent='Destination: '+data.relative_directory;plan.append(heading);
