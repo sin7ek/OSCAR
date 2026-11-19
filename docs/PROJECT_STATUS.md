@@ -6,6 +6,14 @@
 
 > **How to resume after a chat ends:** Read this document first, then `docs/ARCHITECTURE.md`, `README.md`, recent merged PRs and open PRs, and GitHub Actions for the branch under development. Do not infer that a successful CI run establishes real optical hardware functionality.
 
+## Drive read-offset reliability and unsaved-mode UX — follow-up (2026-11-19)
+
+**Status: documented for investigation; not fixed.** Real Unraid observations: AccurateRip database offset lookup produced HTTP **503 Service Unavailable**, with UI detail `Offset database response too large`, on LG GH24NS95 and HP DH16AAL; Optiarc AD-7200S returned an ambiguous/no unambiguous offset suggestion. Disc-based `cyanrip -f` returned HTTP 200 from OSCAR but no unambiguous reported offset for at least one drive. Existing manually entered offsets (+6 LG, +48 Optiarc, +6 HP in the shown UI) are **user settings, not proven database lookup results**; do not overwrite or assume their calibration is independently confirmed.
+
+**Required work:** inspect response format/size and parsing of https://www.accuraterip.com/driveoffsets.htm; handle oversized pages without silently falling back to an unverified offset; consider a bounded, streaming extractor or a cached/maintained authoritative fallback with URL, fetch date, exact model and confidence. Show all conflicting entries for the same drive model (GH24NS95 may have distinct +6/+667 records), require human choice; no majority-guess auto-save. Review `cyanrip -f` output formats per deployed cyanrip version, exit codes, supported flags, known AccurateRip reference disc and error messages. Add sanitized fixture-based tests covering normal, oversized, changed HTML, conflict, no match, ambiguous disc calibration, and no auto-persist. Never loosen the mandatory saved read-offset gate for ripping.
+
+**Related UX:** Best Guess selection in Settings is *not* applied until **Save settings** is clicked. During a real Go test of Anastacia, job `f19f340289b64ba485a05495aaf68f83` correctly snapshotted `secure` because a changed Best Guess dropdown had not been saved; do **not** treat as workflow snapshot defect. Add unsaved-settings indication/dirty-state warning at Go start, show the active *saved* identification policy adjacent to Go button, and optionally show a save-and-start path. Existing jobs must remain on their original snapshotted policy.
+
 ## Feature idea / backlog — per-drive progress and ETA in the UI (2026-11-19)
 
 **Status: requested, not implemented.** Low-priority UX enhancement after core Go-controller safety/automation milestones; do not present estimates as measured until instrumented.
