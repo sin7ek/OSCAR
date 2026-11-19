@@ -97,3 +97,69 @@ def test_physical_comparison_ui_present():
     assert "Physical release comparison (read-only)" in html
     assert "physical-compare-btn" in html
     assert "physical-catalog" in html
+
+
+def test_disc_candidate_gate_single_candidate_is_read_only_automatic_inspection():
+    from oscar.musicbrainz import assess_disc_candidates
+    candidates = {"disc_id": DISC, "releases": [
+        {"id": RELEASE, "labels": [{"catalog_number": "504757 2"}]}
+    ]}
+    result = assess_disc_candidates(candidates)
+    gate = result["edition_gate"]
+    assert gate["status"] == "single_candidate"
+    assert gate["can_inspect_automatically"]
+    assert not gate["catalog_prompt_recommended"]
+    assert not gate["physical_edition_approved"]
+    assert result["releases"][0]["printed_catalog_matches"] is None
+
+
+def test_disc_candidate_gate_ambiguity_prompts_for_catalog():
+    from oscar.musicbrainz import assess_disc_candidates
+    candidates = {"releases": [
+        {"id": RELEASE, "labels": [{"catalog_number": "ES 99220"}]},
+        {"id": "09fe4a40-7d2b-400e-b3de-b148f55fbcad",
+         "labels": [{"catalog_number": "E 8512"}]},
+    ]}
+    result = assess_disc_candidates(candidates)
+    assert result["edition_gate"]["status"] == "ambiguous_disc_id"
+    assert result["edition_gate"]["catalog_prompt_recommended"]
+    result = assess_disc_candidates(candidates, "E-8512")
+    assert result["edition_gate"]["status"] == "catalog_candidate"
+    assert result["edition_gate"]["catalog_match_count"] == 1
+    assert not result["releases"][0]["printed_catalog_matches"]
+    assert result["releases"][1]["printed_catalog_matches"]
+
+
+def test_disc_candidate_gate_missing_unlinked_edition_is_not_approved():
+    from oscar.musicbrainz import assess_disc_candidates
+    candidates = {"releases": [
+        {"id": RELEASE, "labels": [{"catalog_number": "ES 99220"}]}
+    ]}
+    result = assess_disc_candidates(candidates, "E 8512")
+    assert result["edition_gate"]["status"] == "catalog_conflict"
+    assert result["edition_gate"]["catalog_prompt_recommended"]
+    assert not result["edition_gate"]["can_inspect_automatically"]
+    assert not result["edition_gate"]["physical_edition_approved"]
+
+
+def test_disc_candidate_gate_no_results_and_invalid_catalog():
+    from oscar.musicbrainz import MusicBrainzError, assess_disc_candidates
+    result = assess_disc_candidates({"releases": []})
+    assert result["edition_gate"]["status"] == "no_disc_candidates"
+    with pytest.raises(MusicBrainzError, match="catalog"):
+        assess_disc_candidates({"releases": []}, " - / ")
+
+
+def test_disc_candidate_gate_does_not_mutate_provider_response():
+    from oscar.musicbrainz import assess_disc_candidates
+    original = {"releases": [{"id": RELEASE, "labels": [{"catalog_number": "504757 2"}]}]}
+    result = assess_disc_candidates(original, "504757-2")
+    assert result["edition_gate"]["status"] == "catalog_candidate"
+    assert "printed_catalog_matches" not in original["releases"][0]
+
+
+def test_disc_candidate_gate_ui_present():
+    html = TestClient(app).get("/").text
+    assert "Compare printed catalog number" in html
+    assert "single_candidate" in html
+    assert "Search MusicBrainz independently by catalog number" in html
