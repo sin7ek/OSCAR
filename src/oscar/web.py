@@ -64,6 +64,30 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 <button type="button" id="title-search-button">Search by title</button>
 <div id="release-search-results" aria-live="polite"></div>
 </section>
+<section><h2>CD not found, wrong edition or incomplete metadata?</h2>
+<p>OSCAR can preserve a verified rip safely while its physical release remains unresolved. A matching Disc ID does not prove an edition. Do not tag from an unrelated release.</p>
+<label for="recovery-reason">What happened?</label>
+<select id="recovery-reason">
+<option value="missing_release">My physical CD is missing from MusicBrainz</option>
+<option value="wrong_edition">MusicBrainz suggests the wrong edition</option>
+<option value="ambiguous_edition">Several editions may match</option>
+<option value="incomplete_metadata">The correct release has missing or incorrect metadata</option>
+</select>
+<div id="recovery-guidance" class="oscar-review-note" aria-live="polite"></div>
+<label for="recovery-job">Verified staging rip job ID (optional until saving)</label>
+<input id="recovery-job" maxlength="32" placeholder="32-character rip job ID" style="width:340px;max-width:95%">
+<label for="recovery-title">Physical album title (optional)</label>
+<input id="recovery-title" maxlength="200" placeholder="Essential Dance Traxx" style="width:340px;max-width:95%">
+<label for="recovery-catalog">Catalog number on CD (optional)</label>
+<input id="recovery-catalog" maxlength="100" placeholder="CCC 97001" style="width:280px;max-width:95%">
+<label for="recovery-notes">Evidence / differences (optional)</label>
+<textarea id="recovery-notes" maxlength="1000" rows="3" style="width:95%;background:#0c131b;color:white;border:1px solid #516376;border-radius:8px;padding:9px" placeholder="What differs from MusicBrainz? Missing barcode? Cover sticker?"></textarea>
+<p>Only a successfully verified staging job can be added to the persistent follow-up list. This does not create a MusicBrainz edit, tags or a final archive. Raw ripping files remain untouched.</p>
+<button type="button" id="recovery-defer">Save for later (no metadata changes)</button>
+<button type="button" id="recovery-list">View pending CD reviews</button>
+<div id="recovery-output" aria-live="polite"></div>
+<p>Guides: <a href="https://musicbrainz.org/doc/How_to_Add_a_Release" target="_blank" rel="noopener noreferrer">Add a new MusicBrainz release</a> · <a href="https://musicbrainz.org/doc/How_to_Identify_Unknown_CDs" target="_blank" rel="noopener noreferrer">Identify an unknown CD</a> · <a href="https://musicbrainz.org/release/add" target="_blank" rel="noopener noreferrer">MusicBrainz release editor</a>. Publishing or linking to MusicBrainz requires separate user action and verification.</p>
+</section>
 <section><h2>Physical release comparison (read-only)</h2>
 <p>Compare the catalog number printed on your CD and optional barcode with a specific MusicBrainz release, even when the Disc ID is associated with a different edition. No tagging or release selection occurs here. A matching Disc ID alone never proves the physical pressing.</p>
 <label for="physical-job">Verified staging job ID</label><input id="physical-job" maxlength="32" placeholder="32-character rip job ID" style="width:340px;max-width:95%">
@@ -746,6 +770,68 @@ async function searchPhysicalReleases(kind){
 }
 document.getElementById('catalog-search-button').onclick=()=>searchPhysicalReleases('catalog_number');
 document.getElementById('title-search-button').onclick=()=>searchPhysicalReleases('title');
+
+const recoveryAdvice={
+ missing_release:'Missing release: search MusicBrainz by physical catalog number and title. Check the actual booklet, all track names/versions, and Disc ID/TOC. If genuinely absent, submit a new physical Various Artists or artist release through MusicBrainz. Never attach unrelated recordings or invent IDs. You can defer this entirely.',
+ wrong_edition:'Wrong edition: compare printed catalog number, barcode, track count and track versions. A shared Disc ID may belong to several physical editions. Do NOT choose the wrong release. Look up the correct release or save for later.',
+ ambiguous_edition:'Ambiguous edition: inspect each candidate against the physical CD. Keep all plausible candidates separate. If edition evidence cannot distinguish them, save for review rather than approve automatically.',
+ incomplete_metadata:'Incomplete metadata: inspect missing fields and source evidence. Correct the exact MusicBrainz release/recording/work relationship only when independently supported. Preserve uncertainty; defer if source evidence is missing.'
+};
+function showRecoveryGuidance(){
+ const reason=document.getElementById('recovery-reason').value;
+ document.getElementById('recovery-guidance').textContent=recoveryAdvice[reason];
+}
+document.getElementById('recovery-reason').onchange=showRecoveryGuidance;
+showRecoveryGuidance();
+document.getElementById('recovery-defer').onclick=async()=>{
+ const output=document.getElementById('recovery-output');output.replaceChildren();
+ const job=document.getElementById('recovery-job').value.trim().toLowerCase();
+ if(!/^[a-f0-9]{32}$/.test(job)){output.textContent='A verified 32-character staging job ID is required to save for later.';return}
+ const headers=requestAuthHeaders('Save unresolved CD for later');if(!headers)return;
+ try{
+  const response=await fetch('/api/rip/jobs/'+job+'/release-review/defer',{
+   method:'POST',headers:{'Content-Type':'application/json',...headers},
+   body:JSON.stringify({
+    reason:document.getElementById('recovery-reason').value,
+    title:document.getElementById('recovery-title').value.trim(),
+    catalog_number:document.getElementById('recovery-catalog').value.trim(),
+    notes:document.getElementById('recovery-notes').value.trim()
+   })
+  });
+  const data=await response.json();
+  if(!response.ok)throw Error(typeof data.detail==='string'?data.detail:'Unable to defer');
+  output.textContent='Saved for later: '+data.job_id+'. Original rip, FLACs and CUE remain untouched. Nothing submitted to MusicBrainz.';
+ }catch(error){output.textContent='Could not save follow-up: '+error.message}
+};
+document.getElementById('recovery-list').onclick=async()=>{
+ const output=document.getElementById('recovery-output');output.replaceChildren();
+ const headers=requestAuthHeaders('List unresolved CD releases');if(!headers)return;
+ try{
+  const response=await fetch('/api/release-reviews',{headers});
+  const data=await response.json();
+  if(!response.ok)throw Error(typeof data.detail==='string'?data.detail:'Unable to list reviews');
+  if(!data.items.length){output.textContent='No deferred release reviews.';return}
+  for(const item of data.items){
+   const card=document.createElement('div');card.className='oscar-review-card';
+   const title=document.createElement('strong');
+   title.textContent=(item.title||'Unidentified CD')+' · '+item.reason;card.append(title);
+   const p=document.createElement('p');p.textContent='Job '+item.job_id+
+    (item.catalog_number?' · catalog '+item.catalog_number:'')+
+    (item.notes?' · '+item.notes:'');card.append(p);
+   const complete=document.createElement('button');complete.type='button';complete.textContent='Mark review resolved';
+   complete.onclick=async()=>{
+    if(!window.confirm('Close this follow-up task? No FLAC or metadata will change.'))return;
+    try{
+     const done=await fetch('/api/rip/jobs/'+item.job_id+'/release-review/resolve',
+      {method:'POST',headers});
+     if(!done.ok)throw new Error(await done.text());
+     card.remove();
+    }catch(e){p.textContent+=' · Could not close: '+e.message}
+   };
+   card.append(complete);output.append(card);
+  }
+ }catch(e){output.textContent='Could not load review backlog: '+e.message}
+};
 
 document.getElementById('physical-compare-btn').onclick=async()=>{
  const out=document.getElementById('physical-output');out.replaceChildren();
