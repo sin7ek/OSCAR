@@ -32,9 +32,26 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 <input id="metadata-release" maxlength="36" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" style="width:360px;max-width:90%">
 <button type="button" id="metadata-preview-btn">Preview MusicBrainz tags</button>
 <div id="metadata-output" aria-live="polite"></div></section>
+<section><h2>Inspect saved FLAC metadata</h2>
+<p>Read the actual tags from the new copies, compare with the saved MusicBrainz preview, and verify the tagged file hashes. No files are modified.</p>
+<label for="inspect-job">Rip job ID</label>
+<input id="inspect-job" maxlength="32" placeholder="32-character rip job ID" style="width:340px;max-width:90%">
+<label for="inspect-copy">Tagged copy ID</label>
+<input id="inspect-copy" maxlength="32" placeholder="32-character tagged copy ID" style="width:340px;max-width:90%">
+<button type="button" id="inspect-start">Inspect saved tags</button>
+<div id="inspect-result" aria-live="polite"></div></section>
 <button id="save">Save settings</button><p id="status" aria-live="polite"></p>
 <script>
 let settings;
+let trustedLocalUI=false;
+fetch('/api/ui/access').then(r=>r.ok?r.json():{}).then(data=>{
+ trustedLocalUI=!!data.trusted_local_ui;
+}).catch(()=>{trustedLocalUI=false});
+function requestAuthHeaders(description){
+ if(trustedLocalUI)return {'X-OSCAR-UI-ACTION':'confirmed'};
+ const token=window.prompt(description+' (OSCAR rip token)');
+ return token?{'X-OSCAR-RIP-TOKEN':token}:null;
+}
 const area=document.getElementById('drives');
 function safeText(node,value){node.textContent=value;}
 async function init(){
@@ -92,12 +109,12 @@ async function init(){
   detect.style.marginRight='8px';detect.textContent='Detect from CD (experimental)';
   detect.onclick=async()=>{
     if(!confirm('Use the inserted CD to detect a drive offset with cyanrip? It must be known to AccurateRip. No audio is archived, and your settings will not be saved automatically.'))return;
-    const token=prompt('OSCAR rip token (required for optical drive access)');
-    if(!token)return;
+    const access=requestAuthHeaders('Confirm CD offset calibration');
+    if(!access)return;
     detect.disabled=true;hint.textContent='Reading offset from reference CD…';
     try{
       const r=await fetch('/api/drive-offset/from-disc',{method:'POST',
-        headers:{'X-OSCAR-RIP-TOKEN':token,'Content-Type':'application/json'},
+        headers:{...access,'Content-Type':'application/json'},
         body:JSON.stringify({stable_id:drive.stable_id,confirmation:'CALIBRATE_OFFSET'})});
       if(!r.ok)throw new Error(await r.text());
       const data=await r.json();
@@ -143,13 +160,12 @@ document.getElementById('probe').onclick=async()=>{
  }catch(error){el.textContent='Probe unavailable: '+error.message}
 };
 async function startTestRip(stableId,label){
- const token=window.prompt('Enter OSCAR test-rip token (not stored in browser)');
- if(!token)return;
+ const headers=requestAuthHeaders('Start experimental staging rip');
+ if(!headers)return;
  const status=document.createElement('p');
  status.textContent='Checking test-rip plan for '+label+'…';
  document.getElementById('media-status').append(status);
  try{
-  const headers={'X-OSCAR-RIP-TOKEN':token};
   const planResponse=await fetch('/api/rip/plan?'+new URLSearchParams({stable_id:stableId}),{headers});
   if(!planResponse.ok)throw new Error(await planResponse.text());
   const plan=await planResponse.json();
@@ -429,10 +445,9 @@ async function verifyExistingJob(){
  const target=document.getElementById('verify-output');
  const job=document.getElementById('verify-job').value.trim().toLowerCase();
  if(!/^[a-f0-9]{32}$/.test(job)){target.textContent='Enter an OSCAR rip job ID (32 hexadecimal characters).';return}
- const token=window.prompt('Enter OSCAR rip token to read staged verification');
- if(!token)return;
+ const headers=requestAuthHeaders('Verify staged rip');
+ if(!headers)return;
  target.textContent='Starting verification (FLAC decoding may take some time)…';
- const headers={'X-OSCAR-RIP-TOKEN':token};
  try{
   const r=await fetch('/api/rip/jobs/'+job+'/verification',{method:'POST',headers});
   if(!r.ok)throw new Error(await r.text());
@@ -491,12 +506,12 @@ document.getElementById('metadata-preview-btn').onclick=async()=>{
  if(!/^[a-f0-9]{32}$/.test(job)||!/^[a-f0-9-]{36}$/.test(release)){
   output.textContent='Enter a valid staging job ID and MusicBrainz release UUID.';return;
  }
- const token=prompt('OSCAR rip token (required for metadata preview)');
- if(!token)return;
+ const access=requestAuthHeaders('Inspect MusicBrainz metadata preview');
+ if(!access)return;
  output.textContent='Checking completed rip, exact MusicBrainz medium and relationships…';
  try{
   const r=await fetch('/api/rip/jobs/'+job+'/metadata/preview',{
-    method:'POST',headers:{'Content-Type':'application/json','X-OSCAR-RIP-TOKEN':token},
+    method:'POST',headers:{'Content-Type':'application/json',...access},
     body:JSON.stringify({release_id:release})
   });
   if(!r.ok)throw new Error(await r.text());
@@ -536,13 +551,13 @@ document.getElementById('metadata-preview-btn').onclick=async()=>{
    const confirmText='Create a NEW staging copy of '+result.track_count+' verified FLACs tagged as '+
      result.album.title+' ('+result.release_id+')? This does not publish or modify originals.';
    if(!confirm(confirmText))return;
-   const copyToken=prompt('OSCAR rip token to confirm creating tagged copies');
-   if(!copyToken)return;
+   const copyAccess=requestAuthHeaders('Create reviewed FLAC copies');
+   if(!copyAccess)return;
    button.disabled=true;
    const status=metadataElement('p','Copying and validating tagged FLACs…');output.append(status);
    try{
     const response=await fetch('/api/rip/jobs/'+job+'/metadata/copy',{
-      method:'POST',headers:{'Content-Type':'application/json','X-OSCAR-RIP-TOKEN':copyToken},
+      method:'POST',headers:{'Content-Type':'application/json',...copyAccess},
       body:JSON.stringify({release_id:release,fingerprint:result.fingerprint,
                            confirmation:'COPY_TAGGED_TO_STAGING'})
     });
@@ -550,13 +565,17 @@ document.getElementById('metadata-preview-btn').onclick=async()=>{
     const started=await response.json();
     async function poll(){
       const r=await fetch('/api/rip/jobs/'+job+'/metadata/copies/'+started.copy_id,
-                          {headers:{'X-OSCAR-RIP-TOKEN':copyToken}});
+                          {headers:copyAccess});
       if(!r.ok)throw new Error(await r.text());
       const task=await r.json();
       if(task.status==='running'){
        status.textContent='Tagging in progress; original FLACs remain unchanged…';
        setTimeout(()=>poll().catch(e=>status.textContent=e.message),3000);
       }else{
+       if(task.status==='tagged_copy_ready_for_review'){
+        document.getElementById('inspect-job').value=job;
+        document.getElementById('inspect-copy').value=started.copy_id;
+       }
        status.textContent=task.status+' · '+(task.count??'?')+' tagged FLAC copies'+
         (task.error?' · '+task.error:'')+
         ' · copy ID '+started.copy_id+'. No archive promotion.';
@@ -567,6 +586,67 @@ document.getElementById('metadata-preview-btn').onclick=async()=>{
   };
   output.append(button);
  }catch(e){output.textContent='Metadata preview failed: '+e.message}
+};
+
+
+document.getElementById('inspect-start').onclick=async()=>{
+ const job=document.getElementById('inspect-job').value.trim().toLowerCase();
+ const copy=document.getElementById('inspect-copy').value.trim().toLowerCase();
+ const target=document.getElementById('inspect-result');
+ target.replaceChildren();
+ if(!/^[a-f0-9]{32}$/.test(job)||!/^[a-f0-9]{32}$/.test(copy)){
+  target.textContent='Enter both 32-character IDs.';return;
+ }
+ const headers=requestAuthHeaders('Read actual tagged FLAC metadata');
+ if(!headers)return;
+ target.textContent='Reading the actual FLAC Vorbis comments and comparing saved preview…';
+ try{
+  const r=await fetch('/api/rip/jobs/'+job+'/metadata/copies/'+copy+'/inspect',{headers});
+  if(!r.ok)throw new Error(await r.text());
+  const result=await r.json();
+  target.replaceChildren();
+  const title=document.createElement('h3');title.textContent=result.album.title||'Unknown album';target.append(title);
+  const overview=document.createElement('p');
+  overview.textContent=result.track_count+' tracks · '+result.status+
+    ' · source: actual saved FLAC tags (not a MusicBrainz lookup)';
+  target.append(overview);
+  const table=document.createElement('table');table.style.width='100%';
+  const h=document.createElement('tr');
+  for(const v of ['Track','Title','Composer','Work / grouping','Conductor','Orchestra','Checks']){
+   const th=document.createElement('th');th.textContent=v;th.style.textAlign='left';
+   th.style.padding='6px';h.append(th);
+  }table.append(h);
+  for(const track of result.tracks){
+   const t=track.tags||{};
+   const value=(k)=>Array.isArray(t[k])?t[k].join(', '):'—';
+   const row=document.createElement('tr');
+   for(const txt of [track.track,value('TITLE'),value('COMPOSER'),
+       [value('WORK'),value('GROUPING')].filter(x=>x!=='—').join(' / ')||'—',
+       value('CONDUCTOR'),value('ORCHESTRA'),track.status]){
+    const td=document.createElement('td');td.textContent=String(txt);
+    td.style.padding='6px';td.style.verticalAlign='top';
+    td.style.borderBottom='1px solid #324253';row.append(td);
+   }
+   table.append(row);
+   const expanded=document.createElement('tr');
+   const cell=document.createElement('td');cell.colSpan=7;
+   const details=document.createElement('details');
+   const summary=document.createElement('summary');
+   summary.textContent='Track '+track.track+' — all stored Vorbis tags and preview differences ('+
+    Object.keys(track.differences||{}).length+' differences)';
+   details.append(summary);
+   const pre=document.createElement('pre');pre.style.whiteSpace='pre-wrap';
+   pre.style.overflowWrap='anywhere';pre.textContent=JSON.stringify({
+      tags:track.tags,differences:track.differences,
+      sha256_matches:track.sha256_matches,
+      audio_streaminfo_md5_matches:track.audio_streaminfo_md5_matches
+   },null,2);
+   details.append(pre);cell.append(details);expanded.append(cell);table.append(expanded);
+  }
+  target.append(table);
+  const footer=document.createElement('p');footer.textContent=(result.notes||[]).join(' ');
+  target.append(footer);
+ }catch(error){target.textContent='Inspection failed: '+error.message}
 };
 
 document.getElementById('save').onclick=async()=>{
