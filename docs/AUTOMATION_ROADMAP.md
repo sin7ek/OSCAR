@@ -25,6 +25,14 @@ Audio checks remain equally strict in **all three** modes: cyanrip extraction in
 
 **Real acceptance example:** Essential Dance Traxx absent from MusicBrainz can legitimately produce an inferred *Ibiza Party* Disc ID candidate. Best Guess may accept that risk under its configured automation policy. Semi Automatic must **show the candidate for approval before use**. Secure pauses until physical edition evidence is sufficient. Never invent a missing release or claim the other album is the owned physical pressing.
 
+## Go Semi Automatic — phase-one release approval (PR #66, 2026-11-19)
+
+- Separate top-level `identification_mode=semi_automatic` is now selectable and persisted, without modifying existing `best_guess` or `secure` settings/jobs.
+- After mandatory saved rip verification, Go freezes the server-discovered MusicBrainz candidate UUID list in the workflow database (first snapshot wins). The user can **choose a candidate, explicitly accept inferred identification, or defer/resume**. Only UUIDs in that saved list are accepted; acceptance is authenticated, idempotent for the same UUID, fails closed on a different later choice, and is journaled with a timestamp. Accepted release remains **INFERRED_OPERATOR_ACCEPTED**; never physically verified.
+- Go's new terminal `RELEASE_ACCEPTED` phase **does not tag, copy metadata, preview, publish, catalog-index or write to Discogs**. The separate final publication confirmation is a follow-on milestone, not silently implemented. The existing manual archive publisher retains its own independent physical-edition review; approving a Semi Automatic candidate is not equivalent to approving final publication.
+- Real Unraid acceptance and Docker deploy still needed; tests use mocked cyanrip and MusicBrainz data.
+- The original optical rip, verification evidence and other jobs are unchanged. Existing Secure submode `on_ambiguity` is renamed in the UI to **Review on ambiguity**, avoiding collision with new Semi Automatic terminology.
+
 ## Second implementation increment — PR #64 Go! controller
 
 Implemented: operator clicks Go!, a persistently snapshotted workflow is created **before** the cyanrip worker starts, successful extraction triggers verification automatically, a read-only next-step endpoint checks saved TOC against MusicBrainz after verification, and Best Guess can persist a *clearly inferred suggestion*; Secure returns a physical-review requirement. The existing recording and archive publishing APIs are NOT automatically invoked, and source evidence is never deleted. GUI polling is only a progress display; verified audio work runs server-side. A restart during extraction is surfaced as interrupted and deliberately not retried automatically.
