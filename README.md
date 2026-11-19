@@ -129,3 +129,7 @@ MIT — see [LICENSE](LICENSE).
 ## Classical metadata review
 
 [Classical Metadata v2](docs/CLASSICAL_METADATA_V2.md) separates operator-reviewed sections of the physical CD from MusicBrainz's canonical work/parent relationships. The review can optionally add explicitly checked movements and cached English aliases. After confirmation it creates only separate new FLAC copies in staging, without altering the first rip or previous copies.
+
+## Archive review, cover art, CUE and multiple drives
+
+[Archive review & multidrive](docs/ARCHIVE_REVIEW_AND_MULTIDRIVE.md) adds a read-only metadata consistency checker (MusicBrainz Work vs Recording, potential duplicate links, available track durations), exact physical-release Cover Art Archive candidate, original-index-preserving CUE preview and responsive mobile track cards. Ordinary pop, house, compilations and mixed-genre releases use the original tagging pathway, without requiring Classical v2. Multiple configured optical drives already have independent running jobs; an optional `OSCAR_MAX_CONCURRENT_RIPS` safety cap (default 3, range 1–16) and parallel-drive dashboard are available. No automatic archive publishing or persistent job queue yet.
