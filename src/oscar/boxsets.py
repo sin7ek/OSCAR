@@ -72,6 +72,15 @@ def parse_release_media(payload: dict, disc_id: str, track_count: int) -> dict:
     return {
         "release_id": payload.get("id"),
         "release_title": payload.get("title"),
+        "album_artist": _artist_credit(payload.get("artist-credit") or []),
+        "date": payload.get("date"),
+        "country": payload.get("country"),
+        "barcode": payload.get("barcode"),
+        "label_info": [
+            {"name": (info.get("label") or {}).get("name"),
+             "catalog_number": info.get("catalog-number")}
+            for info in (payload.get("label-info") or []) if isinstance(info, dict)
+        ],
         "disc_id": disc_id,
         "total_media": len(media),
         "status": status,
