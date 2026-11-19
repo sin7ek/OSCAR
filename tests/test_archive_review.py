@@ -455,6 +455,9 @@ def test_archive_publisher_ui_present():
     assert 'id="publish-preview"' in html
     assert 'id="publish-start"' in html
     assert 'id="publish-physical"' in html
+    assert "[hidden]{display:none!important}" in html
+    assert 'id="publish-observation-label" hidden' in html
+    assert 'id="publish-cover-label" hidden' in html
     assert "Preview not started: OSCAR rip token was not supplied" in html
     assert "Preparing archive preview authorization" in html
     assert "Archive preview authorization unavailable" in html
@@ -513,3 +516,68 @@ def test_rendered_web_page_preserves_javascript_escapes():
             timeout=10,
         )
         assert completed.returncode == 0, completed.stderr
+
+
+def test_unraid_fuse_rename_fallback_preserves_verified_folder(tmp_path, monkeypatch):
+    """FUSE may return EINVAL for RENAME_NOREPLACE despite supporting rename."""
+    import errno
+
+    class UnsupportedRename:
+        def __call__(self, *args):
+            return -1
+
+    class FakeLibc:
+        renameat2 = UnsupportedRename()
+
+    monkeypatch.setattr(archive_publish.ctypes, "CDLL", lambda *a, **kw: FakeLibc())
+    monkeypatch.setattr(archive_publish.ctypes, "get_errno", lambda: errno.EINVAL)
+    src = tmp_path / ".oscar-unpublished-test"
+    src.mkdir()
+    (src / "01 - Track.flac").write_bytes(b"test source remains identical")
+    dest = tmp_path / "Album"
+    archive_publish._rename_noreplace(src, dest)
+    assert not src.exists()
+    assert (dest / "01 - Track.flac").read_bytes() == b"test source remains identical"
+
+
+def test_unraid_fuse_rename_fallback_never_overwrites_existing_folder(tmp_path, monkeypatch):
+    import errno
+
+    class UnsupportedRename:
+        def __call__(self, *args):
+            return -1
+
+    class FakeLibc:
+        renameat2 = UnsupportedRename()
+
+    monkeypatch.setattr(archive_publish.ctypes, "CDLL", lambda *a, **kw: FakeLibc())
+    monkeypatch.setattr(archive_publish.ctypes, "get_errno", lambda: errno.EINVAL)
+    src = tmp_path / ".oscar-unpublished-test"
+    src.mkdir()
+    dest = tmp_path / "Album"
+    dest.mkdir()
+    with pytest.raises(archive_publish.PublishError, match="already exists"):
+        archive_publish._rename_noreplace(src, dest)
+    assert src.is_dir()
+    assert dest.is_dir()
+
+
+def test_unraid_fuse_directory_fsync_failure_after_promotion_is_not_false_failure(publishable, monkeypatch):
+    import errno
+    import stat
+
+    real_fsync = archive_publish.os.fsync
+
+    def fuse_fsync(fd):
+        if stat.S_ISDIR(archive_publish.os.fstat(fd).st_mode):
+            raise OSError(errno.EINVAL, "FUSE directory fsync unsupported")
+        return real_fsync(fd)
+
+    monkeypatch.setattr(archive_publish.os, "fsync", fuse_fsync)
+    plan = archive_publish.prepare(JOB, COPY, "original_tags", "standard")
+    result = archive_publish._do_publish(plan, "a" * 32,
+                                        allow_metadata_observations=True)
+    assert result["status"] == "published_verified"
+    assert result["directory_sync"].startswith("unavailable:")
+    archive = publishable[2]
+    assert (archive / result["relative_directory"] / "manifest.json").is_file()
