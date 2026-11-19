@@ -145,3 +145,65 @@ def search_release_candidates(*, catalog_number=None, title=None, opener=None):
         "disc_id_compared": False, "physical_edition_approved": False,
         "note": "Search candidates are not Disc ID or track-count matches. Inspect the exact release medium and physical evidence separately before tagging.",
     }
+
+
+def assess_disc_candidates(result: dict, catalog_number: str | None = None) -> dict:
+    """Read-only, risk-based physical edition guidance; never auto-approve.
+
+    A unique Disc ID candidate permits automatic candidate inspection, but it
+    does not prove the catalog/pressing: an unlinked edition can still exist.
+    """
+    import copy
+    import re
+
+    output = copy.deepcopy(result)
+    candidates = output.get("releases") or []
+    if not isinstance(candidates, list):
+        raise MusicBrainzError("Invalid release candidates")
+    if not isinstance(catalog_number, (str, type(None))):
+        raise MusicBrainzError("Invalid catalog number")
+    raw = (catalog_number or "").strip()
+    if len(raw) > 100 or any(ord(ch) < 32 for ch in raw):
+        raise MusicBrainzError("Invalid catalog number")
+    def norm(value):
+        return re.sub(r"[^a-z0-9]+", "", str(value or "").casefold())
+    needle = norm(raw)
+    if raw and not needle:
+        raise MusicBrainzError("Invalid catalog number")
+    matches = 0
+    for item in candidates:
+        labels = item.get("labels") or []
+        match = bool(needle and any(
+            norm(label.get("catalog_number")) == needle
+            for label in labels if isinstance(label, dict)
+        ))
+        item["printed_catalog_matches"] = match if raw else None
+        if match:
+            matches += 1
+    if not candidates:
+        level = "no_disc_candidates"
+        guidance = "No releases are linked to this Disc ID. Search independently by the printed catalog number or title."
+    elif raw and matches == 0:
+        level = "catalog_conflict"
+        guidance = "No Disc ID candidate matches the printed catalog number. Search independently by catalog number; do not select a different edition."
+    elif raw and matches > 1:
+        level = "ambiguous_catalog"
+        guidance = "Several releases share the catalog number. Check barcode, artwork and other physical evidence."
+    elif raw:
+        level = "catalog_candidate"
+        guidance = "Catalog matches one candidate. Continue with medium/tracklist comparison, then physical-edition review."
+    elif len(candidates) > 1:
+        level = "ambiguous_disc_id"
+        guidance = "Several releases share this Disc ID. Enter the printed catalog number to narrow the candidates."
+    else:
+        level = "single_candidate"
+        guidance = "One Disc ID candidate: inspect its medium automatically. Confirm physical edition evidence before final tagging or publication."
+    output["edition_gate"] = {
+        "status": level, "candidate_count": len(candidates),
+        "printed_catalog": raw or None, "catalog_match_count": matches,
+        "catalog_prompt_recommended": level in {"ambiguous_disc_id", "ambiguous_catalog", "catalog_conflict", "no_disc_candidates"},
+        "can_inspect_automatically": level in {"single_candidate", "catalog_candidate"},
+        "requires_review": True, "physical_edition_approved": False,
+        "message": guidance,
+    }
+    return output

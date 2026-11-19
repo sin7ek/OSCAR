@@ -342,26 +342,71 @@ async function showToc(stableId){
   lookup.onclick=()=>showCandidates(stableId);target.append(lookup);
  }catch(error){status.textContent='TOC unavailable: '+error.message}
 }
-async function showCandidates(stableId){
+async function showCandidates(stableId,catalogNumber=''){
  const target=document.getElementById('toc-results');
- const p=document.createElement('p');p.textContent='Looking up MusicBrainz candidates…';target.append(p);
+ const previous=document.getElementById('disc-candidates');
+ if(previous)previous.remove();
+ const area=document.createElement('section');area.id='disc-candidates';target.append(area);
+ const p=document.createElement('p');p.textContent='Looking up MusicBrainz candidates…';area.append(p);
  try{
-  const r=await fetch('/api/releases?'+new URLSearchParams({stable_id:stableId}));
+  const params={stable_id:stableId};
+  if(catalogNumber)params.catalog_number=catalogNumber;
+  const r=await fetch('/api/releases?'+new URLSearchParams(params));
   if(!r.ok)throw new Error(await r.text());
   const result=await r.json();
-  p.textContent=result.releases.length+' candidate(s) found — physical edition requires review';
+  const gate=result.edition_gate||{};
+  p.textContent=result.releases.length+' Disc ID candidate(s). None is automatically approved as the physical edition.';
+  const guide=document.createElement('p');guide.className='oscar-review-note';
+  guide.textContent=gate.message||'Compare the physical edition before tagging.';
+  area.append(guide);
+  if(gate.catalog_prompt_recommended){
+    const label=document.createElement('label');
+    label.textContent='Catalog number printed on your physical CD';
+    const input=document.createElement('input');input.maxLength=100;
+    input.placeholder='e.g. E 8512';input.value=catalogNumber;
+    const search=document.createElement('button');search.type='button';
+    search.textContent='Compare printed catalog number';
+    search.onclick=()=>{
+      const value=input.value.trim();
+      if(!value){guide.textContent='Enter the catalog number to narrow the physical editions.';return}
+      showCandidates(stableId,value);
+    };
+    area.append(label,input,search);
+  }
+  if(gate.status==='catalog_conflict'||gate.status==='no_disc_candidates'){
+    const fallback=document.createElement('button');fallback.type='button';
+    fallback.textContent='Search MusicBrainz independently by catalog number';
+    fallback.onclick=()=>{
+      const value=gate.printed_catalog||(area.querySelector('input')?.value||'').trim();
+      if(!value){guide.textContent='Enter the catalog number first.';return}
+      document.getElementById('catalog-search').value=value;
+      document.getElementById('catalog-search-button').click();
+      document.getElementById('release-search-results').scrollIntoView({behavior:'smooth'});
+    };
+    area.append(fallback);
+  }
   for(const release of result.releases){
     const entry=document.createElement('p');
     const link=document.createElement('a');
     link.href='https://musicbrainz.org/release/'+encodeURIComponent(release.id);
     link.target='_blank';link.rel='noopener noreferrer';
     link.textContent=(release.title||'Untitled')+' · '+(release.artist||'Unknown')+' · '+(release.date||'?')+
-      ' · '+release.labels.map(x=>(x.name||'')+' '+(x.catalog_number||'')).join(', ');
+      ' · '+(release.labels||[]).map(x=>(x.name||'')+' '+(x.catalog_number||'')).join(', ');
     entry.append(link);
+    if(release.printed_catalog_matches===false){
+      entry.append(document.createTextNode(' · printed catalog differs'));
+    }
     const inspect=document.createElement('button');inspect.type='button';
     inspect.style.marginLeft='10px';inspect.textContent='Inspect disc & tracklist';
-    inspect.onclick=()=>showMedium(stableId,release.id);entry.append(inspect);
-    target.append(entry);
+    inspect.onclick=()=>showMedium(stableId,release.id);
+    if(gate.status==='catalog_conflict'||(catalogNumber&&release.printed_catalog_matches===false)){
+      inspect.disabled=true;inspect.title='Catalog differs from physical CD';
+    }
+    entry.append(inspect);area.append(entry);
+  }
+  if(gate.status==='single_candidate'&&result.releases.length===1){
+    // Read-only automatic inspection, never tagging or physical edition approval.
+    await showMedium(stableId,result.releases[0].id);
   }
  }catch(error){p.textContent='MusicBrainz unavailable: '+error.message}
 }
