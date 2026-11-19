@@ -25,6 +25,14 @@
 - Once release is published and its Disc ID attached, perform original MusicBrainz tagged-copy and **standard** Archive Review without reripping; final archive promotion remains a separate unimplemented feature (#39).
 - Longer term: build a missing-release evidence/submit helper and optional Discogs/GnuDB fallbacks under #40; preserve human review until proof is strong.
 
+### User decision — handling missing or wrong CDs (2026-11-19)
+
+- The user explicitly **does not want to add Citycat Club to MusicBrainz now**; creating a 14-track compilation release and verifying each version is too much work at the moment. This is a deliberate deferral, **not** a request to re-prompt immediately. No MusicBrainz release was added. Preserve the successfully verified Citycat source job `95dbf0da233d4a3887800a517a149b3c` and do not select unrelated `Ibiza Party`.
+- OSCAR now has a guided **"CD not found, wrong edition or incomplete metadata?"** panel with four reason codes: `missing_release`, `wrong_edition`, `ambiguous_edition`, `incomplete_metadata`. It explains evidence-based recovery, not inventing Recording/Work/ISRC, and how to add/fix the actual physical release using MusicBrainz *when convenient*.
+- Users can choose **Save for later** on a **verified existing rip job**. This writes only an indexed task to persistent `/config/release_review.sqlite3` keyed by job ID, including optional physical title/catalog number and notes; `View pending CD reviews` lists tasks and can mark them resolved. It neither uploads to MusicBrainz nor modifies FLACs/CUE/audio, tags, or the rip.
+- This provides a **review backlog**, not a background automatic cross-provider search, a new MusicBrainz edit, or automatic archive publication. Full automation and fallback provider adapters remain tracked under #40. On Unraid, ensure the normal `/config` volume remains persistent during Docker redeploy.
+- **Next action for user after deploying this PR:** optionally enter their already verified Citycat job ID and select `My physical CD is missing from MusicBrainz`, title `Essential Dance Traxx`, catalog `CCC 97001`, then **Save for later**. No need to do the manual MusicBrainz entry today. Once saved, move on to the next CD or toward #39/#40 development; no blocked ripping.
+
 ### Current shipping features and boundaries
 
 - Merged **#36**: optional, reviewed Classical v2 release sections, general-purpose UI, no Handel-specific demo defaults.

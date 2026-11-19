@@ -382,6 +382,47 @@ def get_rip_verification(job_id: str, request: Request, x_oscar_rip_token: str |
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+class DeferReleaseReviewRequest(BaseModel):
+    reason: str
+    title: str = Field(default="", max_length=200)
+    catalog_number: str = Field(default="", max_length=100)
+    notes: str = Field(default="", max_length=1000)
+
+
+@app.post("/api/rip/jobs/{job_id}/release-review/defer")
+def defer_release_review(job_id: str, body: DeferReleaseReviewRequest,
+                         request: Request,
+                         x_oscar_rip_token: str | None = Header(default=None)):
+    """Store a review task, never tag or publish the rip."""
+    from oscar.release_review_queue import RecoveryError, defer
+    _rip_auth(x_oscar_rip_token, request)
+    try:
+        return defer(job_id, reason=body.reason, title=body.title,
+                     catalog_number=body.catalog_number, notes=body.notes)
+    except (RecoveryError, OSError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.get("/api/release-reviews")
+def get_release_review_backlog(request: Request,
+                               x_oscar_rip_token: str | None = Header(default=None)):
+    from oscar.release_review_queue import pending
+    _rip_auth(x_oscar_rip_token, request)
+    return pending()
+
+
+@app.post("/api/rip/jobs/{job_id}/release-review/resolve")
+def resolve_release_review(job_id: str, request: Request,
+                           x_oscar_rip_token: str | None = Header(default=None)):
+    """Close only the review task; does not change the rip or metadata."""
+    from oscar.release_review_queue import RecoveryError, resolve
+    _rip_auth(x_oscar_rip_token, request)
+    try:
+        return resolve(job_id)
+    except (RecoveryError, OSError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
 class PhysicalReleaseCompareRequest(BaseModel):
     release_id: str = Field(min_length=36, max_length=36)
     catalog_number: str = Field(min_length=1, max_length=100)
