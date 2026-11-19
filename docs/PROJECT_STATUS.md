@@ -6,6 +6,14 @@
 
 > **How to resume after a chat ends:** Read this document first, then `docs/ARCHITECTURE.md`, `README.md`, recent merged PRs and open PRs, and GitHub Actions for the branch under development. Do not infer that a successful CI run establishes real optical hardware functionality.
 
+## Indexed per-track classical credits and safe label backfill — PR #62 (2026-11-19)
+
+- New `archive_tracks`, `track_credits`, and `track_works` indexed tables in existing OSCAR local SQLite catalog, with **explicit per-track FLAC Vorbis comment provenance**, source file/track, recording ID, release track ID, Work IDs/names, conductor, composer, orchestra, performers and explicitly identified soloists. The index only imports albums already in the local catalog with published OSCAR manifests; every indexed archived FLAC must match its recorded SHA-256 first. No archive file is modified.
+- The UI provides **Index verified published tracks** and per-track search for artist, performer, composer, conductor, explicit soloist, recording and Work. It **does not** infer that soprano/piano/violin roles are soloists. A matching Work title/ID pair is recorded only when the same-length aligned tags support it; mismatched title and ID arrays are **not** joined.
+- `Fill missing labels from exact MusicBrainz release` is an explicit optional read-only lookup. The local missing label is updated only if the MusicBrainz release UUID equals the stored exact release and its label-info includes the **same physical printed catalog number**. The local value records provenance `musicbrainz_exact_release_catalog_match`; never overwrite a known label or modify historical archive evidence. In particular, the earlier Anastacia archive cannot safely infer a label from an unrelated pressing.
+- Limitations: text-level role tags are not a substitute for normalized MusicBrainz artist/role IDs; explicit Work ID alignment remains the only permitted relation; no remote revision of archive tags, no Discogs writes, no per-owned-copy catalog, no independent AR/CTDB. Operator must still explicitly import archived albums, index tracks, and initiate optional label backfill. CI results and Unraid acceptance tracked separately.
+- **Roadmap priority has shifted back to automation after this metadata foundation**: [AUTOMATION_ROADMAP.md](AUTOMATION_ROADMAP.md) specifies persistent per-disc state machine, evidence-scored resolver, and crash-safe CD inserted → Go controller as next milestones. Best Guess/Secure settings alone are not the workflow engine.
+
 ## Collection spreadsheet interoperability and classical search — PR #61 (2026-11-19)
 
 - Adds standards-based **XLSX** export in addition to ODS/CSV; XLSX uses inline text, an AutoFilter row and frozen header, and never creates formulas or macros. Intended for Nextcloud + Collabora and ONLYOFFICE. No Microsoft software or proprietary binary writer is required.
