@@ -367,6 +367,29 @@ def get_rip_verification(job_id: str, request: Request, x_oscar_rip_token: str |
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+class PhysicalReleaseCompareRequest(BaseModel):
+    release_id: str = Field(min_length=36, max_length=36)
+    catalog_number: str = Field(min_length=1, max_length=100)
+    barcode: str | None = Field(default=None, max_length=14)
+
+
+@app.post("/api/rip/jobs/{job_id}/physical-release/compare")
+def compare_physical_release(job_id: str, body: PhysicalReleaseCompareRequest,
+                             http_request: Request, x_oscar_rip_token: str | None = Header(default=None)):
+    """Read-only compare user-observed physical catalog/barcode to MB release data."""
+    from oscar.physical_release import PhysicalReleaseError, compare
+    from oscar.musicbrainz import MusicBrainzError, lookup_enabled
+    from oscar.ripping import RipError
+    _rip_auth(x_oscar_rip_token, http_request)
+    if not lookup_enabled():
+        raise HTTPException(status_code=403, detail="MusicBrainz lookup disabled")
+    try:
+        return compare(job_id, body.release_id,
+                       catalog_number=body.catalog_number, barcode=body.barcode)
+    except (PhysicalReleaseError, MusicBrainzError, RipError, ValueError, OSError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
 class MetadataPreviewRequest(BaseModel):
     release_id: str = Field(min_length=36, max_length=36)
 
