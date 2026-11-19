@@ -27,7 +27,10 @@ CREATE TABLE IF NOT EXISTS workflow_jobs (
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   proposed_release_id TEXT NOT NULL DEFAULT '',
-  release_evidence TEXT NOT NULL DEFAULT ''
+  release_evidence TEXT NOT NULL DEFAULT '',
+  candidate_options TEXT NOT NULL DEFAULT '[]',
+  accepted_release_id TEXT NOT NULL DEFAULT '',
+  release_approved_at TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS workflow_events (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -60,7 +63,8 @@ def _db():
     db.execute("PRAGMA foreign_keys=ON")
     db.executescript(_SCHEMA)
     existing = {row[1] for row in db.execute("PRAGMA table_info(workflow_jobs)")}
-    for name in ("proposed_release_id", "release_evidence"):
+    for name in ("proposed_release_id", "release_evidence", "candidate_options",
+                 "accepted_release_id", "release_approved_at"):
         if name not in existing:
             db.execute("ALTER TABLE workflow_jobs ADD COLUMN " + name + " TEXT NOT NULL DEFAULT ''")
     return db
@@ -115,12 +119,18 @@ def _view(db, job_id):
         "WHERE job_id=? ORDER BY id", (job_id,))]
     result["automated_actions_enabled"] = False
     result["release_physically_verified"] = False
+    result["candidate_options"] = json.loads(result.get("candidate_options") or "[]")
+    result["release_match_status"] = (
+        "INFERRED_OPERATOR_ACCEPTED" if result.get("accepted_release_id")
+        else "INFERRED_NOT_PHYSICALLY_VERIFIED" if result.get("proposed_release_id")
+        else "UNRESOLVED")
     result["next_action"] = {
         "RIP_IN_PROGRESS": "Wait for the rip to finish, then refresh this record",
         "RIP_FAILED": "Review the extraction failure; do not publish",
         "RIP_INTERRUPTED": "Service restarted during extraction; inspect staging; no automatic rerip",
         "VERIFICATION_PENDING": "Run staging verification; original files remain untouched",
-        "RELEASE_REVIEW_PENDING": "Review physical edition, catalog and metadata; no release approved automatically",
+        "RELEASE_REVIEW_PENDING": "Review release evidence; no release approved automatically",
+        "RELEASE_ACCEPTED": "Operator accepted an inferred release; tagging and archive publication remain manual and disabled in Go",
         "DEFERRED_REVIEW": "Resume review when the physical edition has been resolved",
     }.get(result["phase"], "Manual review required")
     return result
@@ -233,6 +243,87 @@ def remember_suggestion(job_id, release_id, evidence):
             (job_id,phase_before,phase_after,reason,happened_at) VALUES (?,?,?,?,?)""",
             (job_id,item["phase"],item["phase"],"read_only_inferred_candidate_"+evidence,stamp))
         return _view(db,job_id)
+
+def remember_semi_candidates(job_id, candidates, evidence):
+    """Freeze a server-discovered option set; require per-job operator approval.
+
+    The first successful snapshot wins across polls and restarts. It is a
+    read-only metadata decision and is not a physical edition assertion.
+    """
+    if not _JOB_ID.fullmatch(job_id):
+        raise WorkflowError("Invalid rip job ID")
+    if evidence not in {"inferred_disc_id_unique", "inferred_disc_id_ranked"}:
+        raise WorkflowError("Invalid candidate evidence")
+    if not isinstance(candidates, list) or not 1 <= len(candidates) <= 250:
+        raise WorkflowError("Invalid or oversized release candidate set")
+    safe = []
+    ids = set()
+    for item in candidates:
+        release_id = item.get("release_id") if isinstance(item, dict) else None
+        if not isinstance(release_id, str) or not re.fullmatch(
+                r"[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}", release_id):
+            raise WorkflowError("Invalid discovered release ID")
+        if release_id not in ids:
+            safe.append({"release_id": release_id,
+                         "title": str(item.get("title") or "")[:300],
+                         "date": str(item.get("date") or "")[:30],
+                         "score": int(item.get("score") or 0)})
+            ids.add(release_id)
+    with _db() as db:
+        item = db.execute("SELECT * FROM workflow_jobs WHERE job_id=?", (job_id,)).fetchone()
+        if not item or item["identification_mode"] != "semi_automatic" or item["phase"] != "RELEASE_REVIEW_PENDING":
+            raise WorkflowError("Semi Automatic verified review is required")
+        if item["proposed_release_id"]:
+            return _view(db, job_id)
+        stamp = _now()
+        result = db.execute("""UPDATE workflow_jobs SET proposed_release_id=?,
+            release_evidence=?,candidate_options=?,updated_at=?
+            WHERE job_id=? AND proposed_release_id='' AND phase='RELEASE_REVIEW_PENDING'""",
+            (safe[0]["release_id"], evidence, json.dumps(safe), stamp, job_id))
+        if result.rowcount != 1:
+            return _view(db, job_id)
+        db.execute("""INSERT INTO workflow_events
+            (job_id,phase_before,phase_after,reason,happened_at) VALUES (?,?,?,?,?)""",
+            (job_id, "RELEASE_REVIEW_PENDING", "RELEASE_REVIEW_PENDING",
+             "semi_automatic_candidates_proposed", stamp))
+        return _view(db, job_id)
+
+
+def accept_semi_release(job_id, release_id, confirmation):
+    """Approve an inferred release explicitly, without tagging or publishing."""
+    if not _JOB_ID.fullmatch(job_id):
+        raise WorkflowError("Invalid rip job ID")
+    if confirmation != "ACCEPT_INFERRED_RELEASE":
+        raise WorkflowError("Explicit inferred-release risk acceptance required")
+    if not isinstance(release_id, str) or not re.fullmatch(
+            r"[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}", release_id):
+        raise WorkflowError("Invalid MusicBrainz release UUID")
+    # Always check live saved verification before accepting identity.
+    current = refresh(job_id)
+    with _db() as db:
+        item = db.execute("SELECT * FROM workflow_jobs WHERE job_id=?", (job_id,)).fetchone()
+        if not item or item["identification_mode"] != "semi_automatic":
+            raise WorkflowError("Only Semi Automatic jobs can accept inferred releases")
+        if item["phase"] == "RELEASE_ACCEPTED":
+            if item["accepted_release_id"] == release_id:
+                return _view(db, job_id)
+            raise WorkflowError("Release was already accepted; cannot silently replace it")
+        if item["phase"] != "RELEASE_REVIEW_PENDING" or current["phase"] != "RELEASE_REVIEW_PENDING":
+            raise WorkflowError("Successful verified audio review required")
+        candidates = json.loads(item["candidate_options"])
+        if release_id not in {x["release_id"] for x in candidates}:
+            raise WorkflowError("Only a saved server-discovered candidate may be accepted")
+        stamp = _now()
+        result = db.execute("""UPDATE workflow_jobs SET accepted_release_id=?,
+            release_approved_at=?,updated_at=? WHERE job_id=? AND
+            accepted_release_id='' AND phase='RELEASE_REVIEW_PENDING'""",
+            (release_id, stamp, stamp, job_id))
+        if result.rowcount != 1:
+            raise WorkflowError("Concurrent release review changed; refresh")
+        _transition(db, job_id, "RELEASE_REVIEW_PENDING", "RELEASE_ACCEPTED",
+                    "operator_accepted_inferred_release")
+        return _view(db, job_id)
+
 
 def review_action(job_id, action):
     """The only manual transitions in v1: defer/resume edition review."""
