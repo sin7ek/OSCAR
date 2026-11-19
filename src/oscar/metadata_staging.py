@@ -110,7 +110,7 @@ def _track_data(track, position, total, disc_number, disc_total, album):
         parent = [p["title"] for w in works for p in (w.get("parents") or []) if p.get("title")]
         if parent:
             tag["GROUPING"] = list(dict.fromkeys(parent))
-    return {"number": position, "original_file": f"audio/{position:02d} - Unknown track.flac",
+    return {"number": position, "length_ms": track.get("length_ms"), "original_file": f"audio/{position:02d} - Unknown track.flac",
             "tags": tag, "composers": composers, "performers": performers,
             "works": works, "provenance": "musicbrainz_explicit_release_and_relationships"}
 
