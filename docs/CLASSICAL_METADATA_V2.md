@@ -6,7 +6,7 @@ OSCAR's first Händel hardware test (`f41806152a614b1a9006b10456b9bbd4`) and suc
 
 1. Deploy the updated OSCAR Docker image and open **Classical metadata v2 — review**.
 2. Enter the original rip ID and **the completed tagged-copy ID**, not the original raw ripping folder or a partially failed copy.
-3. Click **Fill example for first Handel CD** if testing OSCAR's original 28-track reference; section fields are otherwise empty by default. Review the proposed **physical CD sections**. Every track must belong to precisely one explicitly named range; overlaps and gaps are rejected. The on-page starting ranges for the first Händel reference CD are only suggestions and must be checked against the liner notes.
+3. **Physical-CD sections are optional.** Leave the section field empty for a MusicBrainz work-hierarchy preview without claiming physical booklet grouping. If entering explicitly reviewed physical CD sections, provide named ranges that cover every track without gaps or overlaps. No release-specific example values are prefilled; use only information checked against your own booklet.
 4. Optional movement titles may be supplied per track, **explicitly**. OSCAR never infers movement numbers/titles from punctuation, track numbers, Roman numerals or work titles. When not reviewed, the MOVEMENT field stays absent.
 5. Click **Preview classical v2 tags**. OSCAR verifies the actual saved tagged FLACs and the original MusicBrainz preview from staging, then constructs a separate new metadata proposal. No MusicBrainz request is needed to inspect this existing release; supplemental English aliases are used only when already present in the local alias cache, with no machine translation.
 6. Only after reviewing the per-track proposal and confirming the action may OSCAR create a **new** `metadata-v2-<UUID>/audio` subdirectory under the *same rip job*. It writes modified Vorbis comments only to newly copied FLAC files, runs `flac -t` on each, confirms the audio STREAMINFO MD5 is unchanged and writes `classical-v2-preview.json` and `classical-v2-manifest.json` on completion.
@@ -17,7 +17,7 @@ OSCAR's first Händel hardware test (`f41806152a614b1a9006b10456b9bbd4`) and suc
 | Field | Meaning / source |
 | --- | --- |
 | TITLE | Physical release's MusicBrainz track title, preserved |
-| RELEASE_SECTION | Operator-reviewed physical CD section name |
+| RELEASE_SECTION | Optional operator-reviewed physical CD section name; **omitted** if none reviewed |
 | WORK | Explicitly linked MusicBrainz work title(s), preserved |
 | MUSICBRAINZ_WORKID | Explicitly linked MusicBrainz work ID(s), preserved |
 | WORK_PARENT | Explicit parent work title(s) from MusicBrainz relationships |
@@ -40,3 +40,7 @@ The previous overloaded `GROUPING` field is deliberately removed **from the new 
 ## After the Classical v2 copy
 
 A completed new copy has status `classical_v2_ready_for_review`. Click **Inspect actual Classical v2 FLAC tags** to read the real Vorbis comments from the new files, compare them with the reviewed v2 preview and recheck each copied file SHA-256 and audio STREAMINFO MD5. The readback status `tags_match_preview` confirms tag fidelity, not a musicological endorsement. The read-only API is `GET /api/rip/jobs/{job_id}/metadata/classical-v2/copies/{copy_id}/inspect`.
+
+## Fix: empty sections and generic UI (2026-11-19)
+
+The original proof-of-concept UI included a button and placeholder ranges specific to the first Handel reference CD; these have been removed from the general Classical v2 and archive-review screens. An ordinary CD (including Boulez Conducts Stravinsky disc 6) should not need a physical-CD grouping just to preview its MusicBrainz work hierarchy. Empty sections are now accepted by API and backend. The preview shows Work and Work Parent data and explicitly reports that no physical sections are assigned. It does **not** add a guessed `RELEASE_SECTION` tag. A user may optionally add booklet-verified section ranges before making a separate staging copy. Invalid partial/overlapping sections still require correction. All copies remain explicitly confirmed, non-destructive staging operations.

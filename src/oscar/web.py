@@ -65,13 +65,12 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 <button type="button" id="inspect-start">Inspect saved tags</button>
 <div id="inspect-result" aria-live="polite"></div></section>
 <section><h2>Classical metadata v2 — review</h2>
-<p>Separate the physical CD's suite/section order from MusicBrainz's canonical work relationships. This creates only a NEW tagged staging copy, leaving both earlier copies and the rip untouched.</p>
+<p>Preview MusicBrainz works independently of optional, explicitly reviewed physical-CD sections. Leave sections blank if the booklet has not been checked. New copies require separate approval.</p>
 <label for="v2-job">Rip job ID</label><input id="v2-job" maxlength="32" style="width:340px;max-width:90%">
 <label for="v2-source">Completed tagged-copy ID</label><input id="v2-source" maxlength="32" style="width:340px;max-width:90%">
-<label for="v2-sections">Reviewed physical-CD sections (one per line: start-end | section title)</label>
-<textarea id="v2-sections" rows="4" style="width:95%;background:#0c131b;color:white;border:1px solid #516376;border-radius:8px;padding:9px" placeholder="1-12 | Physical CD section I&#10;13-22 | Physical CD section II&#10;23-28 | Physical CD section III"></textarea>
-<button id="v2-handel-example" type="button">Fill example for first Handel CD</button>
-<p>Example sections are operator suggestions, not MusicBrainz work divisions. Check your physical booklet before previewing and approving.</p>
+<label for="v2-sections">Optional booklet-verified CD sections (one per line: start-end | section title)</label>
+<textarea id="v2-sections" rows="4" style="width:95%;background:#0c131b;color:white;border:1px solid #516376;border-radius:8px;padding:9px" placeholder="Leave blank unless verified against booklet: 1-4 | Section title"></textarea>
+<p>Sections are not required. If entered, ranges must cover every track without gaps or overlaps.</p>
 <label for="v2-movements">Optional manually reviewed movement labels (one per line: track number | movement text; leave blank to preserve unknown)</label>
 <textarea id="v2-movements" rows="2" style="width:95%;background:#0c131b;color:white;border:1px solid #516376;border-radius:8px;padding:9px"></textarea>
 <button id="v2-preview" type="button">Preview classical v2 tags</button>
@@ -81,7 +80,6 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 <label for="review-job">Original rip job ID</label><input id="review-job" maxlength="32" style="width:340px;max-width:95%">
 <label for="review-copy">Completed tagged-copy ID</label><input id="review-copy" maxlength="32" style="width:340px;max-width:95%">
 <label for="review-kind">Copy type</label><select id="review-kind"><option value="classical_v2">Classical v2 tagged staging copy</option><option value="original_tags">Original MusicBrainz tagged copy (pop, house, compilations, classical)</option></select>
-<button type="button" id="review-handel-example">Fill first Handel reference</button>
 <button type="button" id="review-start">Review metadata, artwork &amp; CUE</button>
 <div id="review-output" aria-live="polite"></div></section>
 <section><h2>Parallel optical drives</h2>
@@ -699,16 +697,6 @@ document.getElementById('inspect-start').onclick=async()=>{
 
 
 let v2Current=null;
-document.getElementById('v2-handel-example').onclick=()=>{
- document.getElementById('v2-job').value='f41806152a614b1a9006b10456b9bbd4';
- document.getElementById('v2-source').value='3ac951bdd5b74ad8b484aaea955eb757';
- document.getElementById('v2-sections').value=[
-  '1-12 | Water Music — Suite I (as issued)',
-  '13-22 | Water Music — Suite II (as issued)',
-  '23-28 | Music for the Royal Fireworks'
- ].join(String.fromCharCode(10));
-};
-
 function parseV2Lines(value,isMovement){
  const result=isMovement?{}:[];
  for(const raw of value.split(String.fromCharCode(10))){
@@ -748,11 +736,11 @@ document.getElementById('v2-preview').onclick=async()=>{
    method:'POST',headers:{'Content-Type':'application/json',...access},
    body:JSON.stringify({sections,movements})
   });
-  if(!response.ok)throw new Error(await response.text());
+  if(!response.ok){const error=await response.json().catch(()=>({}));throw new Error(typeof error.detail==='string'?error.detail:'Unable to preview classical metadata; check the supplied sections.');}
   const data=await response.json();v2Current=data;
   target.replaceChildren();
   const caption=document.createElement('p');caption.textContent=data.track_count+
-    ' tracks · '+data.sections.map(x=>x.name+' ('+x.start+'–'+x.end+')').join(' · ');
+    ' tracks · '+(data.sections.length?data.sections.map(x=>x.name+' ('+x.start+'–'+x.end+')').join(' · '):'No physical-CD sections assigned; MusicBrainz works shown independently');
   target.append(caption);
   const table=document.createElement('table');table.style.width='100%';
   const head=document.createElement('tr');
@@ -770,11 +758,11 @@ document.getElementById('v2-preview').onclick=async()=>{
    }table.append(tr);
   }target.append(table);
   const notes=document.createElement('p');notes.textContent=data.warnings.join(' ');target.append(notes);
-  const button=document.createElement('button');button.textContent='I reviewed sections — create separate Classical v2 FLAC copies';
+  const button=document.createElement('button');button.textContent='I reviewed classical metadata — create separate Classical v2 FLAC copies';
   button.type='button';
   button.onclick=async()=>{
    if(!v2Current||v2Current.fingerprint!==data.fingerprint)return;
-   if(!confirm('Create a NEW tagged copy of '+data.track_count+' FLACs using the reviewed CD sections? Original files and previous copies stay unchanged.'))return;
+   if(!confirm('Create a NEW tagged copy of '+data.track_count+' FLACs '+(data.sections.length?'using the reviewed CD sections':'without inventing physical-CD sections')+'? Original files and previous copies stay unchanged.'))return;
    const copyAccess=requestAuthHeaders('Confirm Classical v2 staging copy');if(!copyAccess)return;
    button.disabled=true;
    const note=document.createElement('p');note.textContent='Creating new FLAC copies…';target.append(note);
@@ -878,11 +866,6 @@ for(const target of ['verify-output','metadata-output','inspect-result','v2-outp
  const node=document.getElementById(target);
  if(node)oscarTableObserver.observe(node,{childList:true,subtree:true});
 }
-document.getElementById('review-handel-example').onclick=()=>{
- document.getElementById('review-job').value='f41806152a614b1a9006b10456b9bbd4';
- document.getElementById('review-kind').value='original_tags';
- document.getElementById('review-copy').value='3ac951bdd5b74ad8b484aaea955eb757';
-};
 function reviewCard(title,bodyText){
  const box=document.createElement('div');box.className='oscar-review-card';
  const heading=document.createElement('strong');heading.textContent=title;
