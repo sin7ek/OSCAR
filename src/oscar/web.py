@@ -63,6 +63,7 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 <section><h2>Collection Library (local)</h2>
 <p>Import existing published OSCAR archive manifests into a separate local SQLite catalog. Original FLACs, CUEs and manifests remain untouched. Local records are not Discogs collection entries.</p>
 <button type="button" id="collection-import">Import published archive records</button>
+<button type="button" id="collection-enrich-labels">Fill missing labels from exact MusicBrainz release</button>
 <button type="button" id="collection-refresh">Refresh collection</button>
 <label for="collection-search">Find in collection</label>
 <input id="collection-search" placeholder="Artist, album, label, composer, conductor or soloist" maxlength="150" style="width:350px;max-width:90%">
@@ -1499,6 +1500,21 @@ async function fetchLocalCollection(){
   out.append(table);
  }catch(error){out.textContent='Collection unavailable: '+error.message}
 }
+document.getElementById('collection-enrich-labels').onclick=async()=>{
+ const out=document.getElementById('collection-result');
+ const headers=requestAuthHeaders('Enrich missing local label metadata');if(!headers)return;
+ out.textContent='Comparing missing labels against exact MusicBrainz releases…';
+ try{
+  const response=await fetch('/api/collection/enrich-labels',{method:'POST',headers});
+  const data=await response.json();
+  if(!response.ok)throw new Error(data.detail||'MusicBrainz label lookup failed');
+  await fetchLocalCollection();
+  const note=document.createElement('p');
+  note.textContent=data.labels_updated+' label(s) added, '+data.unresolved+
+    ' unresolved. Only matching catalog and release IDs accepted.';
+  out.prepend(note);
+ }catch(error){out.textContent='Label enrichment failed: '+error.message}
+};
 document.getElementById('collection-refresh').onclick=fetchLocalCollection;
 document.getElementById('collection-sort').onchange=fetchLocalCollection;
 document.getElementById('collection-search').onchange=fetchLocalCollection;
