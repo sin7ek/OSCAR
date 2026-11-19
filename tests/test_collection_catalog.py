@@ -228,6 +228,7 @@ def test_xlsx_endpoint_and_ui_visible(archive, monkeypatch):
 def test_pop_session_vocalists_are_not_soloists_and_legacy_row_is_repaired(archive, monkeypatch):
     import sqlite3
     root, album, _ = archive
+    (album / '01.flac').write_bytes(b'test audio fixture')
     from mutagen import flac
     fake = type("FakeFLAC", (), {"get": lambda self, name, default=None: {
         "PERFORMER": ["Anastacia (vocal)", "Billy Mann (vocal)", "Sam Watters (vocal)",
@@ -254,6 +255,7 @@ def test_pop_session_vocalists_are_not_soloists_and_legacy_row_is_repaired(archi
 def test_classical_soloists_only_when_explicitly_credited(archive, monkeypatch):
     import sqlite3
     root, album, _ = archive
+    (album / '01.flac').write_bytes(b'test audio fixture')
     manifest = json.loads((album / "manifest.json").read_text())
     manifest["profile"] = "classical"
     (album / "manifest.json").write_text(json.dumps(manifest))
@@ -275,6 +277,7 @@ def test_classical_soloists_only_when_explicitly_credited(archive, monkeypatch):
 
 def test_legacy_soloist_value_other_than_calculated_source_is_preserved(archive, monkeypatch):
     import sqlite3
+    (archive[1] / '01.flac').write_bytes(b'test audio fixture')
     from mutagen import flac
     class Tags:
         def get(self, key, default=None):
