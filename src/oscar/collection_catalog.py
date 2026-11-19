@@ -125,8 +125,12 @@ def _metadata_from_path(album: Path, manifest: dict) -> dict:
 def _archive_tag_metadata(album: Path, manifest: dict) -> dict:
     """Read actual archived FLAC Vorbis comments; never infer absent artists."""
     from mutagen.flac import FLAC
-    groups = {key: [] for key in _ENRICHED}
-    seen = {key: set() for key in _ENRICHED}
+    groups = {key: [] for key in (*_ENRICHED, "legacy_soloists")}
+    seen = {key: set() for key in groups}
+    # The publishing profile is an explicit reviewed metadata decision.
+    # A GENRE=Classical tag is also explicit evidence, unlike a guessed
+    # music style from title, artist or presence of vocal/instrument credits.
+    classical = manifest.get("profile") == "classical"
     def add(key, value):
         v = str(value or "").strip()
         if v and v.casefold() not in seen[key] and len(groups[key]) < 120:
@@ -150,17 +154,30 @@ def _archive_tag_metadata(album: Path, manifest: dict) -> dict:
             tags = FLAC(str(path))
         except (OSError, ValueError):
             continue
+        if any(str(value).strip().casefold() in {"classical", "classical music"}
+               for value in tags.get("GENRE", [])):
+            classical = True
         for dest, tag in (("composer", "COMPOSER"), ("conductor", "CONDUCTOR"),
                           ("orchestra", "ORCHESTRA"), ("works", "WORK"),
                           ("performers", "PERFORMER"), ("label", "LABEL")):
             for value in tags.get(tag, []):
                 add(dest, value)
-        # Explicitly sourced performer role strings only: do not guess which
-        # performers are soloists from name or album artist credits.
         for value in tags.get("PERFORMER", []):
+            # Reconstruct the historical (incorrectly broad) computed value,
+            # so a re-import can safely clear the original Anastacia row.
+            # Never overwrite a local value that differs from that signature.
             if re.search(r"\((?:solo|soloist|violin|cello|piano|soprano|tenor|mezzo-soprano|bass|baritone|flute|clarinet|harp|voice|vocal)\)", value, re.I):
+                add("legacy_soloists", value)
+            # A vocalist, violinist, pianist or soprano is *not* necessarily
+            # a soloist. Require an explicit solo/soloist role declaration.
+            role = re.search(r"\(([^()]*)\)\s*$", value)
+            if role and re.search(r"\bsolo(?:ist)?\b", role.group(1), re.I):
                 add("soloists", value)
-    return {key: "; ".join(groups[key]) for key in _ENRICHED}
+    result = {key: "; ".join(groups[key]) for key in _ENRICHED}
+    if not classical:
+        result["soloists"] = ""
+    result["legacy_soloists"] = "; ".join(groups["legacy_soloists"])
+    return result
 
 
 def import_published() -> dict:
@@ -209,7 +226,8 @@ def import_published() -> dict:
                    composer=CASE WHEN composer='' THEN :composer ELSE composer END,
                    conductor=CASE WHEN conductor='' THEN :conductor ELSE conductor END,
                    orchestra=CASE WHEN orchestra='' THEN :orchestra ELSE orchestra END,
-                   soloists=CASE WHEN soloists='' THEN :soloists ELSE soloists END,
+                   soloists=CASE WHEN soloists='' OR soloists=:legacy_soloists
+                                 THEN :soloists ELSE soloists END,
                    performers=CASE WHEN performers='' THEN :performers ELSE performers END,
                    works=CASE WHEN works='' THEN :works ELSE works END
                    WHERE archive_path=:archive_path""", fields)

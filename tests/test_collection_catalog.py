@@ -180,6 +180,7 @@ def test_archived_classical_tag_metadata_and_manifest_label(archive, monkeypatch
     manifest = {"status": "published_verified",
                 "release_id": "09fe4a40-7d2b-400e-b3de-b148f55fbcad",
                 "label_info": [{"name": "Deutsche Grammophon", "catalog_number": "E 8512"}],
+                "profile": "classical",
                 "files": [{"filename": "01.flac", "track": 1}]}
     (classical / "manifest.json").write_text(json.dumps(manifest))
     class FakeFLAC:
@@ -188,7 +189,7 @@ def test_archived_classical_tag_metadata_and_manifest_label(archive, monkeypatch
                 "COMPOSER": ["George Frideric Handel"],
                 "CONDUCTOR": ["Jordi Savall"],
                 "ORCHESTRA": ["Le Concert des Nations"],
-                "PERFORMER": ["Jane Example (soprano)", "Jordi Savall (conductor)"],
+                "PERFORMER": ["Jane Example (soprano)", "Violin Soloist (solo violin)", "Jordi Savall (conductor)"],
                 "WORK": ["Water Music"],
             }
         def get(self, name, default=None):
@@ -201,7 +202,8 @@ def test_archived_classical_tag_metadata_and_manifest_label(archive, monkeypatch
     assert row["label"] == "Deutsche Grammophon"
     assert row["composer"] == "George Frideric Handel"
     assert row["conductor"] == "Jordi Savall"
-    assert row["soloists"] == "Jane Example (soprano)"
+    assert row["soloists"] == "Violin Soloist (solo violin)"
+    assert "Jane Example (soprano)" in row["performers"]
     assert catalog.list_items(search="Deutsche Grammophon")["total"] == 1
     assert catalog.list_items(sort_by="label")["total"] == 2
 
@@ -221,3 +223,69 @@ def test_xlsx_endpoint_and_ui_visible(archive, monkeypatch):
     html = TestClient(app).get("/").text
     assert "collection-xlsx" in html
     assert "Record label" in html
+
+
+def test_pop_session_vocalists_are_not_soloists_and_legacy_row_is_repaired(archive, monkeypatch):
+    import sqlite3
+    root, album, _ = archive
+    (album / '01.flac').write_bytes(b'test audio fixture')
+    from mutagen import flac
+    fake = type("FakeFLAC", (), {"get": lambda self, name, default=None: {
+        "PERFORMER": ["Anastacia (vocal)", "Billy Mann (vocal)", "Sam Watters (vocal)",
+                      "Jane Guest (solo vocal)"],
+        "GENRE": ["Pop"],
+    }.get(name, default if default is not None else [])})
+    monkeypatch.setattr(flac, "FLAC", lambda path: fake())
+    # Import produces a pop album with no album-level classical soloists.
+    assert catalog.import_published()["imported"] == 1
+    row = catalog.list_items()["items"][0]
+    assert row["soloists"] == ""
+    assert "Anastacia (vocal)" in row["performers"]
+    assert "Jane Guest (solo vocal)" in row["performers"]
+
+    # Simulate old PR #61 derived value, then reconcile using real tags.
+    old = "Anastacia (vocal); Billy Mann (vocal); Sam Watters (vocal)"
+    with sqlite3.connect(catalog.database_path()) as db:
+        db.execute("UPDATE archive_items SET soloists=?", (old,))
+    catalog.import_published()
+    assert catalog.list_items()["items"][0]["soloists"] == ""
+    assert "Billy Mann (vocal)" in catalog.list_items()["items"][0]["performers"]
+
+
+def test_classical_soloists_only_when_explicitly_credited(archive, monkeypatch):
+    import sqlite3
+    root, album, _ = archive
+    (album / '01.flac').write_bytes(b'test audio fixture')
+    manifest = json.loads((album / "manifest.json").read_text())
+    manifest["profile"] = "classical"
+    (album / "manifest.json").write_text(json.dumps(manifest))
+    from mutagen import flac
+    class Tags:
+        def get(self, key, default=None):
+            return {
+                "PERFORMER": ["Singer A (soprano)", "Player B (violin)",
+                              "Player C (solo cello)", "Singer D (soloist)"],
+                "GENRE": ["Classical"],
+            }.get(key, default if default is not None else [])
+    monkeypatch.setattr(flac, "FLAC", lambda path: Tags())
+    catalog.import_published()
+    row = catalog.list_items()["items"][0]
+    assert row["soloists"] == "Player C (solo cello); Singer D (soloist)"
+    assert "Singer A (soprano)" in row["performers"]
+    assert "Player B (violin)" in row["performers"]
+
+
+def test_legacy_soloist_value_other_than_calculated_source_is_preserved(archive, monkeypatch):
+    import sqlite3
+    (archive[1] / '01.flac').write_bytes(b'test audio fixture')
+    from mutagen import flac
+    class Tags:
+        def get(self, key, default=None):
+            return {"PERFORMER": ["Anastacia (vocal)"],"GENRE": ["Pop"]}.get(
+                key, default if default is not None else [])
+    monkeypatch.setattr(flac, "FLAC", lambda path: Tags())
+    catalog.import_published()
+    with sqlite3.connect(catalog.database_path()) as db:
+        db.execute("UPDATE archive_items SET soloists='Manually curated credit'")
+    catalog.import_published()
+    assert catalog.list_items()["items"][0]["soloists"] == "Manually curated credit"

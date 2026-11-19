@@ -63,6 +63,12 @@ def _finish(rig):
             break
         time.sleep(.01)
     assert ripping.status(job["id"])["status"]=="needs_verification"
+    # The worker saves its completed rip state before invoking the
+    # verification callback. Allow that asynchronous callback to complete.
+    for _ in range(200):
+        if called == [job["id"]]:
+            break
+        time.sleep(.01)
     assert called==[job["id"]]
     return job["id"]
 
