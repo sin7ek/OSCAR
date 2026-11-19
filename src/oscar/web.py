@@ -56,6 +56,15 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 <input id="metadata-release" maxlength="36" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" style="width:360px;max-width:90%">
 <button type="button" id="metadata-preview-btn">Preview MusicBrainz tags</button>
 <div id="metadata-output" aria-live="polite"></div></section>
+<section><h2>Physical release comparison (read-only)</h2>
+<p>Compare the catalog number printed on your CD and optional barcode with a specific MusicBrainz release, even when the Disc ID is associated with a different edition. No tagging or release selection occurs here. A matching Disc ID alone never proves the physical pressing.</p>
+<label for="physical-job">Verified staging job ID</label><input id="physical-job" maxlength="32" placeholder="32-character rip job ID" style="width:340px;max-width:95%">
+<label for="physical-release">MusicBrainz release UUID (not release group)</label><input id="physical-release" maxlength="36" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" style="width:360px;max-width:95%">
+<label for="physical-catalog">Catalog number printed on your physical CD</label><input id="physical-catalog" maxlength="100" placeholder="e.g. label catalog number" style="width:340px;max-width:95%">
+<label for="physical-barcode">Printed barcode (optional)</label><input id="physical-barcode" maxlength="14" placeholder="Optional 8–14 digits" style="width:240px;max-width:95%">
+<button type="button" id="physical-compare-btn">Compare physical edition</button>
+<div id="physical-output" aria-live="polite"></div>
+</section>
 <section><h2>Inspect saved FLAC metadata</h2>
 <p>Read the actual tags from the new copies, compare with the saved MusicBrainz preview, and verify the tagged file hashes. No files are modified.</p>
 <label for="inspect-job">Rip job ID</label>
@@ -695,6 +704,56 @@ document.getElementById('inspect-start').onclick=async()=>{
  }catch(error){target.textContent='Inspection failed: '+error.message}
 };
 
+
+
+document.getElementById('physical-compare-btn').onclick=async()=>{
+ const out=document.getElementById('physical-output');out.replaceChildren();
+ const job=document.getElementById('physical-job').value.trim().toLowerCase();
+ const release=document.getElementById('physical-release').value.trim().toLowerCase();
+ const catalog=document.getElementById('physical-catalog').value.trim();
+ const barcode=document.getElementById('physical-barcode').value.trim();
+ if(!/^[a-f0-9]{32}$/.test(job)||!/^[a-f0-9-]{36}$/.test(release)||!catalog){
+  out.textContent='Enter the verified rip job ID, exact MusicBrainz release UUID and catalog number printed on your CD.';return;
+ }
+ if(barcode&&!/^\\d{8,14}$/.test(barcode)){
+  out.textContent='Enter only the 8–14 barcode digits, or leave the barcode blank.';return;
+ }
+ const headers=requestAuthHeaders('Compare the physical CD edition');if(!headers)return;
+ out.textContent='Reading MusicBrainz release evidence; no tags or files are changed…';
+ try{
+  const response=await fetch('/api/rip/jobs/'+job+'/physical-release/compare',{
+   method:'POST',headers:{'Content-Type':'application/json',...headers},
+   body:JSON.stringify({release_id:release,catalog_number:catalog,barcode:barcode||null})
+  });
+  const data=await response.json();
+  if(!response.ok)throw new Error(typeof data.detail==='string'?data.detail:'Comparison unavailable.');
+  out.replaceChildren();
+  const info=document.createElement('p');
+  info.textContent=(data.release.title||'Unknown release')+' · '+(data.release.artist||'Unknown artist')+' · '+(data.release.date||'No release date');
+  out.append(info);
+  const evidence=data.physical_evidence;
+  const details=[
+   'Catalog number matches: '+(evidence.catalog_number_matches?'yes':'NO'),
+   'Barcode: '+evidence.barcode_status,
+   'Disc ID attached to matching medium: '+(evidence.disc_id_attached_to_matching_medium?'yes':'NO'),
+   'Release contains a medium with '+data.verified_tracks+' tracks: '+(evidence.track_count_present_on_release?'yes':'NO'),
+   'MusicBrainz catalog numbers: '+data.release.labels.map(x=>(x.name||'Unknown label')+' '+(x.catalog_number||'—')).join('; ')
+  ];
+  for(const item of details){const p=document.createElement('p');p.textContent=item;out.append(p)}
+  const headline=document.createElement('strong');
+  headline.textContent=data.status==='review_required'?'Edition evidence needs review':'Evidence consistent; physical edition still requires confirmation';
+  out.append(headline);
+  for(const issue of data.observations){
+   const p=document.createElement('p');p.textContent=issue.code+': '+issue.message;out.append(p);
+  }
+  const link=document.createElement('a');link.href='https://musicbrainz.org/release/'+encodeURIComponent(data.release_id);
+  link.target='_blank';link.rel='noopener noreferrer';link.textContent='Inspect this exact release in MusicBrainz';
+  out.append(link);
+  const safety=document.createElement('p');
+  safety.textContent='Read-only comparison. OSCAR did NOT approve the edition, attach the Disc ID, tag, rename or archive anything.';
+  out.append(safety);
+ }catch(error){out.textContent='Physical release comparison failed: '+error.message}
+};
 
 let v2Current=null;
 function parseV2Lines(value,isMovement){
