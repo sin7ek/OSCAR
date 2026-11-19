@@ -172,7 +172,7 @@ def _documented_cue_performer(track):
     for value in track.get("documented_performers") or []:
         if not isinstance(value, str):
             continue
-        name = re.sub(r"\\s+\\((?:conductor|performer|instrument|vocal|orchestra|performing orchestra|choir|chorus master|concertmaster|solo|voice actor)\\)$",
+        name = re.sub(r"\s+\((?:conductor|performer|instrument|vocal|orchestra|performing orchestra|choir|chorus master|concertmaster|solo|voice actor)\)$",
                       "", value.strip(), flags=re.I).strip()
         if name and name not in names:
             names.append(name)
