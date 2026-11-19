@@ -176,3 +176,78 @@ def test_go_poll_immediately_after_create_before_state_file(rig, monkeypatch):
         assert first["workflow"]["phase"]=="RIP_IN_PROGRESS"
     finally:
         gate.set()
+
+
+def test_semi_automatic_snapshots_candidates_and_requires_explicit_acceptance(rig):
+    rig[1]["mode"]="semi_automatic"
+    job_id=_finish(rig)
+    rig[2]["status"]="checks_passed"
+    first=go.advance(job_id,lookup=lambda disc,toc:{"releases":[
+        {"id":RELEASE1,"title":"Proposed disc-ID album","barcode":"123456789"},
+        {"id":RELEASE2,"title":"Alternate edition"}]})
+    assert first["action"]=="semi_release_review"
+    assert first["workflow"]["identification_mode"]=="semi_automatic"
+    assert first["workflow"]["accepted_release_id"]==""
+    assert first["workflow"]["proposed_release_id"]==RELEASE1
+    assert len(first["workflow"]["candidate_options"])==2
+    assert first["workflow"]["release_match_status"]=="INFERRED_NOT_PHYSICALLY_VERIFIED"
+    # Once frozen, browser polls and restarts do not silently replace options.
+    second=go.advance(job_id,lookup=lambda disc,toc:{"releases":[]})
+    assert second["action"]=="semi_release_review"
+    assert len(second["workflow"]["candidate_options"])==2
+    with pytest.raises(ledger.WorkflowError):
+        ledger.accept_semi_release(job_id, RELEASE2,"WRONG")
+    with pytest.raises(ledger.WorkflowError):
+        ledger.accept_semi_release(job_id,"00000000-0000-0000-0000-000000000000",
+                                    "ACCEPT_INFERRED_RELEASE")
+    accepted=ledger.accept_semi_release(job_id,RELEASE2,"ACCEPT_INFERRED_RELEASE")
+    assert accepted["phase"]=="RELEASE_ACCEPTED"
+    assert accepted["accepted_release_id"]==RELEASE2
+    assert accepted["release_match_status"]=="INFERRED_OPERATOR_ACCEPTED"
+    assert not accepted["release_physically_verified"]
+    assert not accepted["automated_actions_enabled"]
+    assert ledger.accept_semi_release(job_id,RELEASE2,"ACCEPT_INFERRED_RELEASE")["events"]==accepted["events"]
+    with pytest.raises(ledger.WorkflowError):
+        ledger.accept_semi_release(job_id,RELEASE1,"ACCEPT_INFERRED_RELEASE")
+    outcome=go.advance(job_id)
+    assert outcome["action"]=="semi_release_accepted"
+    assert outcome["release_id"]==RELEASE2
+    assert not list(rig[0].rglob("metadata-copy-*"))
+
+
+def test_semi_automatic_can_defer_and_resume_without_losing_candidates(rig):
+    rig[1]["mode"]="semi_automatic"
+    job_id=_finish(rig)
+    rig[2]["status"]="checks_passed"
+    go.advance(job_id,lookup=lambda disc,toc:{"releases":[{"id":RELEASE1,"title":"Album"}]})
+    ledger.review_action(job_id,"defer")
+    assert go.advance(job_id)["action"]=="review_required"
+    ledger.review_action(job_id,"resume")
+    result=go.advance(job_id,lookup=lambda disc,toc:{"releases":[]})
+    assert result["action"]=="semi_release_review"
+    assert result["candidates"][0]["release_id"]==RELEASE1
+
+
+def test_semi_automatic_api_requires_auth_and_does_not_create_tags(rig):
+    rig[1]["mode"]="semi_automatic"
+    job_id=_finish(rig)
+    rig[2]["status"]="checks_passed"
+    go.advance(job_id,lookup=lambda disc,toc:{"releases":[{"id":RELEASE1,"title":"Album"}]})
+    client=TestClient(app)
+    route=f"/api/go/jobs/{job_id}/accept-release"
+    body={"release_id":RELEASE1,"confirmation":"ACCEPT_INFERRED_RELEASE"}
+    assert client.post(route,json=body).status_code==403
+    assert client.post(route,json={**body,"confirmation":"no"},
+                       headers={"X-OSCAR-RIP-TOKEN":TOKEN}).status_code==409
+    result=client.post(route,json=body,headers={"X-OSCAR-RIP-TOKEN":TOKEN})
+    assert result.status_code==200
+    assert result.json()["phase"]=="RELEASE_ACCEPTED"
+    assert not list(rig[0].rglob("metadata-copy-*"))
+
+
+def test_secure_and_best_guess_cannot_approve_through_semi_endpoint(rig):
+    job_id=_finish(rig)
+    rig[2]["status"]="checks_passed"
+    go.advance(job_id,lookup=lambda disc,toc:{"releases":[{"id":RELEASE1}]})
+    with pytest.raises(ledger.WorkflowError):
+        ledger.accept_semi_release(job_id,RELEASE1,"ACCEPT_INFERRED_RELEASE")
