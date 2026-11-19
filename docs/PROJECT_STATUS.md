@@ -6,6 +6,13 @@
 
 > **How to resume after a chat ends:** Read this document first, then `docs/ARCHITECTURE.md`, `README.md`, recent merged PRs and open PRs, and GitHub Actions for the branch under development. Do not infer that a successful CI run establishes real optical hardware functionality.
 
+## Persistent workflow ledger — PR #63 (2026-11-19)
+
+- Adds SQLite `/config/workflow.sqlite3` (configurable `OSCAR_WORKFLOW_DB`) storing an existing staging job's saved status, persisted event log, and immutable snapshot of `identification_mode` and `secure_review_level` **when that job is manually registered**.
+- UI section **Persistent workflow ledger** and authenticated endpoints: register an existing rip, refresh status from staging verification, defer/resume physical edition review, list tracked jobs. Entries persist across container restart and operations are idempotent. Never tag, publish, delete, create MusicBrainz edits, or assume physical edition approval.
+- This is the **first persistence layer**, not a real background orchestration engine. Registration is currently an explicit user action and the snapshot occurs then (not automatically at physical disc insertion); no automatic CD detection, publishing, resume of an interrupted extraction, or pipeline chaining yet. Future Go controller will attach ledger records at rip start and enforce a complete evidence-scored transition policy.
+- CI and real Unraid workflow registration/restart acceptance are separate; preserve all existing staging files and archives. Next engineering feature: persistent job registration at rip start + evidence resolver.
+
 ## Indexed per-track classical credits and safe label backfill — PR #62 (2026-11-19)
 
 - New `archive_tracks`, `track_credits`, and `track_works` indexed tables in existing OSCAR local SQLite catalog, with **explicit per-track FLAC Vorbis comment provenance**, source file/track, recording ID, release track ID, Work IDs/names, conductor, composer, orchestra, performers and explicitly identified soloists. The index only imports albums already in the local catalog with published OSCAR manifests; every indexed archived FLAC must match its recorded SHA-256 first. No archive file is modified.
