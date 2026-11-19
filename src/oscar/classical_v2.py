@@ -202,18 +202,29 @@ def _do_copy(preview, copy_id):
     audio = output_folder / "audio"
     audio.mkdir(mode=0o700)
     copied = {}
-    source_inspection = {t["track"]: t for t in inspection["tracks"]}
+    source_manifest_file = source_folder / "metadata-manifest.json"
+    if source_manifest_file.is_symlink():
+        raise ClassicalError("Unsafe source manifest")
+    source_manifest = json.loads(source_manifest_file.read_text(encoding="utf-8"))["files"]
     for entry in preview["tracks"]:
-        src = source_folder / entry["original_file"]
+        relative = entry["original_file"]
+        if not staging._SAFE_FLAC.fullmatch(relative):
+            raise ClassicalError("Invalid source file reference")
+        src = source_folder / relative
         if src.is_symlink() or not src.is_file():
             raise ClassicalError("Missing or unsafe tagged source file")
-        source_entry = source_inspection[entry["number"]]
-        # The source inspection already checked each saved SHA-256 and audio MD5.
+        expected_hash = source_manifest[relative]["tagged_sha256"]
+        if verification._digest(src) != expected_hash:
+            raise ClassicalError("Source tagged FLAC changed before copying")
         dest = audio / src.name
         with src.open("rb") as fin, dest.open("xb") as fout:
             shutil.copyfileobj(fin, fout, length=1024 * 1024)
+        if verification._digest(dest) != expected_hash:
+            raise ClassicalError("Copy does not match the verified tagged source")
         tags = FLAC(str(dest))
         audio_md5 = staging._streaminfo_md5_hex(tags.info.md5_signature)
+        if audio_md5 != source_manifest[relative]["audio_streaminfo_md5"]:
+            raise ClassicalError("Source FLAC audio MD5 changed since tagging")
         tags.clear()
         for k, v in entry["tags"].items():
             if v:
