@@ -118,6 +118,21 @@ def get_release_candidates(stable_id: str):
 
 
 
+@app.get("/api/release-search")
+def search_release_by_physical_evidence(catalog_number: str | None = None,
+                                        title: str | None = None):
+    """MusicBrainz discovery by printed catalog number or title, not an approval."""
+    from oscar.musicbrainz import (
+        MusicBrainzError, lookup_enabled, search_release_candidates,
+    )
+    if not lookup_enabled():
+        raise HTTPException(status_code=403, detail="MusicBrainz lookup disabled")
+    try:
+        return search_release_candidates(catalog_number=catalog_number, title=title)
+    except MusicBrainzError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 @app.get("/api/release-medium")
 def get_release_medium(stable_id: str, release_id: str):
     """Display the medium on a candidate release associated with this Disc ID."""

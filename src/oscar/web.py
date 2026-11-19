@@ -56,6 +56,14 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 <input id="metadata-release" maxlength="36" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" style="width:360px;max-width:90%">
 <button type="button" id="metadata-preview-btn">Preview MusicBrainz tags</button>
 <div id="metadata-output" aria-live="polite"></div></section>
+<section><h2>Find a physical release without a Disc ID match (read-only)</h2>
+<p>Look up MusicBrainz releases by the catalog number on the CD packaging, or by album title. This is candidate discovery only, not verified edition matching. Especially useful when the Disc ID points to a different release.</p>
+<label for="catalog-search">Printed catalog number</label><input id="catalog-search" maxlength="100" placeholder="CCC 97001" style="width:260px;max-width:95%">
+<button type="button" id="catalog-search-button">Search by catalog number</button>
+<label for="title-search">Album title (alternative search)</label><input id="title-search" maxlength="100" placeholder="Essential Dance Traxx" style="width:320px;max-width:95%">
+<button type="button" id="title-search-button">Search by title</button>
+<div id="release-search-results" aria-live="polite"></div>
+</section>
 <section><h2>Physical release comparison (read-only)</h2>
 <p>Compare the catalog number printed on your CD and optional barcode with a specific MusicBrainz release, even when the Disc ID is associated with a different edition. No tagging or release selection occurs here. A matching Disc ID alone never proves the physical pressing.</p>
 <label for="physical-job">Verified staging job ID</label><input id="physical-job" maxlength="32" placeholder="32-character rip job ID" style="width:340px;max-width:95%">
@@ -707,6 +715,37 @@ document.getElementById('inspect-start').onclick=async()=>{
 };
 
 
+
+async function searchPhysicalReleases(kind){
+ const target=document.getElementById('release-search-results');target.replaceChildren();
+ const value=document.getElementById(kind==='catalog_number'?'catalog-search':'title-search').value.trim();
+ if(!value||value.length>100){target.textContent='Enter a catalog number or a release title.';return}
+ target.textContent='Searching MusicBrainz release candidates…';
+ try{
+  const response=await fetch('/api/release-search?'+new URLSearchParams({[kind]:value}));
+  const data=await response.json();
+  if(!response.ok)throw new Error(typeof data.detail==='string'?data.detail:'MusicBrainz unavailable');
+  target.replaceChildren();
+  const info=document.createElement('p');
+  info.textContent=data.releases.length+' candidate(s) from '+data.query_kind+' search. No physical edition or Disc ID has been verified.';
+  target.append(info);
+  if(!data.releases.length){
+   const msg=document.createElement('p');msg.textContent='No release found. Try the alternative title search. Do not use unrelated releases just because their Disc ID matches.';target.append(msg);
+  }
+  for(const item of data.releases){
+   const line=document.createElement('p');const a=document.createElement('a');
+   a.href='https://musicbrainz.org/release/'+encodeURIComponent(item.id);
+   a.target='_blank';a.rel='noopener noreferrer';
+   a.textContent=(item.title||'Untitled')+' · '+(item.artist||'Unknown artist')+
+      ' · '+(item.date||'?')+' · '+item.labels.map(x=>(x.name||'')+' '+(x.catalog_number||'')).join(', ');
+   line.append(a);target.append(line);
+  }
+  const warning=document.createElement('p');warning.textContent='Candidates only. Follow up with the separate Physical release comparison using a verified staging job; do not tag from this list alone.';
+  target.append(warning);
+ }catch(error){target.textContent='Release search failed: '+error.message}
+}
+document.getElementById('catalog-search-button').onclick=()=>searchPhysicalReleases('catalog_number');
+document.getElementById('title-search-button').onclick=()=>searchPhysicalReleases('title');
 
 document.getElementById('physical-compare-btn').onclick=async()=>{
  const out=document.getElementById('physical-output');out.replaceChildren();
