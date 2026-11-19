@@ -13,7 +13,7 @@
 |---|---:|---|---|
 | CD ripping on Unraid | **90%** | `█████████░` | Multiple optical drives and successful physical rips; unattended detection and recovery remain |
 | FLAC & staging verification | **85%** | `████████▌░` | FLAC decode, SHA-256, CUE and cyanrip evidence; independent verification is separate |
-| MusicBrainz & release selection | **75%** | `███████▌░░` | Physical release comparison and reviewed metadata copies work; ambiguity still requires intervention |
+| MusicBrainz & release selection | **75%** | `███████▌░░` | Risk-based Disc ID candidate inspection and catalog conflict prompts; persistent evidence-backed auto-approval still missing |
 | Classical metadata | **70%** | `███████░░░` | Works, performers and multidisc review; further edge cases remain |
 | Archive publishing | **85%** | `████████▌░` | Anastacia published; new read-only auditor tested on Unraid with expected legacy evidence warning; source-evidence embedding still awaits hardware acceptance |
 | Independent AccurateRip / CTDB | **20%** | `██░░░░░░░░` | Cyanrip AccurateRip evidence is parsed; no independent full verification engine |
@@ -45,6 +45,7 @@ xychart-beta
 
 | Date | Change | Evidence |
 |---|---|---|
+| 2026-11-19 | Reassessed after risk-based physical edition candidate UI; percentages unchanged pending Unraid testing and server-enforced approval evidence. | Unique candidates inspected read-only; ambiguous candidates prompt for catalog; see [PROJECT_STATUS.md](PROJECT_STATUS.md) |
 | 2026-11-19 | Reassessed; no percentage change. PR #52's archive-audit CLI ran on real Unraid: 1 album, 12 FLACs, PASS_WITH_WARNINGS (expected EVIDENCE_NOT_EMBEDDED). Source-evidence embedding from PR #51 and independent CTDB are still untested. | User's terminal output of `docker exec oscar python -m oscar.archive_audit /archive`; [PROJECT_STATUS.md](PROJECT_STATUS.md) |
 | 2026-11-19 | Initial baseline: 90 / 85 / 75 / 70 / 85 / 20 / 30 / 20 | Physical multi-drive tests, verified Anastacia archive publishing (PR #50), source evidence preservation (PR #51, CI-tested), read-only archive auditor (PR #52, CI-tested), documented in [PROJECT_STATUS.md](PROJECT_STATUS.md) |
 
