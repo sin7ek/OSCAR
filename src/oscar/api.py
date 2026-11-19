@@ -720,3 +720,14 @@ def collection_export(request: Request, format: str = "ods",
                                 if format == "ods" else "text/csv; charset=utf-8"),
                     headers={"Content-Disposition": f'attachment; filename="oscar-collection.{format}"',
                              "Cache-Control": "no-store"})
+
+
+@app.get("/api/discogs/account")
+def discogs_account(request: Request, x_oscar_rip_token: str | None = Header(default=None)):
+    """Opt-in live token check and folder names; no Discogs writes or caching."""
+    from oscar.discogs_readonly import DiscogsError, account_summary
+    _rip_auth(x_oscar_rip_token, request)
+    try:
+        return account_summary()
+    except DiscogsError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
