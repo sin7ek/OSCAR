@@ -20,7 +20,7 @@ from zipfile import ZipFile, ZIP_DEFLATED, ZIP_STORED
 _COLUMNS = ("artist", "title", "year", "label", "catalog_number", "musicbrainz_release_id",
             "composer", "conductor", "orchestra", "soloists", "performers", "works",
             "archive_path", "track_count", "archive_status", "identification_status",
-            "media_condition", "sleeve_condition", "folder", "notes")
+            "media_condition", "sleeve_condition", "folder", "notes", "label_provenance")
 _ENRICHED = ("label", "composer", "conductor", "orchestra", "soloists", "performers", "works")
 _SORT = frozenset(_COLUMNS)
 _MAX_MANIFEST = 3_000_000
@@ -47,7 +47,8 @@ CREATE TABLE IF NOT EXISTS archive_items (
   orchestra TEXT NOT NULL DEFAULT '',
   soloists TEXT NOT NULL DEFAULT '',
   performers TEXT NOT NULL DEFAULT '',
-  works TEXT NOT NULL DEFAULT ''
+  works TEXT NOT NULL DEFAULT '',
+  label_provenance TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_archive_artist ON archive_items(artist, title);
 """
@@ -80,7 +81,7 @@ def _connect() -> sqlite3.Connection:
     db.row_factory = sqlite3.Row
     db.executescript(_SCHEMA)
     existing = {row[1] for row in db.execute("PRAGMA table_info(archive_items)")}
-    for name in _ENRICHED:
+    for name in (*_ENRICHED, "label_provenance"):
         if name not in existing:
             db.execute(f"ALTER TABLE archive_items ADD COLUMN {name} TEXT NOT NULL DEFAULT ''")
     return db
@@ -183,6 +184,8 @@ def import_published() -> dict:
                     continue
                 fields = {**_metadata_from_path(album, data),
                           **_archive_tag_metadata(album, data)}
+                fields["label_provenance"] = ("archive_manifest_label_info" if data.get("label_info") and fields["label"] else
+                                               "archived_flac_label_tag" if fields["label"] else "")
             except (OSError, ValueError, json.JSONDecodeError, CatalogError):
                 skipped += 1
                 continue
@@ -190,11 +193,11 @@ def import_published() -> dict:
             db.execute("""INSERT OR IGNORE INTO archive_items
               (archive_path, artist, title, year, catalog_number, musicbrainz_release_id,
                track_count, archive_status, imported_at, label, composer, conductor,
-               orchestra, soloists, performers, works, identification_status,
+               orchestra, soloists, performers, works, label_provenance, identification_status,
                media_condition, sleeve_condition, folder, notes)
               VALUES (:archive_path,:artist,:title,:year,:catalog_number,:musicbrainz_release_id,
                       :track_count,:archive_status,:imported_at,:label,:composer,:conductor,
-                      :orchestra,:soloists,:performers,:works,'HUMAN_REVIEWED','','','','')""",
+                      :orchestra,:soloists,:performers,:works,:label_provenance,'HUMAN_REVIEWED','','','','')""",
                        {**fields, "imported_at": datetime.now(timezone.utc).isoformat()})
             inserted += db.total_changes - before
             # Older catalog rows can gain *missing* sourced metadata from
@@ -202,6 +205,7 @@ def import_published() -> dict:
             if db.total_changes == before:
                 db.execute("""UPDATE archive_items SET
                    label=CASE WHEN label='' THEN :label ELSE label END,
+                   label_provenance=CASE WHEN label_provenance='' THEN :label_provenance ELSE label_provenance END,
                    composer=CASE WHEN composer='' THEN :composer ELSE composer END,
                    conductor=CASE WHEN conductor='' THEN :conductor ELSE conductor END,
                    orchestra=CASE WHEN orchestra='' THEN :orchestra ELSE orchestra END,
