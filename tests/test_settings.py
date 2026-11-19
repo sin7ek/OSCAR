@@ -76,6 +76,7 @@ def test_default_identification_policy_is_secure_and_existing_configs_migrate(tm
 
 @pytest.mark.parametrize("mode,level", [
     ("best_guess", "on_ambiguity"),
+    ("semi_automatic", "on_ambiguity"),
     ("secure", "on_ambiguity"),
     ("secure", "before_archive"),
     ("secure", "every_step"),
@@ -101,7 +102,18 @@ def test_identification_modes_visible_but_not_misrepresented_as_active():
     from fastapi.testclient import TestClient
     from oscar.api import app
     html = TestClient(app).get("/").text
-    for text in ("identification-mode", "secure-review-level", "best_guess",
+    for text in ("identification-mode", "secure-review-level", "best_guess", "semi_automatic",
                  "on_ambiguity", "before_archive", "every_step",
                  "fully automatic tagging/publishing engine is not implemented yet"):
         assert text in html
+
+
+def test_semi_automatic_is_distinct_from_secure_submode(tmp_path):
+    path=tmp_path/"settings.json"
+    saved=OscarSettings(identification_mode="semi_automatic",
+                        secure_review_level="every_step")
+    save_settings(saved,path)
+    loaded=read_settings(path)
+    assert loaded.identification_mode=="semi_automatic"
+    assert loaded.secure_review_level=="every_step"
+    assert OscarSettings(identification_mode="secure").identification_mode=="secure"
