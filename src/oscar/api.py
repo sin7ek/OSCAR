@@ -103,16 +103,16 @@ def get_toc(stable_id: str):
 
 
 @app.get("/api/releases")
-def get_release_candidates(stable_id: str):
+def get_release_candidates(stable_id: str, catalog_number: str | None = None):
     """Lookup candidate releases; never auto-approve a physical edition."""
     from fastapi import HTTPException
-    from oscar.musicbrainz import MusicBrainzError, lookup_enabled, lookup_releases
+    from oscar.musicbrainz import MusicBrainzError, lookup_enabled, lookup_releases, assess_disc_candidates
 
     if not lookup_enabled():
         raise HTTPException(status_code=403, detail="MusicBrainz lookup disabled")
     toc = get_toc(stable_id)
     try:
-        return lookup_releases(toc["musicbrainz_disc_id"], toc["toc_string"])
+        return assess_disc_candidates(lookup_releases(toc["musicbrainz_disc_id"], toc["toc_string"]), catalog_number)
     except MusicBrainzError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
