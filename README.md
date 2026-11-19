@@ -73,6 +73,8 @@ uvicorn oscar.api:app --host 127.0.0.1 --port 8080
 ```
 The `/health` endpoint reports **scaffold status only**; it does not detect discs.
 
+For common community questions, see the **[Frequently Asked Questions (FAQ)](docs/FAQ.md)**.
+
 For a new development session, start with [Project status and handoff](docs/PROJECT_STATUS.md), then [Architecture](docs/ARCHITECTURE.md), [Metadata retry queue](docs/METADATA_QUEUE.md), [First experimental rip](docs/FIRST_RIP_STAGING.md), and [Milestone 01](docs/MILESTONE_01.md).
 
 For completed staging jobs, [Staging verification](docs/STAGING_VERIFICATION.md) explains how OSCAR checks FLAC decoding, SHA-256 and cyanrip's logged AccurateRip results without modifying the original rip or claiming independent CTDB verification.
