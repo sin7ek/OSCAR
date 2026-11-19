@@ -71,9 +71,19 @@ def _state(job_id):
         raise WorkflowError("Invalid rip job ID")
     root = verification._safe_job(job_id)
     statefile = root / "state.json"
-    if statefile.is_symlink() or not statefile.is_file():
-        raise WorkflowError("Staging rip state is missing or unsafe")
-    state = json.loads(statefile.read_text(encoding="utf-8"))
+    if statefile.is_symlink():
+        raise WorkflowError("Staging rip state is unsafe")
+    if not statefile.is_file():
+        # Go registers before spawning the extraction worker. A browser may
+        # poll during that brief window, before its first state.json exists.
+        # Only a real in-memory newly-created job qualifies for this fallback.
+        from oscar import ripping
+        live = ripping._JOBS.get(job_id)
+        if not live or live.get("status") not in {"queued", "running"}:
+            raise WorkflowError("Staging rip state is missing")
+        state = ripping._snapshot(live)
+    else:
+        state = json.loads(statefile.read_text(encoding="utf-8"))
     if state.get("id") != job_id:
         raise WorkflowError("Staging job ID differs from saved state")
     return state
