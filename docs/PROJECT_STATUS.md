@@ -6,7 +6,55 @@
 
 > **How to resume after a chat ends:** Read this document first, then `docs/ARCHITECTURE.md`, `README.md`, recent merged PRs and open PRs, and GitHub Actions for the branch under development. Do not infer that a successful CI run establishes real optical hardware functionality.
 
-## CURRENT HANDOFF — verified on 2026-11-19 (read this first)
+## CURRENT STATE — authoritative update after PR #52 (2026-11-19)
+
+> **This section supersedes outdated historical statements below** that say archive publishing is unimplemented, hardware acceptance is pending, or no audit exists. Earlier incident descriptions remain as a historical record, not current instructions.
+
+### Confirmed on real Unraid (user-reported, independently inspected where indicated)
+
+- **First successful published archive: Anastacia — Freak of Nature (2001), catalog 504757 2.** Verified original staging rip job `0c81d7d445ce4e29aa95da10c866bcf9`, selected physical MusicBrainz release `4b370e6c-e6d2-36a5-8c47-5337a2d77d69`, 12 FLACs. Publication target: `/archive/Anastacia/[504757 2] Freak of Nature (2001) [4b370e6c]`. OSCAR reported `published_verified`, and the user independently listed all 12 FLACs plus `album.cue`, `SOURCES.txt` and `manifest.json` in the final directory. The resulting manifest SHA-256 `cc1f92ea7b6317d32e5e3fc11f74122d0760b82aa88ad733c5a5f2c38c3f5851` matches OSCAR's publication response.
+- **CUE preservation checked:** compared cyanrip's original `Unknown disc (5099).cue` with OSCAR's proposed `album.cue`. All 12 track indices (INDEX 01), all ISRCs, MCN and disc IDs are retained; neither source nor adapted CUE contains INDEX 00/PREGAP. This does *not* prove hardware-level absence of gaps or HTOA.
+- **Unraid FUSE fix accepted on actual hardware:** PR [#50](https://github.com/sin7ek/OSCAR/pull/50) fixed `renameat2(RENAME_NOREPLACE)` fallback for shfs/FUSE and separately reports unsupported parent directory fsync. Original rip and tagged staging remain preserved. Old failed publication temporary folder `/archive/Anastacia/.oscar-unpublished-e18c51ec667e42da99dcb598a745e2a8` was identified; **removal/quarantine was proposed but not confirmed**. Never assume it has been deleted.
+- Previously confirmed on hardware: 3 simultaneous optical drives with 58/58 subsequently verified staging tracks, original MusicBrainz tagging, Classical v2 review, and physical-edition comparison. See earlier sections for IDs and caveats.
+
+### Changes merged to main and validation scope
+
+| PR | Capability | GitHub checks | Actual Unraid acceptance |
+|---|---|---|---|
+| [#50](https://github.com/sin7ek/OSCAR/pull/50) | Unraid-safe final archive publication + conditional confirmation UI | Passed | **Confirmed:** Anastacia published, final files and manifest independently checked |
+| [#51](https://github.com/sin7ek/OSCAR/pull/51) | Copy original cyanrip CUE and existing logs to `ExtractionEvidence/` at publication, hash in manifest, reject changed evidence | Tests + Docker build passed | **Not yet tested on Unraid**; applies to subsequent publications, does not retroactively change the Anastacia archive |
+| [#52](https://github.com/sin7ek/OSCAR/pull/52) | Standalone read-only provenance-aware archive integrity CLI (`python -m oscar.archive_audit /archive [--json]`) | Tests + Docker build passed | **Not yet tested on Unraid**; no UI or scheduled runner yet |
+
+PR #51 merged at `b307b8248f0c64997ffd79973bfab44a88704003`; PR #52 merged at `b1ad817db3b68d76f07e3b9401d8bb8e54873238`.
+
+### Roadmap vs present state (qualitative, not numeric completion claims)
+
+| Architecture stage | Present state | Outstanding |
+|---|---|---|
+| DISC_DETECTED / RIPPING | Physical multi-drive cyanrip runs confirmed | Automatic insertion/drive choice, interruption/restart robustness, full TOC/gap/HTOA characterization |
+| VERIFYING | Post-rip FLAC decode/hash/CUE and cyanrip-reported AccurateRip v1/v2 evidence confirmed | **Independent AccurateRip/CTDB** verification; separate evidence/confidence interpretation, no match != mismatch |
+| IDENTIFYING | MB Disc ID, physical edition review, metadata preview and tagged-copy workflow | Automated safe release discovery, missing/wrong edition workflow integration |
+| AWAITING_REVIEW | Working review flows for pop/classical and deferred wrong/missing releases | Reduce manual steps without ever approving ambiguous information automatically |
+| READY_TO_ARCHIVE / ARCHIVED | Reviewed copy-only publisher, Unraid success with Anastacia | Real hardware acceptance of source-evidence embedding (PR #51); standalone CLI acceptance (PR #52); longitudinal audit/reporting |
+| CLEANUP_ELIGIBLE | **Not implemented** | Safe, explicit, delayed cleanup only after verified archival integrity |
+| Persisted workflow / insert CD → Go | Some persistence and queues exist | End-to-end job orchestration, crash recovery, unattended operation, GUI integration |
+
+### Next priorities
+
+1. **Hardware acceptance for PR #52:** update image only after new main image publication, run `docker exec oscar python -m oscar.archive_audit /archive`; expect a documentation warning for Anastacia, which predates PR #51, rather than silently assuming evidence was embedded. Review all genuine errors before acting. Do not alter old archives automatically.
+2. **Real publish test for PR #51** using a new, reviewed, verified release; inspect `ExtractionEvidence/`, manifest entries and staged-original byte preservation. No need to rerip or republish Anastacia solely to test this.
+3. **Make the audit visible in the UI** with clearly distinct technical integrity, provenance/documentation, AccurateRip and CTDB statuses. No invented independent verification or destructive repair.
+4. **Investigate independent CTDB** on Linux, with truthful confidence and provenance (especially 1/1 matches).
+5. **Persist orchestrated state and support controlled unattended progression**, while stopping for wrong/ambiguous physical editions. Keep release-review backlog available.
+6. **Maintain this workdocument in every major PR**: record implemented capability, CI result, actual on-hardware acceptance (or not), limitations, next step; update active handoff *before* merge when practical. Historical notes may remain but must be clearly superseded.
+
+### Maintenance agreement
+
+`docs/PROJECT_STATUS.md` is the **living OSCAR workdocument and handoff**, not merely a post-hoc summary. Every meaningful implementation PR must update it together with code/tests. The README and older milestone documents must not be interpreted as fresher evidence when contradicted by this verified current-state section. Keep the explicit difference between *merged*, *CI tested*, *Unraid tested* and *fully automatic*.
+
+---
+
+## HISTORICAL HANDOFF — superseded by the current-state section above
 
 **Canonical project state:** Earlier notes below record the history of prototype development; statements such as *feature in progress*, *hardware test pending* or *next* from early iterations are **historical, not the current state**. Use this section plus GitHub merged PRs/CI as the authoritative starting point for a new chat. The user actively tests OSCAR on Unraid/Portainer; don't claim deployment or hardware success merely because CI passed.
 
