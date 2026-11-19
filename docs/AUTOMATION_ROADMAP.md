@@ -17,6 +17,10 @@ Audio checks are equally strict in every mode: verified staging, FLAC decode, SH
 | Local catalog | Update after verified publish | Same | Same | Same |
 | Discogs collection write | Separate opt-in per physical copy | Same | Same | Same |
 
+## First implementation increment — PR #63 persistent job ledger
+
+A separate SQLite ledger can now **manually** register an existing saved staging rip, snapshot the user's selected Best Guess or Secure review policy, record immutable stage transitions and allow review deferral/resume. It reconciles its phase with actual staging verification evidence, without touching audio. This is persistence only: it does **not** create jobs at disc insertion, resume interrupted cyanrip, decide editions, generate tags, or publish archives. Real automatic scheduling requires the next milestones below.
+
 ## Current foundations
 
 OSCAR already has optical-drive configuration, cyanrip staging and verification, multiple drives, read-only release candidate and physical-edition review, safely tagged staging copies, Classical v2, review/publish and archive integrity audit. Best Guess/Secure settings persist but are *not an executing workflow engine*. The local collection supports archive import, spreadsheet export, and read-only Discogs PAK identity/folders. PR #62 adds per-track indexing of archived FLAC Vorbis tags (contributors, Works, IDs, provenance) and explicit exact-MusicBrainz-release+catalog label backfill.
