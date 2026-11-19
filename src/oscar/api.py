@@ -530,14 +530,14 @@ def inspect_classical_v2_copy(job_id: str, copy_id: str, request: Request,
 
 @app.get("/api/rip/jobs/{job_id}/archive-review/{copy_id}")
 def get_archive_review(job_id: str, copy_id: str, request: Request,
-                       kind: str = "classical_v2",
+                       kind: str = "classical_v2", profile: str = "auto",
                        x_oscar_rip_token: str | None = Header(default=None)):
     """Non-destructive consistency, cover candidate and index-preserving CUE preview."""
     from oscar.archive_review import ReviewError, review
     from oscar.ripping import RipError
     _rip_auth(x_oscar_rip_token, request)
     try:
-        return review(job_id, copy_id, kind)
+        return review(job_id, copy_id, kind, profile=profile)
     except (ReviewError, RipError, OSError, ValueError, KeyError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 

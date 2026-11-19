@@ -174,6 +174,7 @@ def test_full_review_without_network_or_writes(staged):
     before=(staged/"audio"/"original.cue").read_bytes()
     report=archive_review.review(JOB,COPY,"original_tags",artwork=False)
     assert report["album"]["title"]=="Water Music"
+    assert report["music_profile"]["name"]=="standard"
     assert report["consistency"]["status"]=="review_recommended"
     assert report["cue"]["status"]=="preview_requires_review"
     assert report["publication_ready"] is False
@@ -277,3 +278,75 @@ def test_missing_classical_work_is_review_not_conflict():
     assert len(report["flags"]) == 1
     assert report["flags"][0]["code"] == "missing_classical_work_link"
     assert report["flags"][0]["tracks"] == [2]
+
+
+def test_auto_profile_resolves_classical_v2_and_verified_conductors():
+    classical = [{"conductor": ["Pierre Boulez"]}, {"conductor": ["Pierre Boulez"]},
+                 {"conductor": ["Pierre Boulez"]}]
+    assert archive_review.resolve_music_profile(classical, "classical_v2")["name"] == "classical"
+    assert archive_review.resolve_music_profile(classical, "original_tags")["name"] == "classical"
+    assert archive_review.resolve_music_profile([
+        {"documented_performers": ["Eric Kupper (instrument)"]}],
+        "original_tags")["name"] == "standard"
+    assert archive_review.resolve_music_profile(classical, "original_tags",
+                                                requested="standard")["source"] == "operator_review_override"
+
+
+def test_anastacia_reprise_is_not_a_false_work_conflict():
+    tracks = [
+        {"number":3, "title":"Overdue Goodbye", "artist":"Anastacia",
+         "recording_id":"recording-main", "work_ids":["same-work"],
+         "length_seconds":274.36, "musicbrainz_length_ms":None},
+        {"number":12, "title":"Overdue Goodbye (reprise)", "artist":"Anastacia",
+         "recording_id":"recording-reprise", "work_ids":["same-work"],
+         "length_seconds":95.16, "musicbrainz_length_ms":None},
+    ]
+    output = archive_review.consistency(tracks, profile="standard")
+    assert output["status"] == "no_detected_conflicts"
+    assert output["review_count"] == 0
+    # On the classical policy, multiple distinct track titles sharing a work
+    # are still flagged rather than silently conflated.
+    assert archive_review.consistency(tracks, profile="classical")["review_count"] == 1
+
+
+def test_pop_cue_shows_track_artist_not_every_session_musician(tmp_path):
+    audio = tmp_path / "audio"
+    audio.mkdir()
+    source = ('REM DISCID "9B0B170C"\n'
+              'FILE "01 - Unknown track.flac" WAVE\n'
+              '  TRACK 01 AUDIO\n'
+              '    INDEX 01 00:00:00\n'
+              'FILE "02 - Unknown track.flac" WAVE\n'
+              '  TRACK 02 AUDIO\n'
+              '    INDEX 01 00:00:00\n')
+    (audio / "source.cue").write_text(source)
+    tracks = [
+        {"number": 1, "file":"audio/01 - Unknown track.flac",
+         "title":"Freak of Nature", "artist":"Anastacia", "composer":[],
+         "documented_performers":["Anastacia (vocal)","Eric Kupper (instrument)",
+                                  "Billy Mann (performer)"]},
+        {"number": 2, "file":"audio/02 - Unknown track.flac",
+         "title":"Overdue Goodbye (reprise)", "artist":"Anastacia",
+         "composer":[], "documented_performers":[]},
+    ]
+    output = archive_review.cue_preview(tmp_path, tracks, "Freak of Nature",
+                                        "Anastacia", profile="standard")
+    assert output["music_profile"] == "standard"
+    assert output["text"].count('PERFORMER "Anastacia"') == 3
+    assert "Eric Kupper" not in output["text"]
+    assert "Billy Mann" not in output["text"]
+    assert 'FILE "02 - Overdue Goodbye (reprise).flac" WAVE' in output["archive_cue_proposal"]
+    assert (audio / "source.cue").read_text() == source
+
+
+def test_invalid_music_profile_is_rejected():
+    with pytest.raises(archive_review.ReviewError, match="profile"):
+        archive_review.resolve_music_profile([], "original_tags", requested="guess-pop")
+    with pytest.raises(archive_review.ReviewError, match="profile"):
+        archive_review.consistency([], profile="guess-pop")
+
+
+def test_processing_profile_selector_visible():
+    html = TestClient(app).get("/").text
+    assert 'id="review-profile"' in html
+    assert "Automatic (recommended)" in html

@@ -88,7 +88,9 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 <p>Checks documented MusicBrainz recording/work relationships and duration evidence, previews the exact release's Cover Art Archive front candidate, and prepares a CUE preview preserving the original INDEX/PREGAP lines. Nothing is published or modified.</p>
 <label for="review-job">Original rip job ID</label><input id="review-job" maxlength="32" style="width:340px;max-width:95%">
 <label for="review-copy">Completed tagged-copy ID</label><input id="review-copy" maxlength="32" style="width:340px;max-width:95%">
-<label for="review-kind">Copy type</label><select id="review-kind"><option value="classical_v2">Classical v2 tagged staging copy</option><option value="original_tags">Original MusicBrainz tagged copy (pop, house, compilations, classical)</option></select>
+<label for="review-kind">Copy type</label><select id="review-kind"><option value="original_tags">Original MusicBrainz tagged copy</option><option value="classical_v2">Classical v2 tagged staging copy</option></select>
+<label for="review-profile">Music processing profile</label><select id="review-profile"><option value="auto">Automatic (recommended)</option><option value="standard">Standard: pop, rock, dance, compilation</option><option value="classical">Classical: conductor, ensemble, soloist</option></select>
+<p>OSCAR chooses its processing policy from verified metadata, not a guessed music genre. You can override this read-only review if the automatic decision is unsuitable.</p>
 <button type="button" id="review-start">Review metadata, artwork &amp; CUE</button>
 <div id="review-output" aria-live="polite"></div></section>
 <section><h2>Parallel optical drives</h2>
@@ -935,6 +937,7 @@ document.getElementById('review-start').onclick=async()=>{
  const job=document.getElementById('review-job').value.trim().toLowerCase();
  const copy=document.getElementById('review-copy').value.trim().toLowerCase();
  const kind=document.getElementById('review-kind').value;
+ const profile=document.getElementById('review-profile').value;
  const output=document.getElementById('review-output');output.replaceChildren();
  if(!/^[a-f0-9]{32}$/.test(job)||!/^[a-f0-9]{32}$/.test(copy)){
   output.textContent='Enter valid 32-character rip and tagged-copy IDs.';return;
@@ -943,11 +946,14 @@ document.getElementById('review-start').onclick=async()=>{
  if(!headers)return;
  output.textContent='Reading staged FLAC metadata, looking up cover candidate and preparing CUE…';
  try{
-  const url='/api/rip/jobs/'+job+'/archive-review/'+copy+'?'+new URLSearchParams({kind});
+  const url='/api/rip/jobs/'+job+'/archive-review/'+copy+'?'+new URLSearchParams({kind,profile});
   const response=await fetch(url,{headers});
   if(!response.ok)throw new Error(await response.text());
   const data=await response.json();output.replaceChildren();
   const top=document.createElement('h3');top.textContent=data.album.title||'Album review';output.append(top);
+  const profileNote=document.createElement('p');profileNote.textContent='Processing profile: '+data.music_profile.name+
+   ' ('+data.music_profile.source+')'+(data.music_profile.requires_review?' · Profile classification remains reviewable':'');
+  output.append(profileNote);
   const small=document.createElement('p');small.textContent=(data.album.artist||'Unknown album artist')+
    ' · '+(data.album.date||'Undated')+' · '+data.tracks.length+' tracks · '+
    (data.album.catalog_numbers||[]).join(', ');output.append(small);

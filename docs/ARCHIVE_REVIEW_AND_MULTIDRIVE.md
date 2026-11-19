@@ -57,3 +57,16 @@ The first real 32-track Boulez Classical v2 review found matching Cover Art Arch
 - The summary returned `no_detected_conflicts` while track 24 `Tilim-bom` lacked a MusicBrainz Work relationship. When some tracks have documented Work IDs, other unlinked tracks receive a **review** observation `missing_classical_work_link` (not a factual mismatch and no inferred composition). For the Boulez disc track 24 needs editorial verification; work vs recording identities must stay separate.
 
 Neither the original CUE nor staged audio or tagged files are rewritten. The proposed archive CUE still refers to future files until separately created and validated. CUE INDEX/PREGAP information is still preserved **as reported**, not independently verified. Album artwork remains a review-only candidate.
+
+## Automatic archive processing profiles — Anastacia regression (2026-11-19)
+
+OSCAR's earlier archive-review CUE builder used detailed MusicBrainz performer relationships for all tracks. This was appropriate as a classical **display credit** when supported, but for Anastacia *Freak of Nature* it produced dozens of backing/session musicians in CUE `PERFORMER`, rather than the release's primary track artist. A duplicate-work alert for *Overdue Goodbye* vs *Overdue Goodbye (reprise)* was similarly noisy.
+
+**Implemented now: processing profile routing within read-only Archive review**, independent of how source tags were staged:
+
+- `auto` (default): Classical v2 copies resolve to `classical`; regular tagged copies resolve to `classical` when **more than half** of tracks have explicitly documented conductor tags; otherwise `standard`. These are conservative processing policies, **not** factual music genres or authoritative edition verification. A provenance/source reason and review caveat are returned.
+- `standard`: CUE disc `PERFORMER` uses the release artist credit; CUE track `PERFORMER` uses the track artist credit (e.g., Anastacia). Full session participants continue to be preserved in the original Vorbis `PERFORMER` tags, not emitted as the CUE display credit. Reprises explicitly named `(reprise)` with the same base title and Work ID as the original are not flagged for distinct titles alone; different Recording IDs remain distinct. Other genuine ambiguous shared-work references can still be reviewed.
+- `classical`: CUE prioritizes explicitly documented conductors, ensembles and vocalists; missing links to works on an otherwise linked classical CD remain review observations.
+- An explicit `standard` or `classical` override exists **only for the read-only Archive review**; it cannot re-tag files or bypass release evidence checks. The UI always displays the chosen processing policy and reason.
+
+**Still to build:** Persist per-release processing/genre review decisions, detect ensemble-orchestra credits without conductors, distinguish compilations, rock/pop/electronic profiles where they materially differ, and route automatic metadata creation and eventual archiving with the same policy. This commit does not implement those broader automation capabilities. Physical edition approval, final renaming and publishing are still separate steps. No original FLAC, staging copy or CUE is modified.

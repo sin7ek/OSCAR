@@ -93,12 +93,51 @@ def _load(job_id, copy_id, kind):
     return root, folder, preview, manifest, info
 
 
-def consistency(tracks):
+
+def resolve_music_profile(tracks, kind, requested="auto"):
+    """Select a conservative CUE/review policy; never guess specific genres.
+
+    Classical v2 is explicit evidence. For older generic tagged copies,
+    widespread documented conductor credits indicate a classical-performance
+    presentation. Otherwise use the ordinary credited-artist policy. The
+    result is a *processing profile*, not a factual MusicBrainz genre tag.
+    """
+    if requested not in {"auto", "standard", "classical"}:
+        raise ReviewError("Unknown music processing profile")
+    if requested != "auto":
+        return {"name": requested, "source": "operator_review_override",
+                "requires_review": True}
+    if kind == "classical_v2":
+        return {"name": "classical", "source": "existing_classical_v2_copy",
+                "requires_review": False}
+    conductor_count = sum(bool(t.get("conductor")) for t in tracks)
+    if tracks and conductor_count > len(tracks) / 2:
+        return {"name": "classical", "source": "majority_documented_conductors",
+                "requires_review": True}
+    return {"name": "standard", "source": "generic_tagged_copy_no_classical_evidence",
+            "requires_review": True}
+
+
+def _variant_title(title):
+    """Only recognize an explicit reprise suffix, not unrelated work variants."""
+    return re.sub(r"\s*\(reprise\)\s*$", "", str(title or "").casefold()).strip()
+
+
+def _normal_reprise_pair(titles):
+    if len(titles) != 2:
+        return False
+    original, reprise = sorted(titles, key=lambda t: "(reprise)" in t.casefold())
+    return ("(reprise)" in reprise.casefold()
+            and _variant_title(original) == _variant_title(reprise))
+
+def consistency(tracks, profile="classical"):
     """Flag ambiguity for review; never declare two recordings identical by work."""
     flags = []
     by_work = defaultdict(list)
     by_recording = defaultdict(list)
-    classical_with_work_links = any(t.get("work_ids") for t in tracks)
+    if profile not in {"standard", "classical"}:
+        raise ReviewError("Unknown music processing profile")
+    classical_with_work_links = profile == "classical" and any(t.get("work_ids") for t in tracks)
     for t in tracks:
         n = t["number"]
         if not t["title"]:
@@ -128,7 +167,8 @@ def consistency(tracks):
             continue
         titles = {m["title"].casefold().strip() for m in members}
         recordings = {m["recording_id"] for m in members if m["recording_id"]}
-        if len(titles) > 1:
+        if len(titles) > 1 and not (profile == "standard"
+                                     and _normal_reprise_pair([m["title"] for m in members])):
             flags.append({
                 "severity": "review", "code": "same_work_different_titles",
                 "tracks": [x["number"] for x in members], "work_id": work,
@@ -161,13 +201,17 @@ def _escape_cue(value):
 
 
 
-def _documented_cue_performer(track):
+def _documented_cue_performer(track, profile="classical"):
     """Select documented performing artists, never a composer just by ARTIST.
 
     FLAC PERFORMER values are OSCAR's explicitly sourced MusicBrainz recording
     relationships and include role suffixes for provenance. In a CUE sheet,
     use the names as a display credit; the full tagged roles remain available.
     """
+    if profile == "standard":
+        # ARTIST represents the release's primary track artist credit,
+        # while PERFORMER carries detailed MusicBrainz session credits.
+        return (track.get("artist") or "").strip() or None
     names = []
     for value in track.get("documented_performers") or []:
         if not isinstance(value, str):
@@ -187,8 +231,10 @@ def _documented_cue_performer(track):
     return artist or None
 
 
-def _album_cue_performer(tracks, album_artist):
+def _album_cue_performer(tracks, album_artist, profile="classical"):
     """Prefer a documented common conductor where one is credited."""
+    if profile == "standard":
+        return album_artist or None
     conductors = [
         {str(name) for name in t.get("conductor") or [] if name}
         for t in tracks
@@ -203,7 +249,7 @@ def _album_cue_performer(tracks, album_artist):
         return None
     return album_artist or None
 
-def cue_preview(root, tracks, album_title, album_artist):
+def cue_preview(root, tracks, album_title, album_artist, *, profile="classical"):
     raw_audio = root / "audio"
     if not raw_audio.is_dir() or raw_audio.is_symlink():
         raise ReviewError("Original rip audio directory missing")
@@ -221,7 +267,7 @@ def cue_preview(root, tracks, album_title, album_artist):
     if markers != list(range(1, len(tracks) + 1)):
         return {"status": "needs_review", "reason": "Original CUE TRACK numbering mismatched"}
     # Keep original time indexes / pregaps exactly as captured; edit display text only.
-    album_cue_performer = _album_cue_performer(tracks, album_artist)
+    album_cue_performer = _album_cue_performer(tracks, album_artist, profile)
     out = []
     inside = None
     global_title = global_performer = False
@@ -232,7 +278,7 @@ def cue_preview(root, tracks, album_title, album_artist):
             inside = int(marker.group(1))
             out.append(line)
             out.append(f'    TITLE "{_escape_cue(tracks[inside - 1]["title"])}"')
-            performer = _documented_cue_performer(tracks[inside - 1])
+            performer = _documented_cue_performer(tracks[inside - 1], profile)
             if performer:
                 out.append(f'    PERFORMER "{_escape_cue(performer)}"')
             emitted.add(inside)
@@ -284,7 +330,9 @@ def cue_preview(root, tracks, album_title, album_artist):
         "original_cue": cues[0].name,
         "track_count": len(tracks),
         "preserves_original_indices": True,
-        "performer_provenance": "Explicit recorded performer/conductor relationships where available; otherwise non-composer track credit. Uncertain credits omitted.",
+        "performer_provenance": ("Primary MusicBrainz track-artist credit; detailed session performers retained in FLAC tags." if profile == "standard" else
+                                 "Explicit recorded performer/conductor relationships where available; otherwise non-composer track credit. Uncertain credits omitted."),
+        "music_profile": profile,
         "note": "Both CUE proposals preserve the original INDEX/PREGAP lines without independent validation. The first points to current staged files; the second names proposed future archive files that do not exist yet. Review before publication.",
     }
 
@@ -318,7 +366,7 @@ def cover_preview(release_id, *, opener=None):
         return {"status": "unavailable", "note": "Cover Art Archive could not be reached; no cover inferred."}
 
 
-def review(job_id, copy_id, kind="classical_v2", *, artwork=True, cover_lookup=cover_preview):
+def review(job_id, copy_id, kind="classical_v2", *, profile="auto", artwork=True, cover_lookup=cover_preview):
     root, folder, preview, manifest, tracks = _load(job_id, copy_id, kind)
     original = _json_file(root / ("metadata-copy-" +
                           (copy_id if kind == "original_tags" else preview["source_copy_id"])),
@@ -331,12 +379,15 @@ def review(job_id, copy_id, kind="classical_v2", *, artwork=True, cover_lookup=c
     for track in tracks:
         if track.get("musicbrainz_length_ms") is None:
             track["musicbrainz_length_ms"] = known_lengths.get(track["number"])
-    metadata_review = consistency(tracks)
-    cue = cue_preview(root, tracks, album.get("title"), album.get("artist"))
+    processing = resolve_music_profile(tracks, kind, requested=profile)
+    metadata_review = consistency(tracks, profile=processing["name"])
+    cue = cue_preview(root, tracks, album.get("title"), album.get("artist"),
+                      profile=processing["name"])
     cover = cover_lookup(release_id) if artwork else {"status": "not_checked"}
     return {
         "job_id": job_id, "copy_id": copy_id, "kind": kind,
         "release_id": release_id, "album": album,
+        "music_profile": processing,
         "tracks": tracks, "consistency": metadata_review,
         "cover_art": cover, "cue": cue,
         "publication_ready": False,
