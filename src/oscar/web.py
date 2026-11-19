@@ -1115,6 +1115,16 @@ document.getElementById('publish-preview').onclick=async()=>{
    ' · Processing '+data.profile+' · '+data.metadata_observations.length+' metadata observations'+
    (data.output_exists?' · DESTINATION ALREADY EXISTS':'');
   plan.append(info);
+  if(includeCover){
+   const coverNote=document.createElement('p');
+   coverNote.textContent='Exact-release cover candidate; compare against the physical booklet/box, including removable stickers:';
+   plan.append(coverNote);
+   const img=document.createElement('img');
+   img.className='oscar-review-cover';
+   img.src='https://coverartarchive.org/release/'+encodeURIComponent(data.release_id)+'/front-250';
+   img.alt='MusicBrainz physical release cover candidate; requires human confirmation';
+   plan.append(img);
+  }
   const output=document.createElement('pre');output.className='oscar-review-card';
   output.style.whiteSpace='pre-wrap';output.style.maxHeight='360px';output.style.overflow='auto';
   output.textContent=data.tracks.map(t=>t.filename).join('\n');plan.append(output);
