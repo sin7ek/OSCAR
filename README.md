@@ -46,6 +46,10 @@ This was OSCAR's **first successful complete real-world rip**, exactly five year
 ## Status
 **v0.1.0-alpha: read-only metadata scaffold plus an opt-in experimental cyanrip staging rip.** This prototype can extract a test CD only after explicit configuration and confirmation, into a newly created staging directory. No independently verified archive, publishing, or cleanup is implemented. AccurateRip/CTDB evidence must be proven on hardware before claims of verified operation.
 
+## Development progress
+
+See the [living progress dashboard](docs/PROGRESS.md) for area-by-area percentage estimates, bar charts, supporting evidence, limitations and update rules. Percentages are qualitative assessments, not automatically calculated completion metrics. The [project status and handoff](docs/PROJECT_STATUS.md) remains the source of truth for verified tests and current next steps.
+
 ## Goals
 - Detect audio CDs, record drive identity, read offset and table of contents (including pregaps and HTOA capability).
 - Rip lossless FLAC using a proven secure ripping engine (cyanrip is a candidate).
