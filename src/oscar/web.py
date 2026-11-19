@@ -666,12 +666,16 @@ let v2Current=null;
 document.getElementById('v2-handel-example').onclick=()=>{
  document.getElementById('v2-job').value='f41806152a614b1a9006b10456b9bbd4';
  document.getElementById('v2-source').value='3ac951bdd5b74ad8b484aaea955eb757';
- document.getElementById('v2-sections').value='1-12 | Water Music — Suite I (as issued)\\n13-22 | Water Music — Suite II (as issued)\\n23-28 | Music for the Royal Fireworks'.replaceAll('\\n','\n');
+ document.getElementById('v2-sections').value=[
+  '1-12 | Water Music — Suite I (as issued)',
+  '13-22 | Water Music — Suite II (as issued)',
+  '23-28 | Music for the Royal Fireworks'
+ ].join(String.fromCharCode(10));
 };
 
 function parseV2Lines(value,isMovement){
  const result=isMovement?{}:[];
- for(const raw of value.split(/\r?\n/)){
+ for(const raw of value.split(String.fromCharCode(10))){
   const line=raw.trim();if(!line)continue;
   const pos=line.indexOf('|');
   if(pos<0)throw new Error('Missing | separator: '+line);
