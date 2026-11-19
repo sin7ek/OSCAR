@@ -7,7 +7,7 @@ PAGE = """<!doctype html>
 :root{color-scheme:dark}body{font-family:system-ui,-apple-system,sans-serif;background:#10151d;color:#eef2f6;max-width:900px;margin:32px auto;padding:0 18px}
 h1{letter-spacing:.14em}p,small{color:#a9b6c4}section{background:#19222e;border:1px solid #324253;border-radius:14px;padding:20px;margin:16px 0}
 .drive{border-top:1px solid #324253;padding:16px 0;display:grid;gap:8px}
-label{display:block;margin:8px 0}input,select{background:#0c131b;color:white;border:1px solid #516376;border-radius:8px;padding:9px;font:inherit}
+label{display:block;margin:8px 0}[hidden]{display:none!important}input,select{background:#0c131b;color:white;border:1px solid #516376;border-radius:8px;padding:9px;font:inherit}
 input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;border-radius:9px;padding:11px 18px;cursor:pointer;font-weight:700}
 .note{padding:12px;background:#283342;border-radius:9px}#status{min-height:1.5em}
 
