@@ -943,6 +943,22 @@ document.getElementById('review-start').onclick=async()=>{
    const copyBtn=document.createElement('button');copyBtn.type='button';copyBtn.textContent='Copy CUE preview';
    copyBtn.onclick=()=>navigator.clipboard.writeText(data.cue.text);
    cueBox.append(copyBtn);
+   if(data.cue.archive_cue_proposal){
+    const proposed=document.createElement('details');
+    const title=document.createElement('summary');
+    title.textContent='Proposed future archive CUE (requires matching renamed FLAC files)';
+    proposed.append(title);
+    const info=document.createElement('p');
+    info.textContent='This is a filename proposal ONLY. The target FLAC files have not been created or renamed; do not use this CUE as an archive file yet.';
+    proposed.append(info);
+    const planned=document.createElement('pre');
+    planned.style.cssText='white-space:pre-wrap;overflow-wrap:anywhere;max-height:440px;overflow:auto';
+    planned.textContent=data.cue.archive_cue_proposal;proposed.append(planned);
+    const copyPlanned=document.createElement('button');copyPlanned.type='button';
+    copyPlanned.textContent='Copy proposed archive CUE';
+    copyPlanned.onclick=()=>navigator.clipboard.writeText(data.cue.archive_cue_proposal);
+    proposed.append(copyPlanned);cueBox.append(proposed);
+   }
   }else cueBox.append(reviewCard('CUE needs attention',data.cue.reason||'Cannot preview the original CUE safely'));
   output.append(cueBox);
   const heading=document.createElement('h4');heading.textContent='Track overview';output.append(heading);
