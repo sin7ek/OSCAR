@@ -10,6 +10,30 @@ h1{letter-spacing:.14em}p,small{color:#a9b6c4}section{background:#19222e;border:
 label{display:block;margin:8px 0}input,select{background:#0c131b;color:white;border:1px solid #516376;border-radius:8px;padding:9px;font:inherit}
 input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;border-radius:9px;padding:11px 18px;cursor:pointer;font-weight:700}
 .note{padding:12px;background:#283342;border-radius:9px}#status{min-height:1.5em}
+
+/* OSCAR responsive review surfaces */
+.oscar-review-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+.oscar-review-card{background:#121c28;border:1px solid #37475a;border-radius:12px;padding:12px;min-width:0;overflow-wrap:anywhere}
+.oscar-review-card p{margin:5px 0}.oscar-review-card strong{color:#d8e8ff}
+.oscar-review-card summary{cursor:pointer}.oscar-review-card pre{max-height:380px;overflow:auto;white-space:pre-wrap}
+.oscar-review-cover{max-width:220px;width:100%;height:auto;border-radius:8px}
+.oscar-review-note{border-left:3px solid #bfd5ff;padding:8px 12px;background:#142338;overflow-wrap:anywhere}
+.oscar-review-layout{display:grid;grid-template-columns:minmax(0,1fr);gap:12px}
+.oscar-mobile-cards{display:none}
+#review-output,#multi-output,#v2-output,#metadata-output,#inspect-result,#verify-output{overflow-wrap:anywhere}
+@media(max-width:750px){
+ body{margin:10px auto;padding:0 10px}
+ section{padding:12px;margin:10px 0}
+ h1{font-size:1.55rem}
+ input,select,textarea{box-sizing:border-box;max-width:100%}
+ button{max-width:100%;white-space:normal;text-align:center}
+ #v2-output table,#metadata-output table,#inspect-result table,#verify-output table{display:none}
+ .oscar-mobile-cards{display:grid;grid-template-columns:minmax(0,1fr);gap:9px;margin:12px 0}
+ .oscar-mobile-cards .oscar-review-card{padding:12px}
+ .oscar-mobile-cards dt{font-size:.77rem;color:#a9b6c4;margin-top:8px}
+ .oscar-mobile-cards dd{margin:1px 0 5px;overflow-wrap:anywhere}
+ .oscar-review-cover{max-width:180px}
+}
 </style></head><body>
 <h1>OSCAR</h1><p>Open Source CD Archiving &amp; Ripping · Device settings</p>
 <div class="note">Configuration preview. Experimental ripping requires explicit opt-in and writes only to staging; archiving and automatic deletion are not implemented. Keep this UI on localhost or behind authentication.</div>
@@ -52,6 +76,18 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 <textarea id="v2-movements" rows="2" style="width:95%;background:#0c131b;color:white;border:1px solid #516376;border-radius:8px;padding:9px"></textarea>
 <button id="v2-preview" type="button">Preview classical v2 tags</button>
 <div id="v2-output" aria-live="polite"></div></section>
+<section><h2>Archive review · consistency, cover &amp; CUE (read-only)</h2>
+<p>Checks documented MusicBrainz recording/work relationships and duration evidence, previews the exact release's Cover Art Archive front candidate, and prepares a CUE preview preserving the original INDEX/PREGAP lines. Nothing is published or modified.</p>
+<label for="review-job">Original rip job ID</label><input id="review-job" maxlength="32" style="width:340px;max-width:95%">
+<label for="review-copy">Completed tagged-copy ID</label><input id="review-copy" maxlength="32" style="width:340px;max-width:95%">
+<label for="review-kind">Copy type</label><select id="review-kind"><option value="classical_v2">Classical v2 tagged staging copy</option><option value="original_tags">Original MusicBrainz tagged copy (pop, house, compilations, classical)</option></select>
+<button type="button" id="review-handel-example">Fill first Handel reference</button>
+<button type="button" id="review-start">Review metadata, artwork &amp; CUE</button>
+<div id="review-output" aria-live="polite"></div></section>
+<section><h2>Parallel optical drives</h2>
+<p>Different enabled drives may rip simultaneously. Each has its own staging job and log. Drive count and available capacity are shown here; there is no persistent background queue or auto-eject yet.</p>
+<button type="button" id="multi-refresh">Refresh drive dashboard</button>
+<div id="multi-output" aria-live="polite"></div></section>
 <button id="save">Save settings</button><p id="status" aria-live="polite"></p>
 <script>
 let settings;
@@ -797,6 +833,172 @@ document.getElementById('v2-preview').onclick=async()=>{
    finally{button.disabled=false}
   };target.append(button);
  }catch(e){target.textContent='Classical metadata preview failed: '+e.message}
+};
+
+
+/* Tables generated from earlier modules become readable cards on narrow screens.
+   Text-only DOM construction prevents injected metadata from becoming HTML. */
+function enhanceOscarTables(){
+ for(const containerId of ['verify-output','metadata-output','inspect-result','v2-output']){
+  const container=document.getElementById(containerId);
+  if(!container)continue;
+  for(const table of container.querySelectorAll('table:not([data-oscar-cards])')){
+   table.setAttribute('data-oscar-cards','1');
+   const trs=Array.from(table.querySelectorAll('tr'));
+   if(trs.length<2)continue;
+   const headings=Array.from(trs[0].querySelectorAll('th')).map(x=>x.textContent.trim());
+   const cards=document.createElement('div');cards.className='oscar-mobile-cards';
+   let previous=null;
+   for(const tr of trs.slice(1)){
+    const cells=Array.from(tr.querySelectorAll('td'));
+    if(!cells.length)continue;
+    if(cells.length===1&&cells[0].colSpan>1&&previous){
+      const detail=cells[0].querySelector('details');
+      if(detail)previous.append(detail.cloneNode(true));
+      continue;
+    }
+    const card=document.createElement('article');card.className='oscar-review-card';
+    const title=document.createElement('strong');
+    title.textContent='Track '+(cells[0]?.textContent.trim()||'?')+
+      (headings.indexOf('Title')>=0?' · '+(cells[headings.indexOf('Title')]?.textContent.trim()||''):'');
+    card.append(title);
+    const dl=document.createElement('dl');
+    for(let i=1;i<cells.length;i++){
+     const name=document.createElement('dt');name.textContent=headings[i]||'Details';
+     const value=document.createElement('dd');value.textContent=cells[i].textContent.trim()||'—';
+     dl.append(name,value);
+    }card.append(dl);cards.append(card);previous=card;
+   }
+   table.insertAdjacentElement('afterend',cards);
+  }
+ }
+}
+const oscarTableObserver=new MutationObserver(()=>enhanceOscarTables());
+for(const target of ['verify-output','metadata-output','inspect-result','v2-output']){
+ const node=document.getElementById(target);
+ if(node)oscarTableObserver.observe(node,{childList:true,subtree:true});
+}
+document.getElementById('review-handel-example').onclick=()=>{
+ document.getElementById('review-job').value='f41806152a614b1a9006b10456b9bbd4';
+ document.getElementById('review-kind').value='original_tags';
+ document.getElementById('review-copy').value='3ac951bdd5b74ad8b484aaea955eb757';
+};
+function reviewCard(title,bodyText){
+ const box=document.createElement('div');box.className='oscar-review-card';
+ const heading=document.createElement('strong');heading.textContent=title;
+ const text=document.createElement('p');text.textContent=bodyText;
+ box.append(heading,text);return box;
+}
+document.getElementById('review-start').onclick=async()=>{
+ const job=document.getElementById('review-job').value.trim().toLowerCase();
+ const copy=document.getElementById('review-copy').value.trim().toLowerCase();
+ const kind=document.getElementById('review-kind').value;
+ const output=document.getElementById('review-output');output.replaceChildren();
+ if(!/^[a-f0-9]{32}$/.test(job)||!/^[a-f0-9]{32}$/.test(copy)){
+  output.textContent='Enter valid 32-character rip and tagged-copy IDs.';return;
+ }
+ const headers=requestAuthHeaders('Review staged archive metadata and CUE');
+ if(!headers)return;
+ output.textContent='Reading staged FLAC metadata, looking up cover candidate and preparing CUE…';
+ try{
+  const url='/api/rip/jobs/'+job+'/archive-review/'+copy+'?'+new URLSearchParams({kind});
+  const response=await fetch(url,{headers});
+  if(!response.ok)throw new Error(await response.text());
+  const data=await response.json();output.replaceChildren();
+  const top=document.createElement('h3');top.textContent=data.album.title||'Album review';output.append(top);
+  const small=document.createElement('p');small.textContent=(data.album.artist||'Unknown album artist')+
+   ' · '+(data.album.date||'Undated')+' · '+data.tracks.length+' tracks · '+
+   (data.album.catalog_numbers||[]).join(', ');output.append(small);
+  const sections=document.createElement('div');sections.className='oscar-review-grid';
+  const flags=data.consistency.flags||[];
+  sections.append(reviewCard('Consistency',data.consistency.status+' · '+flags.length+
+    ' review items. Shared work IDs do not automatically mean audio or recording duplication.'));
+  sections.append(reviewCard('CUE',data.cue.status+
+    ' · '+(data.cue.track_count??'?')+' tracks. Original INDEX and PREGAP lines kept, no new indexes invented.'));
+  sections.append(reviewCard('Cover Art Archive',data.cover_art.status+
+    ' · candidate tied to selected MusicBrainz physical release; check against booklet.'));
+  output.append(sections);
+  if(data.cover_art.thumbnail_url){
+   const photo=document.createElement('img');photo.className='oscar-review-cover';
+   photo.src=data.cover_art.thumbnail_url;photo.alt='Cover candidate; inspect physical edition';
+   photo.loading='lazy';output.append(photo);
+  }
+  const warning=document.createElement('p');warning.className='oscar-review-note';
+  warning.textContent='This is a review, not approval. MusicBrainz Work is not Recording. No AcoustID, CTDB or automatic publishing.';
+  output.append(warning);
+  const reviewTitle=document.createElement('h4');reviewTitle.textContent='Metadata observations ('+flags.length+')';
+  output.append(reviewTitle);
+  if(!flags.length)output.append(reviewCard('No automatic conflicts','Nothing was flagged from available evidence; this is not proof that every MusicBrainz link is correct.'));
+  for(const flag of flags){
+   output.append(reviewCard('Tracks '+flag.tracks.join(', ')+' · '+flag.code,
+                            flag.message));
+  }
+  const cueBox=document.createElement('details');
+  const summary=document.createElement('summary');summary.textContent='Preview complete CUE without rewriting original';
+  cueBox.append(summary);
+  if(data.cue.text){
+   const preview=document.createElement('pre');
+   preview.style.cssText='white-space:pre-wrap;overflow-wrap:anywhere;max-height:440px;overflow:auto';
+   preview.textContent=data.cue.text;cueBox.append(preview);
+   const copyBtn=document.createElement('button');copyBtn.type='button';copyBtn.textContent='Copy CUE preview';
+   copyBtn.onclick=()=>navigator.clipboard.writeText(data.cue.text);
+   cueBox.append(copyBtn);
+   if(data.cue.archive_cue_proposal){
+    const proposed=document.createElement('details');
+    const title=document.createElement('summary');
+    title.textContent='Proposed future archive CUE (requires matching renamed FLAC files)';
+    proposed.append(title);
+    const info=document.createElement('p');
+    info.textContent='This is a filename proposal ONLY. The target FLAC files have not been created or renamed; do not use this CUE as an archive file yet.';
+    proposed.append(info);
+    const planned=document.createElement('pre');
+    planned.style.cssText='white-space:pre-wrap;overflow-wrap:anywhere;max-height:440px;overflow:auto';
+    planned.textContent=data.cue.archive_cue_proposal;proposed.append(planned);
+    const copyPlanned=document.createElement('button');copyPlanned.type='button';
+    copyPlanned.textContent='Copy proposed archive CUE';
+    copyPlanned.onclick=()=>navigator.clipboard.writeText(data.cue.archive_cue_proposal);
+    proposed.append(copyPlanned);cueBox.append(proposed);
+   }
+  }else cueBox.append(reviewCard('CUE needs attention',data.cue.reason||'Cannot preview the original CUE safely'));
+  output.append(cueBox);
+  const heading=document.createElement('h4');heading.textContent='Track overview';output.append(heading);
+  const cards=document.createElement('div');cards.className='oscar-review-grid';
+  for(const track of data.tracks){
+   const titles=[track.number+'. '+track.title,
+    'Artist: '+(track.artist||'Unknown'),
+    'Recording: '+(track.recording_id||'Not linked'),
+    'Works: '+(track.work_names||[]).join('; '),
+    'FLAC: '+track.length_seconds+' s'];
+   const card=reviewCard(titles[0],titles.slice(1).join(' · '));
+   cards.append(card);
+  }output.append(cards);
+ }catch(e){output.textContent='Review could not finish: '+e.message}
+};
+document.getElementById('multi-refresh').onclick=async()=>{
+ const output=document.getElementById('multi-output');output.textContent='Reading optical drives…';
+ const headers=requestAuthHeaders('Inspect parallel optical drives');
+ if(!headers)return;
+ try{
+  const r=await fetch('/api/rip/dashboard',{headers});
+  if(!r.ok)throw new Error(await r.text());
+  const data=await r.json();output.replaceChildren();
+  const status=document.createElement('p');
+  status.textContent=data.active_count+'/'+data.max_concurrent_rips+' running · '+
+   data.slots_available+' available slots · '+data.drives.length+' configured enabled drives.';
+  output.append(status);
+  const grid=document.createElement('div');grid.className='oscar-review-grid';
+  for(const drive of data.drives){
+   const card=reviewCard(drive.label,drive.status+' · '+(drive.device||'not detected')+
+    ' · '+(drive.offset_set?'offset set':'offset not set')+
+    (drive.job?' · last rip '+drive.job.id+' ('+drive.job.status+')':''));
+   if(drive.present&&drive.offset_set&&drive.status==='ready'){
+    const button=document.createElement('button');button.textContent='Rip this drive to staging';
+    button.onclick=()=>startTestRip(drive.stable_id,drive.label);card.append(button);
+   }
+   grid.append(card);
+  }output.append(grid);
+  output.append(reviewCard('Multidrive safety',data.note));
+ }catch(e){output.textContent='Drive dashboard unavailable: '+e.message}
 };
 
 document.getElementById('save').onclick=async()=>{
