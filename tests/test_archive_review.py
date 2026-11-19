@@ -207,3 +207,73 @@ def test_archive_review_and_multidrive_panels_visible():
     assert "Review metadata, artwork" in html
     assert "Parallel optical drives" in html
     assert "oscar-mobile-cards" in html
+
+
+def test_classical_cue_uses_recording_performers_not_composer(tmp_path):
+    audio = tmp_path / "audio"
+    audio.mkdir()
+    original = (
+        'PERFORMER "Stravinsky; Pierre Boulez"\n'
+        'TITLE "Unknown disc"\n'
+        'FILE "01 - Unknown track.flac" WAVE\n'
+        '  TRACK 01 AUDIO\n'
+        '    PERFORMER "Igor Stravinsky"\n'
+        '    PREGAP 00:00:33\n'
+        '    INDEX 01 00:00:00\n'
+        'FILE "02 - Unknown track.flac" WAVE\n'
+        '  TRACK 02 AUDIO\n'
+        '    PERFORMER "Igor Stravinsky"\n'
+        '    INDEX 01 00:00:00\n'
+    )
+    (audio / "disc.cue").write_text(original)
+    tracks = [
+        {"number": 1, "file": "audio/01 - Unknown track.flac",
+         "title": "Tilim-bom", "artist": "Igor Stravinsky",
+         "composer": [], "conductor": ["Pierre Boulez"],
+         "documented_performers": ["Pierre Boulez (conductor)",
+                                   "Ensemble intercontemporain (performer)",
+                                   "Phyllis Bryn-Julson (vocal)"]},
+        {"number": 2, "file": "audio/02 - Unknown track.flac",
+         "title": "Wolf: Sacred Song", "artist": "Igor Stravinsky",
+         "composer": ["Hugo Wolf"], "conductor": ["Pierre Boulez"],
+         "documented_performers": ["Pierre Boulez (conductor)",
+                                   "Ann Murray (vocal)"]},
+    ]
+    result = archive_review.cue_preview(tmp_path, tracks, "Boulez Conducts Stravinsky",
+                                        "Stravinsky; Pierre Boulez")
+    assert result["status"] == "preview_requires_review"
+    assert 'PERFORMER "Pierre Boulez"' in result["text"]
+    assert 'PERFORMER "Pierre Boulez; Ensemble intercontemporain; Phyllis Bryn-Julson"' in result["text"]
+    assert 'PERFORMER "Pierre Boulez; Ann Murray"' in result["text"]
+    assert 'PERFORMER "Igor Stravinsky"' not in result["text"]
+    assert "PREGAP 00:00:33" in result["text"]
+    assert "PREGAP 00:00:33" in result["archive_cue_proposal"]
+    assert (audio / "disc.cue").read_text() == original
+
+
+def test_classical_composer_without_performer_is_not_falsely_cue_credited(tmp_path):
+    audio = tmp_path / "audio"
+    audio.mkdir()
+    (audio / "disc.cue").write_text(
+        'PERFORMER "Unknown Artist"\n'
+        'FILE "01 - Unknown track.flac" WAVE\n'
+        '  TRACK 01 AUDIO\n'
+        '    INDEX 01 00:00:00\n')
+    tracks = [{"number": 1, "file": "audio/01 - Unknown track.flac",
+               "title": "A Work", "artist": "Hugo Wolf",
+               "composer": ["Hugo Wolf"], "conductor": [],
+               "documented_performers": []}]
+    output = archive_review.cue_preview(tmp_path, tracks, "Classical", "Hugo Wolf")
+    assert 'PERFORMER "Hugo Wolf"' not in output["text"]
+    assert 'TITLE "A Work"' in output["text"]
+
+
+def test_missing_classical_work_is_review_not_conflict():
+    tracks = sample_tracks()
+    tracks[1]["work_ids"] = []
+    tracks[1]["work_names"] = []
+    report = archive_review.consistency(tracks)
+    assert report["status"] == "review_recommended"
+    assert len(report["flags"]) == 1
+    assert report["flags"][0]["code"] == "missing_classical_work_link"
+    assert report["flags"][0]["tracks"] == [2]
