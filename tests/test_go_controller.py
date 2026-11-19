@@ -153,3 +153,20 @@ def test_go_interrupted_extract_never_retries(rig):
     result=go.advance(job_id)
     assert result["action"]=="interrupted_review"
     assert result["workflow"]["phase"]=="RIP_INTERRUPTED"
+
+
+def test_go_poll_immediately_after_create_before_state_file(rig, monkeypatch):
+    import threading
+    gate=threading.Event()
+    def delayed_run(job,device,offset,workdir,runner,on_completed):
+        gate.wait(timeout=2)
+    monkeypatch.setattr(ripping,"_run",delayed_run)
+    try:
+        result=go.start(DRIVE)
+        job_id=result["job"]["id"]
+        assert not (rig[0]/("oscar-"+job_id)/"state.json").exists()
+        first=go.advance(job_id)
+        assert first["action"]=="ripping"
+        assert first["workflow"]["phase"]=="RIP_IN_PROGRESS"
+    finally:
+        gate.set()
