@@ -353,12 +353,22 @@ def _do_publish(plan, publish_id, *, allow_metadata_observations, cover_download
             if destination.exists() or destination.is_symlink():
                 raise PublishError("Archive target appeared during staging; refusing overwrite")
             _rename_noreplace(temp, destination)
-            dir_fd = os.open(parent, os.O_RDONLY | os.O_DIRECTORY)
+            # Directory is already visible now. Certain FUSE/shfs mounts
+            # do not support fsync of a directory. Never misreport an
+            # already-promoted archive as unpublished due solely to that
+            # durability limitation. The individual copied files and
+            # manifest have been fsynced before promotion.
+            directory_sync = "ok"
             try:
-                os.fsync(dir_fd)
-            finally:
-                os.close(dir_fd)
+                dir_fd = os.open(parent, os.O_RDONLY | os.O_DIRECTORY)
+                try:
+                    os.fsync(dir_fd)
+                finally:
+                    os.close(dir_fd)
+            except OSError as exc:
+                directory_sync = "unavailable: " + str(exc)
             return {"status": "published_verified", "publish_id": publish_id,
+                    "directory_sync": directory_sync,
                     "job_id": job_id, "copy_id": copy_id,
                     "relative_directory": new_plan["relative_directory"],
                     "file_count": len(published), "manifest_sha256": _hash(destination / "manifest.json"),
