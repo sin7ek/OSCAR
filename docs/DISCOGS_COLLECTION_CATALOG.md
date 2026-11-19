@@ -1,6 +1,6 @@
 # OSCAR — Discogs integration and local collection catalog (design proposal)
 
-**Status:** Phase 1 implemented in PR #60; XLSX export and album-level classical/label search added in PR #61 (local published-archive inventory, ODS/CSV export, read-only Discogs account/folders); collection writes, release search and complete owned-copy catalog remain planned. **Date:** 2026-11-19.  
+**Status:** Phase 1 implemented in PR #60; XLSX export and album-level classical/label search added in PR #61; sourced track-credit/Work index and exact-release label backfill added in PR #62 (local published-archive inventory, ODS/CSV export, read-only Discogs account/folders); collection writes, release search and complete owned-copy catalog remain planned. **Date:** 2026-11-19.  
 **Related:** [PROJECT_STATUS.md](PROJECT_STATUS.md), [PROGRESS.md](PROGRESS.md), [ARCHITECTURE.md](ARCHITECTURE.md).  
 **Sources:** https://www.discogs.com/developers/ ; https://support.discogs.com/hc/en-us/articles/360009334593-API-Terms-of-Use ; https://support.discogs.com/hc/en-us/articles/360007425393-How-Can-I-Add-Collection-Wantlist-Notes
 
@@ -35,6 +35,10 @@
 - Discogs API Terms distinguish **CC0 release metadata** (e.g. titles, dates, formats, tracklists, barcodes, credits) from **Restricted Data** (Discogs user collection data, marketplace, images). The API imposes retention/display restrictions and requires attribution. Before coding, validate the current terms, particularly restricted user-data storage/export; never assume all Discogs-derived fields can be permanently cached or redistributed.
 - The application UI must show the required Discogs attribution and disclaimer next to Discogs-provided data. Preserve credentials in a secured configuration/secret store, never in Git, logs, export, or archive manifest.
 - Design for rate limits and intermittent provider failure. Do not build a Discogs marketplace scraper.
+
+## Phase 2 — source-backed indexed tracks (PR #62)
+
+The local catalog can now index per-track archived FLAC Vorbis metadata into distinct track/credit/Work tables, with a digest check against the OSCAR publication manifest and no audio changes. Composer/conductor/orchestra/performers and explicit soloists remain source-attributed; a generic instrument or vocal role is never automatically a soloist. Original MusicBrainz recording/release track IDs and aligned Work names/IDs are recorded where present. For historical releases with no stored label, optional MusicBrainz lookup fills the label only when **both** exact release UUID and physical catalog number match. Unknown remains blank. This is not automatic end-to-end orchestration; see [AUTOMATION_ROADMAP.md](AUTOMATION_ROADMAP.md).
 
 ## Proposed incremental implementation
 
