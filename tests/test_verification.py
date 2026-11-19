@@ -137,3 +137,42 @@ def test_frontend_has_verification_panel():
     html = TestClient(app).get("/").text
     assert "Verify staged rip" in html
     assert "AccurateRip" in html
+
+
+def test_progress_heavy_log_over_6mb_still_verifies(stage):
+    logfile = stage / "cyanrip-console.log"
+    progress = b"Ripping and encoding track 1, progress - 71.22%, ETA " + b"x"*512 + b"\r"
+    # Bigger than old 6 MB ceiling; content is bounded to relevant lines.
+    with logfile.open("wb") as output:
+        output.write(progress * 12500)
+        output.write((log_track(1) + log_track(2) + "Ripping errors: 0\n").encode())
+    assert logfile.stat().st_size > 6_000_000
+    filtered = verification.read_cyanrip_evidence(logfile)
+    assert len(filtered) < 2000
+    report = verification._verify(stage, JOB, runner=mock_flac)
+    assert report["status"] == "checks_passed"
+
+
+def test_retry_preserves_failed_report_and_creates_new_one(stage, monkeypatch):
+    original = {"job_id": JOB, "status": "review_required",
+                "error": "RipError: Rip log too large for automatic verification"}
+    (stage / "verification-report.json").write_text(json.dumps(original))
+    monkeypatch.setattr(verification, "_verify", lambda path, jobid: {
+        "job_id": jobid, "status": "checks_passed", "tracks": []})
+    result = verification.start(JOB)
+    assert result["status"] == "running"
+    for _ in range(200):
+        current = verification.report(JOB)
+        if current["status"] != "running":
+            break
+        time.sleep(.01)
+    assert current["status"] == "checks_passed"
+    backups = list(stage.glob("verification-report-previous-*.json"))
+    assert len(backups) == 1
+    assert json.loads(backups[0].read_text()) == original
+
+
+def test_successful_report_is_not_overwritten(stage):
+    old = {"job_id": JOB, "status": "checks_passed"}
+    (stage / "verification-report.json").write_text(json.dumps(old))
+    assert verification.start(JOB) == old

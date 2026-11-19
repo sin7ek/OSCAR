@@ -9,7 +9,7 @@ After a cyanrip staging job completes with `status=needs_verification`, OSCAR ca
 3. Click **Verify staged rip**, enter the OSCAR rip token and inspect the per-track table. FLAC stream decoding may take some time. The UI polls while it runs.
 4. The report is stored at `/staging/oscar-<jobid>/verification-report.json`. Existing rip files remain untouched.
 
-API: `POST /api/rip/jobs/{job_id}/verification` starts the check; `GET /api/rip/jobs/{job_id}/verification` retrieves progress or the persistent report. Both require `X-OSCAR-RIP-TOKEN` and the existing opt-in `OSCAR_ENABLE_RIPPING=1`. The source job must have status `needs_verification` and cyanrip exit code 0. Reusing the same job returns its existing report; OSCAR does not overwrite it.
+API: `POST /api/rip/jobs/{job_id}/verification` starts the check; `GET /api/rip/jobs/{job_id}/verification` retrieves progress or the persistent report. Both require `X-OSCAR-RIP-TOKEN` and the existing opt-in `OSCAR_ENABLE_RIPPING=1`. The source job must have status `needs_verification` and cyanrip exit code 0. Reusing a job with a successful `checks_passed` report returns that report. **Failed/incomplete reports can be retried** using the same button. The prior report is saved separately as `verification-report-previous-<random-id>.json` before OSCAR updates the current `verification-report.json`. Audio, original CUE, logs and state remain unchanged.
 
 ## Checks
 
@@ -30,3 +30,9 @@ A report of `checks_passed` means **all these observed checks passed**, not `ver
 - The first complete HDD test (Nov 19, 2026) previously showed 28/28 AccurateRip v1 and v2 matches and all files passed manual `flac -t`. This new report should be **tested against that real staging directory on Unraid** after deployment, but CI is only simulated.
 - Retain staging evidence. Later a verified publisher can consume the report only after additional independent checks and physical release review.
 
+
+## Field bug and recovery — first Händel test
+
+The initial report for staging job `f41806152a614b1a9006b10456b9bbd4` returned `review_required` with `RipError: Rip log too large for automatic verification`: cyanrip's verbose progress output exceeded the old arbitrary 6 MB input limit. This **was not a ripping error**; cyanrip had completed 28 FLACs, 28/28 AccurateRip matches for both versions, and a manual FLAC decode check had passed. OSCAR also accidentally cached the failed verification report as final.
+
+The fix streams the unchanged log in 64 KB chunks, filters out bulky carriage-return progress reports, and retains only CRC32, AccurateRip v1/v2, track metadata, output filename and final ripping-error lines for parsing. The input retains a 512 MB byte-processing safety limit and a 2 MB retained-evidence limit. Existing failed/incomplete reports can now be retried without deleting anything or reripping the CD. Re-run **Verify staged rip** on the same job after deploying the updated image. If the output still says `review_required`, inspect the per-track table to identify specific missing evidence.

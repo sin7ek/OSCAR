@@ -4,6 +4,8 @@ AccurateRip evidence is *parsed from cyanrip's captured log*, NOT independently
 queried by OSCAR. A passing report is not CTDB confirmation or archive approval.
 """
 import hashlib
+import shutil
+import uuid
 import json
 import os
 import re
@@ -14,7 +16,8 @@ from pathlib import Path
 
 from oscar import ripping
 
-_MAX_LOG = 6_000_000
+_MAX_LOG = 512_000_000
+_MAX_EVIDENCE = 2_000_000
 _MAX_TRACKS = 150
 _RUNNING = set()
 _LOCK = threading.Lock()
@@ -29,6 +32,41 @@ _AR = re.compile(
     r"(?im)^\s*Accurip v([12]):\s*([0-9A-F]{8})\s*"
     r"\((accurately ripped|[^,\)]+)(?:,\s*confidence\s*(\d+))?\)"
 )
+
+
+
+_EVIDENCE_LINE = re.compile(
+    rb"(?i)^\s*(?:EAC CRC32:|Accurip(?::| v[12]:)|Metadata:|track:|File\(s\):|audio/\d{2,3}\s*-|Ripping errors:)"
+)
+
+
+def read_cyanrip_evidence(path):
+    """Stream-filter CR/LF-delimited cyanrip output, ignoring bulky progress spam."""
+    evidence = bytearray()
+    current = bytearray()
+    total = 0
+
+    def consume(line):
+        if len(line) <= 4096 and _EVIDENCE_LINE.match(line):
+            if len(evidence) + len(line) + 1 > _MAX_EVIDENCE:
+                raise ripping.RipError("Too many verification records in rip log")
+            evidence.extend(line)
+            evidence.append(10)
+
+    with path.open("rb") as source:
+        while chunk := source.read(64 * 1024):
+            total += len(chunk)
+            if total > _MAX_LOG:
+                raise ripping.RipError("Rip log exceeds safety limit")
+            for byte in chunk:
+                if byte in (10, 13):
+                    consume(current)
+                    current.clear()
+                elif len(current) < 4097:
+                    current.append(byte)
+        if current:
+            consume(current)
+    return evidence.decode("utf-8", errors="replace")
 
 
 def parse_cyanrip_log(contents):
@@ -110,9 +148,7 @@ def _verify(directory, job_id, runner=subprocess.run):
     if not isinstance(expected, int) or not 1 <= expected <= _MAX_TRACKS:
         raise ripping.RipError("Invalid track count in rip plan")
     logfile = _file_readonly(directory, "cyanrip-console.log")
-    if logfile.stat().st_size > _MAX_LOG:
-        raise ripping.RipError("Rip log too large for automatic verification")
-    log = logfile.read_text(encoding="utf-8", errors="replace")
+    log = read_cyanrip_evidence(logfile)
     evidence = parse_cyanrip_log(log)
     errors = re.findall(r"(?im)^\s*Ripping errors:\s*(\d+)\s*$", log)
     ripping_errors = int(errors[-1]) if errors else None
@@ -195,11 +231,13 @@ def report(job_id):
     destination = directory / "verification-report.json"
     if destination.is_symlink():
         raise ripping.RipError("Unsafe verification report")
-    if destination.is_file():
-        return json.loads(destination.read_text(encoding="utf-8"))
     with _LOCK:
         running = job_id in _RUNNING
-    return {"job_id": job_id, "status": "running" if running else "not_started"}
+    if running:
+        return {"job_id": job_id, "status": "running"}
+    if destination.is_file():
+        return json.loads(destination.read_text(encoding="utf-8"))
+    return {"job_id": job_id, "status": "not_started"}
 
 
 def start(job_id):
@@ -208,8 +246,13 @@ def start(job_id):
     with _LOCK:
         if job_id in _RUNNING:
             return {"job_id": job_id, "status": "running"}
-        if (directory / "verification-report.json").exists():
-            return report(job_id)
+        prior = directory / "verification-report.json"
+        if prior.is_symlink():
+            raise ripping.RipError("Unsafe verification report")
+        if prior.is_file():
+            previous = json.loads(prior.read_text(encoding="utf-8"))
+            if previous.get("status") == "checks_passed":
+                return previous
         _RUNNING.add(job_id)
     def work():
         try:
@@ -218,22 +261,28 @@ def start(job_id):
             result = {"job_id": job_id, "status": "review_required",
                       "error": f"{type(exc).__name__}: {exc}"[:400],
                       "notes": ["Verification was not completed; do not publish or delete files."]}
+        # Preserve failed reports, while replacing only the report pointer.
+        destination = directory / "verification-report.json"
+        tmp = directory / ("verification-" + uuid.uuid4().hex + ".tmp")
+        try:
+            if destination.is_symlink():
+                raise ripping.RipError("Unsafe verification report")
+            with tmp.open("x", encoding="utf-8") as stream:
+                json.dump(result, stream, indent=2)
+                stream.write("\n")
+                stream.flush()
+                os.fsync(stream.fileno())
+            if destination.exists():
+                backup = directory / ("verification-report-previous-" + uuid.uuid4().hex + ".json")
+                with destination.open("rb") as source, backup.open("xb") as output:
+                    shutil.copyfileobj(source, output)
+                    output.flush()
+                    os.fsync(output.fileno())
+            os.replace(tmp, destination)
+        except OSError:
+            pass
         finally:
             with _LOCK:
                 _RUNNING.discard(job_id)
-        # Exclusive temporary output and atomic rename; never modify source.
-        destination = directory / "verification-report.json"
-        if not destination.exists():
-            tmp = directory / ("verification-" + job_id + ".tmp")
-            try:
-                with tmp.open("x", encoding="utf-8") as stream:
-                    json.dump(result, stream, indent=2)
-                    stream.write("\n")
-                    stream.flush()
-                    os.fsync(stream.fileno())
-                os.replace(tmp, destination)
-            except OSError:
-                # Avoid modifying staged evidence if report cannot be saved.
-                pass
     threading.Thread(target=work, daemon=True, name="oscar-verify-" + job_id[:8]).start()
     return {"job_id": job_id, "status": "running"}
