@@ -918,10 +918,10 @@ function parseV2Lines(value,isMovement){
   const left=line.slice(0,pos).trim(),name=line.slice(pos+1).trim();
   if(!name)throw new Error('Missing name: '+line);
   if(isMovement){
-   if(!/^\d+$/.test(left))throw new Error('Invalid track number: '+left);
+   if(!/^\\d+$/.test(left))throw new Error('Invalid track number: '+left);
    result[String(Number(left))]=name;
   }else{
-   const m=/^(\d+)\s*-\s*(\d+)$/.exec(left);
+   const m=/^(\\d+)\\s*-\\s*(\\d+)$/.exec(left);
    if(!m)throw new Error('Use start-end | title for every section');
    result.push({start:Number(m[1]),end:Number(m[2]),name});
   }
@@ -1144,7 +1144,7 @@ document.getElementById('publish-preview').onclick=async()=>{
   }
   const output=document.createElement('pre');output.className='oscar-review-card';
   output.style.whiteSpace='pre-wrap';output.style.maxHeight='360px';output.style.overflow='auto';
-  output.textContent=data.tracks.map(t=>t.filename).join('\n');plan.append(output);
+  output.textContent=data.tracks.map(t=>t.filename).join('\\n');plan.append(output);
   const cue=document.createElement('details');
   const summary=document.createElement('summary');summary.textContent='Inspect full proposed album.cue';cue.append(summary);
   const preview=document.createElement('pre');preview.textContent=data.cue;

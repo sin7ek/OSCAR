@@ -492,3 +492,24 @@ def test_archive_path_refuses_symlinked_artist_parent(publishable):
     with pytest.raises(archive_publish.PublishError, match="Symlink"):
         archive_publish._do_publish(plan, "f" * 32,
                                     allow_metadata_observations=True)
+
+
+def test_rendered_web_page_preserves_javascript_escapes():
+    """Catch Python triple-quoted HTML converting JS '\n' to a syntax error."""
+    from oscar.web import PAGE
+    import shutil
+    import subprocess
+
+    script = PAGE.split("<script>", 1)[1].split("</script>", 1)[0]
+    assert r".join('\n')" in script
+    assert "join('\n')" not in script  # an actual embedded newline in JS quotes
+    assert r"/^\d+$/" in script
+    assert r"/^(\d+)\s*-\s*(\d+)$/" in script
+    # The browser parses the *rendered* HTML, not the Python source.
+    if shutil.which("node"):
+        completed = subprocess.run(
+            ["node", "--check", "-"],
+            input=script, text=True, capture_output=True, check=False,
+            timeout=10,
+        )
+        assert completed.returncode == 0, completed.stderr
