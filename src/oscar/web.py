@@ -24,6 +24,14 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 <input id="verify-job" placeholder="f41806152a614b1a9006b10456b9bbd4" maxlength="32" style="width:340px;max-width:90%">
 <button id="verify-start" type="button">Verify staged rip</button>
 <div id="verify-output" aria-live="polite"></div></section>
+<section><h2>Metadata &amp; tagging (experimental)</h2>
+<p>Only for a previously verified staging rip. Preview an explicitly selected MusicBrainz physical release, including its classical work/performer relationships. Review label/catalog details before copying. Original FLACs are never modified.</p>
+<label for="metadata-job">Verified staging job ID</label>
+<input id="metadata-job" maxlength="32" placeholder="Paste 32-character rip job ID" style="width:340px;max-width:90%">
+<label for="metadata-release">MusicBrainz release UUID (exact physical edition, not release group)</label>
+<input id="metadata-release" maxlength="36" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" style="width:360px;max-width:90%">
+<button type="button" id="metadata-preview-btn">Preview MusicBrainz tags</button>
+<div id="metadata-output" aria-live="polite"></div></section>
 <button id="save">Save settings</button><p id="status" aria-live="polite"></p>
 <script>
 let settings;
@@ -472,6 +480,95 @@ async function verifyExistingJob(){
  }catch(e){target.textContent='Verification unavailable: '+e.message}
 }
 document.getElementById('verify-start').onclick=verifyExistingJob;
+
+let reviewedMetadata=null;
+function metadataElement(tag,text){const e=document.createElement(tag);e.textContent=String(text??'—');return e;}
+document.getElementById('metadata-preview-btn').onclick=async()=>{
+ const output=document.getElementById('metadata-output');output.replaceChildren();
+ reviewedMetadata=null;
+ const job=document.getElementById('metadata-job').value.trim().toLowerCase();
+ const release=document.getElementById('metadata-release').value.trim().toLowerCase();
+ if(!/^[a-f0-9]{32}$/.test(job)||!/^[a-f0-9-]{36}$/.test(release)){
+  output.textContent='Enter a valid staging job ID and MusicBrainz release UUID.';return;
+ }
+ const token=prompt('OSCAR rip token (required for metadata preview)');
+ if(!token)return;
+ output.textContent='Checking completed rip, exact MusicBrainz medium and relationships…';
+ try{
+  const r=await fetch('/api/rip/jobs/'+job+'/metadata/preview',{
+    method:'POST',headers:{'Content-Type':'application/json','X-OSCAR-RIP-TOKEN':token},
+    body:JSON.stringify({release_id:release})
+  });
+  if(!r.ok)throw new Error(await r.text());
+  const result=await r.json();reviewedMetadata=result;
+  output.replaceChildren();
+  output.append(metadataElement('h3',result.album.title));
+  output.append(metadataElement('p','Album artist: '+result.album.artist+
+   ' · Release date: '+(result.album.date||'unknown')+
+   ' · Disc '+result.disc_number+'/'+result.disc_total));
+  output.append(metadataElement('p','Labels: '+(result.album.labels||[]).map(x=>
+    (x.name||'?')+' ['+(x.catalog_number||'no catalogue number')+']').join(', ')+
+    ' · Barcode: '+(result.album.barcode||'unknown')));
+  const link=document.createElement('a');
+  link.href='https://musicbrainz.org/release/'+encodeURIComponent(result.release_id);
+  link.rel='noopener noreferrer';link.target='_blank';link.textContent='Review exact MusicBrainz release';
+  link.style.color='#bfd5ff';output.append(link);
+  const table=document.createElement('table');table.style.width='100%';
+  const head=document.createElement('tr');
+  for(const v of ['#','Track title','Composer / work','Conductor / performers']){
+   const th=metadataElement('th',v);th.style.padding='6px';th.style.textAlign='left';head.append(th);
+  }table.append(head);
+  for(const track of result.tracks){
+   const tr=document.createElement('tr');
+   const names=(track.composers||[]).map(x=>x.name).join(', ')||'Not documented';
+   const works=(track.works||[]).map(x=>x.title).filter(Boolean).join(' / ')||'No work linked';
+   const roles=(track.performers||[]).map(x=>x.name+(x.role?' ('+x.role+')':'')).join(', ')||'Not documented';
+   for(const value of [track.number,track.tags.TITLE,names+' · '+works,roles]){
+    const td=metadataElement('td',value);td.style.padding='6px';
+    td.style.verticalAlign='top';td.style.borderBottom='1px solid #324253';tr.append(td);
+   }table.append(tr);
+  }output.append(table);
+  output.append(metadataElement('p',(result.warnings||[]).join(' ')));
+  const button=document.createElement('button');button.type='button';
+  button.textContent='I reviewed this release — create separate tagged copies';
+  button.onclick=async()=>{
+   if(!reviewedMetadata||reviewedMetadata.fingerprint!==result.fingerprint)return;
+   const confirmText='Create a NEW staging copy of '+result.track_count+' verified FLACs tagged as '+
+     result.album.title+' ('+result.release_id+')? This does not publish or modify originals.';
+   if(!confirm(confirmText))return;
+   const copyToken=prompt('OSCAR rip token to confirm creating tagged copies');
+   if(!copyToken)return;
+   button.disabled=true;
+   const status=metadataElement('p','Copying and validating tagged FLACs…');output.append(status);
+   try{
+    const response=await fetch('/api/rip/jobs/'+job+'/metadata/copy',{
+      method:'POST',headers:{'Content-Type':'application/json','X-OSCAR-RIP-TOKEN':copyToken},
+      body:JSON.stringify({release_id:release,fingerprint:result.fingerprint,
+                           confirmation:'COPY_TAGGED_TO_STAGING'})
+    });
+    if(!response.ok)throw new Error(await response.text());
+    const started=await response.json();
+    async function poll(){
+      const r=await fetch('/api/rip/jobs/'+job+'/metadata/copies/'+started.copy_id,
+                          {headers:{'X-OSCAR-RIP-TOKEN':copyToken}});
+      if(!r.ok)throw new Error(await r.text());
+      const task=await r.json();
+      if(task.status==='running'){
+       status.textContent='Tagging in progress; original FLACs remain unchanged…';
+       setTimeout(()=>poll().catch(e=>status.textContent=e.message),3000);
+      }else{
+       status.textContent=task.status+' · '+(task.count??'?')+' tagged FLAC copies'+
+        (task.error?' · '+task.error:'')+
+        ' · copy ID '+started.copy_id+'. No archive promotion.';
+      }
+    }await poll();
+   }catch(e){status.textContent='Tagged-copy request failed: '+e.message}
+   finally{button.disabled=false}
+  };
+  output.append(button);
+ }catch(e){output.textContent='Metadata preview failed: '+e.message}
+};
+
 document.getElementById('save').onclick=async()=>{
  const status=document.getElementById('status');settings.profile=document.getElementById('profile').value;
  settings.name_display=document.getElementById('name-display').value;
