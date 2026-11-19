@@ -455,3 +455,37 @@ def test_archive_publisher_ui_present():
     assert 'id="publish-preview"' in html
     assert 'id="publish-start"' in html
     assert 'id="publish-physical"' in html
+
+
+def test_publish_requires_explicit_acknowledgement_of_classical_work_gaps(publishable, monkeypatch):
+    plan = archive_publish.prepare(JOB, COPY, "original_tags", "classical")
+    # This two-track fixture uses one shared work with different titles.
+    assert plan["metadata_observations"]
+    with pytest.raises(archive_publish.PublishError, match="acknowledgement"):
+        archive_publish.start(JOB, COPY, "original_tags", "classical",
+                              plan["fingerprint"], "PUBLISH_REVIEWED_ARCHIVE")
+    with pytest.raises(archive_publish.PublishError, match="acknowledgement"):
+        archive_publish._do_publish(plan, "e" * 32,
+                                    allow_metadata_observations=False)
+
+
+def test_archive_root_refuses_staging_or_symlink(publishable, monkeypatch, tmp_path):
+    stage, _, archive, _ = publishable
+    monkeypatch.setenv("OSCAR_ARCHIVE_ROOT", str(stage))
+    with pytest.raises(archive_publish.PublishError, match="separate"):
+        archive_publish.archive_root()
+    symlink = tmp_path / "redirect"
+    symlink.symlink_to(archive, target_is_directory=True)
+    monkeypatch.setenv("OSCAR_ARCHIVE_ROOT", str(symlink))
+    with pytest.raises(archive_publish.PublishError, match="real"):
+        archive_publish.archive_root()
+
+
+def test_archive_path_refuses_symlinked_artist_parent(publishable):
+    _, _, archive, _ = publishable
+    plan = archive_publish.prepare(JOB, COPY, "original_tags", "standard")
+    artist = archive / Path(plan["relative_directory"]).parts[0]
+    artist.symlink_to(archive.parent, target_is_directory=True)
+    with pytest.raises(archive_publish.PublishError, match="Symlink"):
+        archive_publish._do_publish(plan, "f" * 32,
+                                    allow_metadata_observations=True)
