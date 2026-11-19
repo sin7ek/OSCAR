@@ -707,17 +707,17 @@ def collection_import_archives(request: Request,
 def collection_export(request: Request, format: str = "ods",
                       x_oscar_rip_token: str | None = Header(default=None)):
     from fastapi.responses import Response
-    from oscar.collection_catalog import CatalogError, export_csv, export_ods
+    from oscar.collection_catalog import CatalogError, export_csv, export_ods, export_xlsx
     _rip_auth(x_oscar_rip_token, request)
-    if format not in {"ods", "csv"}:
-        raise HTTPException(status_code=422, detail="Export must be ods or csv")
+    if format not in {"ods", "csv", "xlsx"}:
+        raise HTTPException(status_code=422, detail="Export must be ods, xlsx or csv")
     try:
-        body = export_ods() if format == "ods" else export_csv()
+        body = export_ods() if format == "ods" else export_xlsx() if format == "xlsx" else export_csv()
     except (CatalogError, OSError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return Response(content=body,
                     media_type=("application/vnd.oasis.opendocument.spreadsheet"
-                                if format == "ods" else "text/csv; charset=utf-8"),
+                                if format == "ods" else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" if format == "xlsx" else "text/csv; charset=utf-8"),
                     headers={"Content-Disposition": f'attachment; filename="oscar-collection.{format}"',
                              "Cache-Control": "no-store"})
 
