@@ -49,6 +49,7 @@ def parse_release_media(payload: dict, disc_id: str, track_count: int) -> dict:
             "tracks": [
                 {
                     "position": t.get("position"),
+                    "release_track_id": t.get("id"),
                     "number": t.get("number"),
                     "title": t.get("title") or (t.get("recording") or {}).get("title"),
                     "artist_credit": _artist_credit(t.get("artist-credit") or (t.get("recording") or {}).get("artist-credit", [])),
@@ -105,7 +106,7 @@ def lookup_release_medium(release_id: str, disc_id: str, track_count: int, opene
         raise mb.MusicBrainzError("Invalid track count")
     url = ("https://musicbrainz.org/ws/2/release/" +
            urllib.parse.quote(release_id, safe="") + "?" +
-           urllib.parse.urlencode({"inc": "recordings+artist-credits+discids+recording-level-rels+work-rels+work-level-rels+artist-rels", "fmt": "json"}))
+           urllib.parse.urlencode({"inc": "recordings+artist-credits+discids+labels+recording-level-rels+work-rels+work-level-rels+artist-rels", "fmt": "json"}))
     request = urllib.request.Request(url, headers={
         "User-Agent": mb._UA, "Accept": "application/json",
     })
