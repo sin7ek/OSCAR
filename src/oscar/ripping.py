@@ -190,7 +190,7 @@ def plan(stable_id):
             "warning": "Experimental extraction only; no verified archive or automatic cleanup"}
 
 
-def start(stable_id, *, runner=subprocess.run):
+def start(stable_id, *, runner=subprocess.run, on_created=None):
     information = plan(stable_id)
     root = staging_root()
     with _LOCK:
@@ -207,6 +207,11 @@ def start(stable_id, *, runner=subprocess.run):
                "disc_id": information["disc_id"], "status": "queued",
                "created_at": time.time()}
         _atomic_json(directory / "plan.json", information)
+        # Record durable workflow state before any extraction worker starts.
+        # A callback failure prevents cyanrip from starting; staging remains
+        # for examination and is never deleted automatically.
+        if on_created is not None:
+            on_created(_snapshot(job))
         _JOBS[job_id] = job
         worker = threading.Thread(target=_run,
                                   args=(job, information["device"],
