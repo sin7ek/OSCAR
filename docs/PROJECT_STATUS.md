@@ -6,6 +6,12 @@
 
 > **How to resume after a chat ends:** Read this document first, then `docs/ARCHITECTURE.md`, `README.md`, recent merged PRs and open PRs, and GitHub Actions for the branch under development. Do not infer that a successful CI run establishes real optical hardware functionality.
 
+## Discogs and OSCAR-owned collection catalog — design proposal (2026-11-19)
+
+**Design specification:** [DISCOGS_COLLECTION_CATALOG.md](DISCOGS_COLLECTION_CATALOG.md). User requested: Discogs metadata as secondary physical-edition evidence; optional post-archive Discogs collection entry with per-copy Media Condition, Sleeve Condition, Notes and Folder; OSCAR-managed sortable collection database exportable preferably to **ODS**, with CSV and optional XLSX. This is **not yet implemented**: no API auth, writes, persistent local catalog or spreadsheet exporter exists in OSCAR today.
+
+**Architecture decisions:** MusicBrainz remains authoritative for recording/work/classical relationships; Discogs supplements physical release evidence. Separate each physical copy from an album release, rip job, archived item and Discogs instance ID; use idempotent opt-in collection sync. Store OSCAR-owned facts in local SQLite; respect Discogs' distinction between CC0 release metadata and restricted user/marketplace/image data, attribution, caching/export and user privacy constraints. Archive evidence remains immutable and independent of the external sync.
+
 ## CURRENT STATE — authoritative update after PR #52 (2026-11-19)
 
 **Progress dashboard:** [PROGRESS.md](PROGRESS.md) records eight qualitative completion estimates, a Markdown table and a bar chart. Update it at each meaningful feature PR alongside this handoff; no silent percentage increases. Progress figures are editorial, not objective CI/engineering metrics.
