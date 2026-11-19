@@ -17,7 +17,7 @@
 
 - Keep existing `/config` and `/staging` volumes. Do not replace your production Portainer stack with `compose.preview.yml` or change staging storage.
 - Add a dedicated writable archive mount to the existing OSCAR container (choose and verify a real safe host directory **outside the source staging**). Example for a **separate, empty test destination**:
-  `/mnt/user/ai-workspace/oscar-archive-test:/archive` on the host/container. Do not map the existing music library writable in early tests.
+  `/mnt/user/oscar-archive-test:/archive` on the host/container. The example uses a **separate host share**, not a subdirectory inside the existing `/mnt/user/ai-workspace` staging share. Create/verify this empty host directory first. Do not map the existing music library writable in early tests.
 - Set `OSCAR_ARCHIVE_ROOT=/archive` and `OSCAR_ENABLE_ARCHIVE_PUBLISH=1` explicitly. Publishing remains disabled when the flag or mount is absent. Original ripping opt-in/token/trusted UI settings continue to govern authorization.
 - `/archive` must exist and be writable to OSCAR's container user; paths through symlinks are rejected. A lockfile `/archive/.oscar-publish.lock` serializes publication across cooperating OSCAR processes on that filesystem.
 - No implicit network access for cover images unless you separately check the artwork checkbox and approve the cover. No automatic cover artwork edit or embedding.
