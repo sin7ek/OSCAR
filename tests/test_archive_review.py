@@ -12,7 +12,7 @@ import urllib.error
 import pytest
 from fastapi.testclient import TestClient
 from mutagen.flac import FLAC
-from oscar import archive_review, ripping
+from oscar import archive_review, archive_publish, ripping, verification
 from oscar.api import app
 
 JOB="f41806152a614b1a9006b10456b9bbd4"
@@ -350,3 +350,142 @@ def test_processing_profile_selector_visible():
     html = TestClient(app).get("/").text
     assert 'id="review-profile"' in html
     assert "Automatic (recommended)" in html
+
+
+@pytest.fixture
+def publishable(staged, tmp_path, monkeypatch):
+    """Give existing FLAC staging fixture the full publish manifest evidence."""
+    original = staged / ("metadata-copy-" + COPY)
+    manifest_path = original / "metadata-manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    original_hashes = {}
+    for rel, entry in manifest["files"].items():
+        target = original / rel
+        entry["tagged_sha256"] = hashlib.sha256(target.read_bytes()).hexdigest()
+        entry["audio_streaminfo_md5"] = (
+            archive_publish._streaminfo_md5_hex(FLAC(str(target)).info.md5_signature)
+        )
+        original_hashes[rel] = entry["tagged_sha256"]
+    manifest_path.write_text(json.dumps(manifest))
+    archive = tmp_path / "separate-archive"
+    archive.mkdir()
+    monkeypatch.setenv("OSCAR_ARCHIVE_ROOT", str(archive))
+    monkeypatch.setattr(verification, "report",
+                        lambda job: {"status": "checks_passed", "job_id": job})
+    return staged, original, archive, original_hashes
+
+
+def test_safe_publisher_writes_verified_new_files_and_preserves_original(publishable):
+    job, original, archive, before = publishable
+    original_cue = (job / "audio" / "original.cue").read_bytes()
+    plan = archive_publish.prepare(JOB, COPY, "original_tags", profile="standard")
+    assert plan["tracks"][0]["filename"] == "01 - Air.flac"
+    assert not plan["output_exists"]
+    assert plan["profile"] == "standard"
+    assert plan["include_cover"] is False
+    published = archive_publish._do_publish(
+        plan, "b" * 32, allow_metadata_observations=True)
+    assert published["status"] == "published_verified"
+    assert published["file_count"] == 2
+    destination = archive / published["relative_directory"]
+    assert (destination / "album.cue").is_file()
+    assert (destination / "manifest.json").is_file()
+    assert (destination / "SOURCES.txt").is_file()
+    assert 'FILE "01 - Air.flac" WAVE' in (destination / "album.cue").read_text()
+    assert 'FILE "02 - Aria.flac" WAVE' in (destination / "album.cue").read_text()
+    assert (job / "audio" / "original.cue").read_bytes() == original_cue
+    for rel, sha in before.items():
+        assert hashlib.sha256((original / rel).read_bytes()).hexdigest() == sha
+    evidence = json.loads((destination / "manifest.json").read_text())
+    assert evidence["cue"]["original_indexes_preserved_as_reported"]
+    assert evidence["source_preview_fingerprint"] == "f" * 64
+    assert evidence["files"][0]["sha256"] == before["audio/01 - Unknown track.flac"]
+    with pytest.raises(archive_publish.PublishError, match="exists"):
+        archive_publish._do_publish(plan, "c" * 32,
+                                    allow_metadata_observations=True)
+
+
+def test_publish_without_review_confirmation_rejected(publishable):
+    plan = archive_publish.prepare(JOB, COPY, "original_tags", profile="standard")
+    with pytest.raises(archive_publish.PublishError, match="confirmation"):
+        archive_publish.start(JOB, COPY, "original_tags", "standard",
+                              plan["fingerprint"], "NO")
+    with pytest.raises(archive_publish.PublishError, match="cover"):
+        archive_publish.start(JOB, COPY, "original_tags", "standard",
+                              plan["fingerprint"], "PUBLISH_REVIEWED_ARCHIVE",
+                              include_cover=True)
+    with pytest.raises(archive_publish.PublishError, match="preview changed"):
+        archive_publish.start(JOB, COPY, "original_tags", "standard",
+                              "0" * 64, "PUBLISH_REVIEWED_ARCHIVE")
+
+
+def test_publish_blocked_if_tagged_copy_has_changed(publishable):
+    _, copy, _, _ = publishable
+    plan = archive_publish.prepare(JOB, COPY, "original_tags", "standard")
+    source = copy / "audio" / "01 - Unknown track.flac"
+    obj = FLAC(str(source))
+    obj["COMMENT"] = ["changed unexpectedly"]
+    obj.save()
+    with pytest.raises(archive_publish.PublishError, match="hash changed"):
+        archive_publish._do_publish(plan, "d" * 32, allow_metadata_observations=True)
+
+
+def test_publication_api_requires_independent_opt_in(publishable, monkeypatch):
+    monkeypatch.setenv("OSCAR_ENABLE_RIPPING", "1")
+    monkeypatch.setenv("OSCAR_RIP_TOKEN", TOKEN)
+    monkeypatch.delenv("OSCAR_TRUSTED_LOCAL_UI", raising=False)
+    monkeypatch.delenv("OSCAR_ENABLE_ARCHIVE_PUBLISH", raising=False)
+    response = TestClient(app).post(
+        f"/api/rip/jobs/{JOB}/archive-publish/preview",
+        headers={"X-OSCAR-RIP-TOKEN": TOKEN},
+        json={"copy_id": COPY, "kind": "original_tags", "profile": "standard"})
+    assert response.status_code == 403
+    monkeypatch.setenv("OSCAR_ENABLE_ARCHIVE_PUBLISH", "1")
+    response = TestClient(app).post(
+        f"/api/rip/jobs/{JOB}/archive-publish/preview",
+        headers={"X-OSCAR-RIP-TOKEN": TOKEN},
+        json={"copy_id": COPY, "kind": "original_tags", "profile": "standard"})
+    assert response.status_code == 200, response.text
+    assert response.json()["tracks"][0]["filename"] == "01 - Air.flac"
+
+
+def test_archive_publisher_ui_present():
+    html = TestClient(app).get("/").text
+    assert "Publish verified FLAC archive (explicit opt-in)" in html
+    assert 'id="publish-preview"' in html
+    assert 'id="publish-start"' in html
+    assert 'id="publish-physical"' in html
+
+
+def test_publish_requires_explicit_acknowledgement_of_classical_work_gaps(publishable, monkeypatch):
+    plan = archive_publish.prepare(JOB, COPY, "original_tags", "classical")
+    # This two-track fixture uses one shared work with different titles.
+    assert plan["metadata_observations"]
+    with pytest.raises(archive_publish.PublishError, match="acknowledgement"):
+        archive_publish.start(JOB, COPY, "original_tags", "classical",
+                              plan["fingerprint"], "PUBLISH_REVIEWED_ARCHIVE")
+    with pytest.raises(archive_publish.PublishError, match="acknowledgement"):
+        archive_publish._do_publish(plan, "e" * 32,
+                                    allow_metadata_observations=False)
+
+
+def test_archive_root_refuses_staging_or_symlink(publishable, monkeypatch, tmp_path):
+    stage, _, archive, _ = publishable
+    monkeypatch.setenv("OSCAR_ARCHIVE_ROOT", str(stage))
+    with pytest.raises(archive_publish.PublishError, match="separate"):
+        archive_publish.archive_root()
+    symlink = tmp_path / "redirect"
+    symlink.symlink_to(archive, target_is_directory=True)
+    monkeypatch.setenv("OSCAR_ARCHIVE_ROOT", str(symlink))
+    with pytest.raises(archive_publish.PublishError, match="real"):
+        archive_publish.archive_root()
+
+
+def test_archive_path_refuses_symlinked_artist_parent(publishable):
+    _, _, archive, _ = publishable
+    plan = archive_publish.prepare(JOB, COPY, "original_tags", "standard")
+    artist = archive / Path(plan["relative_directory"]).parts[0]
+    artist.symlink_to(archive.parent, target_is_directory=True)
+    with pytest.raises(archive_publish.PublishError, match="Symlink"):
+        archive_publish._do_publish(plan, "f" * 32,
+                                    allow_metadata_observations=True)

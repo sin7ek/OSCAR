@@ -125,6 +125,32 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 <p>OSCAR chooses its processing policy from verified metadata, not a guessed music genre. You can override this read-only review if the automatic decision is unsuitable.</p>
 <button type="button" id="review-start">Review metadata, artwork &amp; CUE</button>
 <div id="review-output" aria-live="polite"></div></section>
+<section><h2>Publish verified FLAC archive (explicit opt-in)</h2>
+<p>Create a completely separate album folder from an existing, successfully verified tagged staging copy. Original rip, tagged FLACs, original CUE and logs remain unchanged. Publication needs a dedicated writable archive mount, `OSCAR_ARCHIVE_ROOT`, and `OSCAR_ENABLE_ARCHIVE_PUBLISH=1`; disabled by default. Only a fully reviewed physical release should be published.</p>
+<label for="publish-job">Original verified rip job ID</label><input id="publish-job" maxlength="32" style="width:340px;max-width:95%">
+<label for="publish-copy">Completed tagged-copy ID</label><input id="publish-copy" maxlength="32" style="width:340px;max-width:95%">
+<label for="publish-kind">Tagging copy type</label><select id="publish-kind">
+<option value="original_tags">Original MusicBrainz tagged copy (pop / dance)</option>
+<option value="classical_v2">Classical v2 tagged copy</option>
+</select>
+<label for="publish-profile">Metadata/CUE processing</label><select id="publish-profile">
+<option value="auto">Automatic from verified credits (recommended)</option>
+<option value="standard">Standard (pop / rock / dance)</option>
+<option value="classical">Classical (conductor / ensemble / soloist)</option>
+</select>
+<label><input type="checkbox" id="publish-cover"> Include reviewed Cover Art Archive front image (separate cover file, not embedded)</label>
+<button type="button" id="publish-preview">Preview proposed archive (read-only)</button>
+<div id="publish-plan" aria-live="polite"></div>
+<div id="publish-confirmation" hidden>
+<label><input type="checkbox" id="publish-physical"> I checked this exact physical MusicBrainz edition and tracklist against my CD.</label>
+<label><input type="checkbox" id="publish-cue-approved"> I reviewed the proposed track filenames and the CUE, including source INDEX/PREGAP.</label>
+<label id="publish-observation-label" hidden><input type="checkbox" id="publish-observations"> I reviewed and accept the listed unresolved metadata observations without claiming they are corrected.</label>
+<label id="publish-cover-label" hidden><input type="checkbox" id="publish-cover-approved"> I compared the shown Cover Art Archive candidate with my physical CD and accept this particular image, including any sticker differences.</label>
+<button type="button" id="publish-start">Publish reviewed copies to separate archive</button>
+</div>
+<div id="publish-result" aria-live="polite"></div>
+<p>This never automatically approves a MusicBrainz match or deletes staging files. Publication status runs asynchronously while OSCAR stays online. Repeated publication refuses an existing destination; interrupted hidden staging copies are retained for inspection.</p>
+</section>
 <section><h2>Parallel optical drives</h2>
 <p>Different enabled drives may rip simultaneously. Each has its own staging job and log. Drive count and available capacity are shown here; there is no persistent background queue or auto-eject yet.</p>
 <button type="button" id="multi-refresh">Refresh drive dashboard</button>
@@ -1058,6 +1084,108 @@ function reviewCard(title,bodyText){
  const text=document.createElement('p');text.textContent=bodyText;
  box.append(heading,text);return box;
 }
+let reviewedArchivePlan=null;
+document.getElementById('publish-preview').onclick=async()=>{
+ reviewedArchivePlan=null;
+ const plan=document.getElementById('publish-plan');plan.replaceChildren();
+ const result=document.getElementById('publish-result');result.replaceChildren();
+ document.getElementById('publish-confirmation').hidden=true;
+ const job=document.getElementById('publish-job').value.trim().toLowerCase();
+ const copy=document.getElementById('publish-copy').value.trim().toLowerCase();
+ const kind=document.getElementById('publish-kind').value;
+ const profile=document.getElementById('publish-profile').value;
+ const includeCover=document.getElementById('publish-cover').checked;
+ if(!/^[a-f0-9]{32}$/.test(job)||!/^[a-f0-9]{32}$/.test(copy)){
+  plan.textContent='Enter the completed rip job ID and tagged copy ID.';return
+ }
+ const headers=requestAuthHeaders('Preview archive publication');if(!headers)return;
+ plan.textContent='Checking saved verification, tags, naming, CUE and target directory…';
+ try{
+  const r=await fetch('/api/rip/jobs/'+job+'/archive-publish/preview',{
+   method:'POST',headers:{'Content-Type':'application/json',...headers},
+   body:JSON.stringify({copy_id:copy,kind,profile,include_cover:includeCover})
+  });
+  const data=await r.json();
+  if(!r.ok)throw Error(typeof data.detail==='string'?data.detail:'Preview failed');
+  reviewedArchivePlan={...data,headers,job,copy,kind,profile,includeCover};
+  plan.replaceChildren();
+  const heading=document.createElement('h3');heading.textContent='Destination: '+data.relative_directory;plan.append(heading);
+  const info=document.createElement('p');info.textContent=data.tracks.length+
+   ' FLAC files · Disc '+data.disc_number+'/'+data.disc_total+
+   ' · Processing '+data.profile+' · '+data.metadata_observations.length+' metadata observations'+
+   (data.output_exists?' · DESTINATION ALREADY EXISTS':'');
+  plan.append(info);
+  if(includeCover){
+   const coverNote=document.createElement('p');
+   coverNote.textContent='Exact-release cover candidate; compare against the physical booklet/box, including removable stickers:';
+   plan.append(coverNote);
+   const img=document.createElement('img');
+   img.className='oscar-review-cover';
+   img.src='https://coverartarchive.org/release/'+encodeURIComponent(data.release_id)+'/front-250';
+   img.alt='MusicBrainz physical release cover candidate; requires human confirmation';
+   plan.append(img);
+  }
+  const output=document.createElement('pre');output.className='oscar-review-card';
+  output.style.whiteSpace='pre-wrap';output.style.maxHeight='360px';output.style.overflow='auto';
+  output.textContent=data.tracks.map(t=>t.filename).join('\n');plan.append(output);
+  const cue=document.createElement('details');
+  const summary=document.createElement('summary');summary.textContent='Inspect full proposed album.cue';cue.append(summary);
+  const preview=document.createElement('pre');preview.textContent=data.cue;
+  preview.style.whiteSpace='pre-wrap';preview.style.overflow='auto';cue.append(preview);plan.append(cue);
+  for(const finding of data.metadata_observations){
+   const p=document.createElement('p');p.textContent='Review: '+finding.code+' (tracks '+finding.tracks.join(', ')+') — '+finding.message;plan.append(p);
+  }
+  for(const id of ['publish-physical','publish-cue-approved','publish-observations','publish-cover-approved']){
+   document.getElementById(id).checked=false;
+  }
+  document.getElementById('publish-observation-label').hidden=data.metadata_observations.length===0;
+  document.getElementById('publish-cover-label').hidden=!includeCover;
+  document.getElementById('publish-confirmation').hidden=!!data.output_exists;
+ }catch(error){reviewedArchivePlan=null;plan.textContent='Archive preview unavailable: '+error.message}
+};
+document.getElementById('publish-start').onclick=async()=>{
+ const state=reviewedArchivePlan,output=document.getElementById('publish-result');
+ if(!state){output.textContent='Preview the archive first.';return}
+ const physical=document.getElementById('publish-physical').checked;
+ const cue=document.getElementById('publish-cue-approved').checked;
+ const observations=document.getElementById('publish-observations').checked;
+ const cover=document.getElementById('publish-cover-approved').checked;
+ if(!physical||!cue||(state.metadata_observations.length&&!observations)||(state.includeCover&&!cover)){
+  output.textContent='Please review and confirm the physical edition, filenames/CUE, metadata observations and optional cover first.';return
+ }
+ if(!window.confirm('Publish '+state.tracks.length+' copied FLACs to '+state.relative_directory+'? This creates a new archive folder without modifying originals.'))return;
+ const startButton=document.getElementById('publish-start');startButton.disabled=true;
+ output.textContent='Publishing verified copies in a separate archive folder…';
+ try{
+  const response=await fetch('/api/rip/jobs/'+state.job+'/archive-publish/start',{
+   method:'POST',headers:{'Content-Type':'application/json',...state.headers},
+   body:JSON.stringify({copy_id:state.copy,kind:state.kind,profile:state.profile,
+    include_cover:state.includeCover,approve_cover:cover,
+    acknowledge_metadata_observations:observations,
+    fingerprint:state.fingerprint,confirmation:'PUBLISH_REVIEWED_ARCHIVE'})
+  });
+  const started=await response.json();
+  if(!response.ok)throw Error(typeof started.detail==='string'?started.detail:'Publish refused');
+  const poll=async()=>{
+   const r=await fetch('/api/rip/jobs/'+state.job+'/archive-publish/'+started.publish_id,
+    {headers:state.headers});
+   if(!r.ok)throw Error(await r.text());
+   const data=await r.json();
+   if(data.status==='running'){
+    output.textContent='Archive publication '+started.publish_id+': running; no source files are modified.';
+    setTimeout(async()=>{try{await poll()}catch(e){output.textContent='Status lookup failed: '+e.message}},3000);
+   }else if(data.status==='published_verified'){
+    output.textContent='Archive published and verified: '+data.relative_directory+
+      ' · '+data.file_count+' FLACs · Original staging preserved. Manifest SHA-256: '+data.manifest_sha256;
+    document.getElementById('publish-confirmation').hidden=true;
+   }else output.textContent='Publication failed: '+(data.error||'Unknown error')+
+      '. Original rip and tags were preserved. Inspect partial hidden folder before attempting again.';
+  };
+  await poll();
+ }catch(error){output.textContent='Archive publication could not start: '+error.message}
+ finally{startButton.disabled=false}
+};
+
 document.getElementById('review-start').onclick=async()=>{
  const job=document.getElementById('review-job').value.trim().toLowerCase();
  const copy=document.getElementById('review-copy').value.trim().toLowerCase();

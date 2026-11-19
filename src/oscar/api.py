@@ -598,6 +598,74 @@ def get_archive_review(job_id: str, copy_id: str, request: Request,
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
+
+class ArchivePublishPreviewRequest(BaseModel):
+    copy_id: str = Field(min_length=32, max_length=32)
+    kind: str = "original_tags"
+    profile: str = "auto"
+    include_cover: bool = False
+
+
+class ArchivePublishRequest(ArchivePublishPreviewRequest):
+    fingerprint: str = Field(min_length=64, max_length=64)
+    confirmation: str
+    acknowledge_metadata_observations: bool = False
+    approve_cover: bool = False
+
+
+def _archive_publish_enabled():
+    if os.environ.get("OSCAR_ENABLE_ARCHIVE_PUBLISH") != "1":
+        raise HTTPException(status_code=403, detail="Archive publication disabled; configure dedicated archive mount and opt-in flag")
+
+
+@app.post("/api/rip/jobs/{job_id}/archive-publish/preview")
+def preview_archive_publish(job_id: str, body: ArchivePublishPreviewRequest,
+                            request: Request,
+                            x_oscar_rip_token: str | None = Header(default=None)):
+    """Prepare archive publication plan without writing any files."""
+    from oscar.archive_publish import PublishError, prepare
+    from oscar.archive_review import ReviewError
+    from oscar.ripping import RipError
+    _rip_auth(x_oscar_rip_token, request)
+    _archive_publish_enabled()
+    try:
+        return prepare(job_id, body.copy_id, body.kind, body.profile,
+                       include_cover=body.include_cover)
+    except (PublishError, ReviewError, RipError, OSError, ValueError, KeyError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/rip/jobs/{job_id}/archive-publish/start")
+def start_archive_publish(job_id: str, body: ArchivePublishRequest,
+                          request: Request,
+                          x_oscar_rip_token: str | None = Header(default=None)):
+    """Explicit, fingerprinted archive-copy operation (no source modifications)."""
+    from oscar.archive_publish import PublishError, start
+    from oscar.archive_review import ReviewError
+    from oscar.ripping import RipError
+    _rip_auth(x_oscar_rip_token, request)
+    _archive_publish_enabled()
+    try:
+        return start(job_id, body.copy_id, body.kind, body.profile,
+                     body.fingerprint, body.confirmation,
+                     acknowledge_observations=body.acknowledge_metadata_observations,
+                     include_cover=body.include_cover, approve_cover=body.approve_cover)
+    except (PublishError, ReviewError, RipError, OSError, ValueError, KeyError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.get("/api/rip/jobs/{job_id}/archive-publish/{publish_id}")
+def get_archive_publish_status(job_id: str, publish_id: str, request: Request,
+                               x_oscar_rip_token: str | None = Header(default=None)):
+    from oscar.archive_publish import PublishError, status
+    _rip_auth(x_oscar_rip_token, request)
+    _archive_publish_enabled()
+    try:
+        return status(job_id, publish_id)
+    except PublishError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @app.get("/api/rip/dashboard")
 def rip_drives_dashboard(request: Request, x_oscar_rip_token: str | None = Header(default=None)):
     """Observe active/idle optical drives; read-only and never starts a rip."""
