@@ -182,7 +182,7 @@ def _documented_cue_performer(track):
     # But do not put the composer's name into PERFORMER on a classical track.
     composer = track.get("composer") or []
     artist = (track.get("artist") or "").strip()
-    if composer and artist and any(artist.casefold() == str(c).casefold() for c in composer):
+    if composer or track.get("work_ids"):
         return None
     return artist or None
 
