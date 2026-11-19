@@ -123,6 +123,35 @@ class FakeFLAC:
             stream.write(b"[tags-saved]")
 
 
+class FakeFLACInteger(FakeFLAC):
+    """Match Mutagen's real STREAMINFO MD5 representation: an integer."""
+    def __init__(self, path):
+        super().__init__(path)
+        self.info.md5_signature = int.from_bytes(bytes.fromhex("a1" * 16), "big")
+
+
+def test_streaminfo_md5_mutagen_integer_and_leading_zeros():
+    assert metadata._streaminfo_md5_hex(int("a1" * 16, 16)) == "a1" * 16
+    assert metadata._streaminfo_md5_hex(1) == "0" * 31 + "1"
+    assert metadata._streaminfo_md5_hex(bytes.fromhex("a1" * 16)) == "a1" * 16
+    with pytest.raises(metadata.MetadataError):
+        metadata._streaminfo_md5_hex(-1)
+    with pytest.raises(metadata.MetadataError):
+        metadata._streaminfo_md5_hex(1 << 128)
+
+
+def test_tagged_copy_with_actual_mutagen_integer_md5_representation(setup):
+    original = {p.name: p.read_bytes() for p in (setup / "audio").iterdir()}
+    plan = metadata.preview(JOB, RELEASE, lookup=lookup)
+    output = metadata._tagged_copy(
+        JOB, RELEASE, plan["fingerprint"], "d" * 32,
+        lookup=lookup, flac_factory=FakeFLACInteger, runner=fake_runner)
+    assert output["status"] == "tagged_copy_ready_for_review"
+    assert len(output["files"]) == 2
+    assert {v["audio_streaminfo_md5"] for v in output["files"].values()} == {"a1" * 16}
+    assert original == {p.name: p.read_bytes() for p in (setup / "audio").iterdir()}
+
+
 def fake_runner(args,**kwargs):
     assert args[:3] == ["flac","-t","--silent"]
     return SimpleNamespace(returncode=0)
