@@ -65,14 +65,15 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 <button type="button" id="collection-import">Import published archive records</button>
 <button type="button" id="collection-refresh">Refresh collection</button>
 <label for="collection-search">Find in collection</label>
-<input id="collection-search" placeholder="Artist, album or catalog number" maxlength="150" style="width:350px;max-width:90%">
+<input id="collection-search" placeholder="Artist, album, label, composer, conductor or soloist" maxlength="150" style="width:350px;max-width:90%">
 <label for="collection-sort">Sort collection</label>
 <select id="collection-sort">
 <option value="artist">Artist</option><option value="title">Album title</option>
 <option value="year">Year</option><option value="catalog_number">Catalog number</option>
-<option value="archive_status">Archive status</option>
+<option value="archive_status">Archive status</option><option value="label">Record label</option><option value="composer">Composer</option><option value="conductor">Conductor</option><option value="orchestra">Orchestra</option><option value="soloists">Soloists</option>
 </select>
 <button type="button" id="collection-ods">Export OpenDocument (.ods)</button>
+<button type="button" id="collection-xlsx">Export Excel-compatible (.xlsx)</button>
 <button type="button" id="collection-csv">Export CSV</button>
 <div id="collection-result" aria-live="polite"></div>
 <h3>Discogs connection (read-only)</h3>
@@ -1423,13 +1424,13 @@ async function fetchLocalCollection(){
   out.append(summary);
   const table=document.createElement('table');table.style.width='100%';
   const head=document.createElement('tr');
-  for(const label of ['Artist','Album','Year','Catalog','Tracks','Status']){
+  for(const label of ['Artist','Album','Year','Record label','Catalog','Composer','Conductor','Soloists','Tracks','Status']){
     const th=document.createElement('th');th.textContent=label;head.append(th);
   }
   table.append(head);
   for(const item of data.items){
     const row=document.createElement('tr');
-    for(const value of [item.artist,item.title,item.year,item.catalog_number,item.track_count,item.archive_status]){
+    for(const value of [item.artist,item.title,item.year,item.label,item.catalog_number,item.composer,item.conductor,item.soloists,item.track_count,item.archive_status]){
       const td=document.createElement('td');td.textContent=String(value);td.style.padding='5px';
       row.append(td);
     }
@@ -1468,6 +1469,7 @@ async function downloadCatalog(format){
  }catch(error){out.textContent='Export failed: '+error.message}
 }
 document.getElementById('collection-ods').onclick=()=>downloadCatalog('ods');
+document.getElementById('collection-xlsx').onclick=()=>downloadCatalog('xlsx');
 document.getElementById('collection-csv').onclick=()=>downloadCatalog('csv');
 document.getElementById('discogs-check').onclick=async()=>{
  const out=document.getElementById('discogs-result');
