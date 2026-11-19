@@ -45,10 +45,9 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 <label for="v2-job">Rip job ID</label><input id="v2-job" maxlength="32" style="width:340px;max-width:90%">
 <label for="v2-source">Completed tagged-copy ID</label><input id="v2-source" maxlength="32" style="width:340px;max-width:90%">
 <label for="v2-sections">Reviewed physical-CD sections (one per line: start-end | section title)</label>
-<textarea id="v2-sections" rows="4" style="width:95%;background:#0c131b;color:white;border:1px solid #516376;border-radius:8px;padding:9px">1-12 | Water Music — Suite I (as issued)
-13-22 | Water Music — Suite II (as issued)
-23-28 | Music for the Royal Fireworks</textarea>
-<p>This is a suggested layout for the first Händel CD; check the physical booklet before approving. Nothing is inferred from the HWV number.</p>
+<textarea id="v2-sections" rows="4" style="width:95%;background:#0c131b;color:white;border:1px solid #516376;border-radius:8px;padding:9px" placeholder="1-12 | Physical CD section I&#10;13-22 | Physical CD section II&#10;23-28 | Physical CD section III"></textarea>
+<button id="v2-handel-example" type="button">Fill example for first Handel CD</button>
+<p>Example sections are operator suggestions, not MusicBrainz work divisions. Check your physical booklet before previewing and approving.</p>
 <label for="v2-movements">Optional manually reviewed movement labels (one per line: track number | movement text; leave blank to preserve unknown)</label>
 <textarea id="v2-movements" rows="2" style="width:95%;background:#0c131b;color:white;border:1px solid #516376;border-radius:8px;padding:9px"></textarea>
 <button id="v2-preview" type="button">Preview classical v2 tags</button>
@@ -664,6 +663,12 @@ document.getElementById('inspect-start').onclick=async()=>{
 
 
 let v2Current=null;
+document.getElementById('v2-handel-example').onclick=()=>{
+ document.getElementById('v2-job').value='f41806152a614b1a9006b10456b9bbd4';
+ document.getElementById('v2-source').value='3ac951bdd5b74ad8b484aaea955eb757';
+ document.getElementById('v2-sections').value='1-12 | Water Music — Suite I (as issued)\\n13-22 | Water Music — Suite II (as issued)\\n23-28 | Music for the Royal Fireworks'.replaceAll('\\n','\n');
+};
+
 function parseV2Lines(value,isMovement){
  const result=isMovement?{}:[];
  for(const raw of value.split(/\r?\n/)){
