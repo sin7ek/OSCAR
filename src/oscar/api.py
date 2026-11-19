@@ -769,3 +769,52 @@ def collection_enrich_labels(request: Request,
         return backfill_labels()
     except (LabelEnrichmentError, MusicBrainzError, OSError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+class WorkflowReviewAction(BaseModel):
+    action: str = Field(pattern=r"^(defer|resume)$")
+
+
+@app.post("/api/workflow/jobs/{job_id}/register")
+def workflow_register(job_id: str, request: Request,
+                      x_oscar_rip_token: str | None = Header(default=None)):
+    from oscar.workflow_ledger import WorkflowError, register
+    from oscar.ripping import RipError
+    _rip_auth(x_oscar_rip_token,request)
+    try:
+        return register(job_id)
+    except (WorkflowError, RipError, OSError, ValueError) as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.post("/api/workflow/jobs/{job_id}/refresh")
+def workflow_refresh(job_id: str, request: Request,
+                     x_oscar_rip_token: str | None = Header(default=None)):
+    from oscar.workflow_ledger import WorkflowError, refresh
+    from oscar.ripping import RipError
+    _rip_auth(x_oscar_rip_token,request)
+    try:
+        return refresh(job_id)
+    except (WorkflowError, RipError, OSError, ValueError) as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.post("/api/workflow/jobs/{job_id}/review")
+def workflow_review(job_id: str, body: WorkflowReviewAction, request: Request,
+                    x_oscar_rip_token: str | None = Header(default=None)):
+    from oscar.workflow_ledger import WorkflowError, review_action
+    _rip_auth(x_oscar_rip_token,request)
+    try:
+        return review_action(job_id,body.action)
+    except (WorkflowError, OSError, ValueError) as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.get("/api/workflow/jobs")
+def workflow_jobs(request: Request, x_oscar_rip_token: str | None = Header(default=None)):
+    from oscar.workflow_ledger import WorkflowError, list_jobs
+    _rip_auth(x_oscar_rip_token,request)
+    try:
+        return list_jobs()
+    except (WorkflowError, OSError, ValueError) as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
