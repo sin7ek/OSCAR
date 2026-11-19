@@ -820,6 +820,29 @@ def workflow_jobs(request: Request, x_oscar_rip_token: str | None = Header(defau
         raise HTTPException(status_code=409,detail=str(exc)) from exc
 
 
+class GoSemiReleaseApproval(BaseModel):
+    release_id: str = Field(min_length=36, max_length=36)
+    confirmation: str
+
+
+@app.post("/api/go/jobs/{job_id}/accept-release")
+def go_accept_semi_release(job_id: str, body: GoSemiReleaseApproval,
+                           request: Request,
+                           x_oscar_rip_token: str | None = Header(default=None)):
+    """Operator accepts exactly one previously discovered inferred release.
+
+    This endpoint does NOT approve a physical pressing, generate tags or
+    publish an archive. Only tracked Semi Automatic jobs can use it.
+    """
+    from oscar.workflow_ledger import WorkflowError, accept_semi_release
+    from oscar.ripping import RipError
+    _rip_auth(x_oscar_rip_token, request)
+    try:
+        return accept_semi_release(job_id, body.release_id, body.confirmation)
+    except (WorkflowError, RipError, OSError, ValueError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
 @app.post("/api/go/start")
 def go_start(request: RipRequest, http_request: Request,
              x_oscar_rip_token: str | None = Header(default=None)):

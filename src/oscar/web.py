@@ -41,17 +41,19 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 <label for="profile">Default profile</label><select id="profile"><option value="archival">Archival / collectors</option><option value="classical">Classical / works &amp; performers</option></select>
 <p>Profile selection is stored for future processing. Neither profile starts a rip.</p></section>
 <section><h2>Release identification &amp; automation policy</h2>
-<p>Choose how OSCAR should eventually resolve release identity. These preferences are saved now, but <strong>the fully automatic tagging/publishing engine is not implemented yet</strong>. Both modes use the same strict rip/audio verification.</p>
+<p>Choose how OSCAR should eventually resolve release identity. These preferences are saved now, but <strong>the fully automatic tagging/publishing engine is not implemented yet</strong>. All three modes use the same strict rip/audio verification.</p>
 <label for="identification-mode">Identification mode</label>
 <select id="identification-mode">
 <option value="secure">Secure — evidence-first (default)</option>
+<option value="semi_automatic">Semi Secure — Semi Automatic (release approval required)</option>
 <option value="best_guess">Best Guess — Full Automatic (planned)</option>
 </select>
 <div id="best-guess-note" class="oscar-review-note" hidden>Best Guess deliberately accepts the risk of choosing the wrong physical pressing. It will label release identification as inferred, never physically verified. If no credible candidate exists, it must preserve the verified rip for review. Automatic tagging/archiving is not enabled yet.</div>
+<div id="semi-automatic-note" class="oscar-review-note" hidden>Semi Automatic rips and verifies, then lets you explicitly accept a proposed MusicBrainz release, or defer the verified rip. Accepting an inferred candidate does not physically verify your CD. Tagging and archive publication are still manual, separate, and not enabled through Go.</div>
 <div id="secure-review-options">
 <label for="secure-review-level">Secure Mode: level of human review</label>
 <select id="secure-review-level">
-<option value="on_ambiguity">Semi Automatic — interrupt only for insufficient or conflicting evidence</option>
+<option value="on_ambiguity">Review on ambiguity — require physical evidence when uncertain</option>
 <option value="before_archive">Review before archive — approve final edition and archive preview</option>
 <option value="every_step">Full Manual — explicitly review each workflow transition</option>
 </select>
@@ -97,7 +99,7 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 <div id="discogs-result" aria-live="polite"></div>
 </section>
 <section><h2>Go! · tracked CD ripping (phase 1)</h2>
-<p>Start a new rip and persist your saved Best Guess or Secure policy before extraction. Verification automatically starts after ripping. The controller checks MusicBrainz candidates only after verified audio. <strong>Automatic tagging, physical edition approval and archive publication are not enabled yet.</strong></p>
+<p>Start a new rip and persist your saved Best Guess, Semi Automatic or Secure policy before extraction. Verification automatically starts after ripping. The controller checks MusicBrainz candidates only after verified audio. <strong>Automatic tagging, physical edition approval and archive publication are not enabled yet.</strong></p>
 <label for="go-drive">Enabled optical drive</label><select id="go-drive"></select>
 <button type="button" id="go-start">Go! — rip to verified staging</button>
 <label for="go-job">Go job ID</label>
@@ -1614,8 +1616,8 @@ async function goAdvance(){
   explanation.textContent=data.message||state.next_action||'Review needed';output.append(explanation);
   if(data.release_id){
    const selected=document.createElement('p');
-   selected.textContent='Proposed MusicBrainz release '+data.release_id+
-    ' · INFERRED, NOT physically verified';output.append(selected);
+   selected.textContent=(data.action==='semi_release_accepted'?'Operator accepted release ':'Proposed MusicBrainz release ')+data.release_id+
+    ' · '+(data.release_match_status||'INFERRED, NOT physically verified');output.append(selected);
   }
   for(const item of data.candidates||[]){
    const link=document.createElement('a');
@@ -1624,6 +1626,55 @@ async function goAdvance(){
     ' · '+(item.labels||[]).map(x=>x.catalog_number||'').filter(Boolean).join(', ');
    link.target='_blank';link.rel='noopener noreferrer';
    const row=document.createElement('p');row.append(link);output.append(row);
+  }
+  if(data.action==='semi_release_review'){
+   const label=document.createElement('label');
+   label.textContent='Review the MusicBrainz candidate (this is NOT physical-edition verification)';
+   label.htmlFor='go-semi-candidate';output.append(label);
+   const select=document.createElement('select');select.id='go-semi-candidate';
+   for(const candidate of data.candidates||[]){
+    const option=document.createElement('option');
+    option.value=candidate.release_id;
+    option.textContent=(candidate.title||candidate.release_id)+' · '+candidate.release_id;
+    select.append(option);
+   }
+   select.value=data.release_id||'';
+   output.append(select);
+   const accept=document.createElement('button');accept.type='button';
+   accept.textContent='Accept selected INFERRED release (no tags or publication)';
+   accept.onclick=async()=>{
+    const release_id=select.value;
+    if(!release_id||!window.confirm(
+     'Accept this MusicBrainz release as INFERRED for this verified rip? '+
+     'It may be a different physical edition. No tags or archive will be written.'))return;
+    const headers=requestAuthHeaders('Accept inferred Semi Automatic release');
+    if(!headers)return;
+    try{
+     const response=await fetch('/api/go/jobs/'+id+'/accept-release',{
+      method:'POST',headers:{'Content-Type':'application/json',...headers},
+      body:JSON.stringify({release_id,confirmation:'ACCEPT_INFERRED_RELEASE'})
+     });
+     const result=await response.json();
+     if(!response.ok)throw new Error(result.detail||'Approval rejected');
+     await goAdvance();
+    }catch(error){const p=document.createElement('p');p.textContent='Approval stopped: '+error.message;output.append(p)}
+   };
+   output.append(accept);
+   const defer=document.createElement('button');defer.type='button';
+   defer.textContent='Save verified rip for later';
+   defer.onclick=async()=>{
+    const headers=requestAuthHeaders('Defer Semi Automatic release review');if(!headers)return;
+    try{
+     const response=await fetch('/api/workflow/jobs/'+id+'/review',{
+      method:'POST',headers:{'Content-Type':'application/json',...headers},
+      body:JSON.stringify({action:'defer'})
+     });
+     const result=await response.json();
+     if(!response.ok)throw new Error(result.detail||'Unable to defer');
+     await goAdvance();
+    }catch(error){const p=document.createElement('p');p.textContent='Deferral stopped: '+error.message;output.append(p)}
+   };
+   output.append(defer);
   }
   if(['ripping','verifying'].includes(data.action)){
    if(goPoll)clearTimeout(goPoll);
@@ -1706,9 +1757,10 @@ document.getElementById('workflow-resume').onclick=()=>workflowAction('review','
 document.getElementById('workflow-list').onclick=()=>workflowAction('list');
 
 function updateIdentificationMode(){
- const guess=document.getElementById('identification-mode').value==='best_guess';
- document.getElementById('best-guess-note').hidden=!guess;
- document.getElementById('secure-review-options').hidden=guess;
+ const mode=document.getElementById('identification-mode').value;
+ document.getElementById('best-guess-note').hidden=mode!=='best_guess';
+ document.getElementById('semi-automatic-note').hidden=mode!=='semi_automatic';
+ document.getElementById('secure-review-options').hidden=mode!=='secure';
 }
 document.getElementById('identification-mode').onchange=updateIdentificationMode;
 

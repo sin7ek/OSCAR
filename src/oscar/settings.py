@@ -19,9 +19,9 @@ class DriveSettings(BaseModel):
 class OscarSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
     profile: str = Field(default="archival", pattern=r"^(archival|classical)$")
-    # Configuration only until an explicit, separately tested workflow engine
+    # Configuration policy is snapshotted by the Go workflow; future automatic tagging
     # enforces these policies. Audio verification is identical for both modes.
-    identification_mode: str = Field(default="secure", pattern=r"^(secure|best_guess)$")
+    identification_mode: str = Field(default="secure", pattern=r"^(secure|semi_automatic|best_guess)$")
     secure_review_level: str = Field(default="on_ambiguity", pattern=r"^(on_ambiguity|before_archive|every_step)$")
     drives: list[DriveSettings] = Field(default_factory=list)
     name_display: str = Field(default="original_and_english", pattern=r"^(original_and_english|original|english)$")
