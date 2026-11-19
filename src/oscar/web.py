@@ -40,6 +40,24 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 <section><h2>Ripping profile</h2>
 <label for="profile">Default profile</label><select id="profile"><option value="archival">Archival / collectors</option><option value="classical">Classical / works &amp; performers</option></select>
 <p>Profile selection is stored for future processing. Neither profile starts a rip.</p></section>
+<section><h2>Release identification &amp; automation policy</h2>
+<p>Choose how OSCAR should eventually resolve release identity. These preferences are saved now, but <strong>the fully automatic tagging/publishing engine is not implemented yet</strong>. Both modes use the same strict rip/audio verification.</p>
+<label for="identification-mode">Identification mode</label>
+<select id="identification-mode">
+<option value="secure">Secure — evidence-first (default)</option>
+<option value="best_guess">Best Guess — Full Automatic (planned)</option>
+</select>
+<div id="best-guess-note" class="oscar-review-note" hidden>Best Guess deliberately accepts the risk of choosing the wrong physical pressing. It will label release identification as inferred, never physically verified. If no credible candidate exists, it must preserve the verified rip for review. Automatic tagging/archiving is not enabled yet.</div>
+<div id="secure-review-options">
+<label for="secure-review-level">Secure Mode: level of human review</label>
+<select id="secure-review-level">
+<option value="on_ambiguity">Semi Automatic — interrupt only for insufficient or conflicting evidence</option>
+<option value="before_archive">Review before archive — approve final edition and archive preview</option>
+<option value="every_step">Full Manual — explicitly review each workflow transition</option>
+</select>
+</div>
+<p>These settings are forward-looking workflow preferences only. They cannot bypass verification, existing manual confirmation, edition safety gates, or publication safeguards.</p>
+</section>
 <section><h2>Language &amp; names</h2><label for="name-display">Show names</label><select id="name-display"><option value="original_and_english">Original + English (when available)</option><option value="original">Original only</option><option value="english">English preferred (original preserved)</option></select><label for="alias-fallback">When no English alias exists</label><select id="alias-fallback"><option value="original">Use original</option><option value="sort_name">Allow artist sort-name as transliteration (not a translation)</option></select><p>English aliases are fetched on demand from MusicBrainz. Original names and entity IDs are always retained. These settings do not tag audio files.</p></section>
 <section><h2>Optical drives</h2><div id="drives"></div><button id="probe" type="button">Check inserted discs</button><p id="media-status" aria-live="polite"></p><div id="toc-results"></div></section>
 <section><h2>Staging verification (experimental)</h2>
@@ -174,6 +192,9 @@ async function init(){
  if(!a.ok||!b.ok)throw new Error('Unable to load configuration');
  settings=await a.json();const live=await b.json();
  document.getElementById('profile').value=settings.profile;
+ document.getElementById('identification-mode').value=settings.identification_mode||'secure';
+ document.getElementById('secure-review-level').value=settings.secure_review_level||'on_ambiguity';
+ updateIdentificationMode();
  document.getElementById('name-display').value=settings.name_display||'original_and_english';
  document.getElementById('alias-fallback').value=settings.english_alias_fallback||'original';
  area.replaceChildren();
@@ -1364,10 +1385,19 @@ document.getElementById('multi-refresh').onclick=async()=>{
  }catch(e){output.textContent='Drive dashboard unavailable: '+e.message}
 };
 
+function updateIdentificationMode(){
+ const guess=document.getElementById('identification-mode').value==='best_guess';
+ document.getElementById('best-guess-note').hidden=!guess;
+ document.getElementById('secure-review-options').hidden=guess;
+}
+document.getElementById('identification-mode').onchange=updateIdentificationMode;
+
 document.getElementById('save').onclick=async()=>{
  const status=document.getElementById('status');settings.profile=document.getElementById('profile').value;
  settings.name_display=document.getElementById('name-display').value;
  settings.english_alias_fallback=document.getElementById('alias-fallback').value;
+ settings.identification_mode=document.getElementById('identification-mode').value;
+ settings.secure_review_level=document.getElementById('secure-review-level').value;
  status.textContent='Saving…';
  try{const r=await fetch('/api/settings',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(settings)});
  if(!r.ok)throw new Error(await r.text());status.textContent='Settings saved. No rip started.';}
