@@ -255,6 +255,10 @@ def review(job_id, copy_id, kind="classical_v2", *, artwork=True, cover_lookup=c
     release_id = original.get("release_id")
     if not RELEASE_ID.fullmatch(str(release_id or "")):
         raise ReviewError("Missing reviewed physical MusicBrainz release")
+    known_lengths = {t.get("number"): t.get("length_ms") for t in original.get("tracks") or []}
+    for track in tracks:
+        if track.get("musicbrainz_length_ms") is None:
+            track["musicbrainz_length_ms"] = known_lengths.get(track["number"])
     metadata_review = consistency(tracks)
     cue = cue_preview(root, tracks, album.get("title"), album.get("artist"))
     cover = cover_lookup(release_id) if artwork else {"status": "not_checked"}
