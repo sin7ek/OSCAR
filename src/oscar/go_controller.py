@@ -91,8 +91,20 @@ def advance(job_id, *, lookup=None, verify_start=None):
         return {"workflow":workflow, "action":"verification_review",
                 "verification_status":report.get("status"),
                 "message":"Failed or ambiguous verification. Stop and review."}
+    if phase == "RELEASE_ACCEPTED" and workflow["identification_mode"] == "semi_automatic":
+        return {"workflow": workflow, "action": "semi_release_accepted",
+                "release_id": workflow["accepted_release_id"],
+                "release_match_status": "INFERRED_OPERATOR_ACCEPTED",
+                "message": ("Release accepted by operator as inferred, not physically verified. "
+                            "Go tagging/preview/publication are not yet enabled.")}
     if phase != "RELEASE_REVIEW_PENDING":
         return {"workflow":workflow, "action":"review_required"}
+    if workflow["identification_mode"] == "semi_automatic" and workflow["proposed_release_id"]:
+        return {"workflow":workflow, "action":"semi_release_review",
+                "candidates": workflow["candidate_options"],
+                "release_id":workflow["proposed_release_id"],
+                "release_match_status":"INFERRED_NOT_PHYSICALLY_VERIFIED",
+                "message":"Review, accept or defer the proposed release; no metadata writes."}
     if not musicbrainz.lookup_enabled():
         return {"workflow":workflow, "action":"musicbrainz_disabled"}
     plan = _source_plan(job_id)
@@ -114,6 +126,14 @@ def advance(job_id, *, lookup=None, verify_start=None):
         return {"workflow":workflow, "action":"secure_physical_review",
                 "candidates":options, "catalog_or_barcode_needed":True,
                 "message":"Disc ID candidate is not enough to verify the physical edition."}
+    if workflow["identification_mode"] == "semi_automatic":
+        evidence = "inferred_disc_id_unique" if len(ranked)==1 else "inferred_disc_id_ranked"
+        workflow = workflow_ledger.remember_semi_candidates(job_id,options,evidence)
+        return {"workflow":workflow, "action":"semi_release_review",
+                "candidates":workflow["candidate_options"],
+                "release_id":workflow["proposed_release_id"],
+                "release_match_status":"INFERRED_NOT_PHYSICALLY_VERIFIED",
+                "message":"Candidate proposed. Choose and explicitly accept release or defer. No tags/publication."}
     # Best Guess: reproducible ranking, labelled inferred. Metadata completeness
     # is not proof of the physical pressing and is never claimed to be.
     top = ranked[0]
