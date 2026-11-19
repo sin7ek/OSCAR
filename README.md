@@ -27,7 +27,7 @@ Eventually, with a little help from ChatGPT, I started building something of my 
 
 On November 19, 2026, exactly five years after my dad passed away, OSCAR successfully ripped and AccurateRip-verified its very first audio track.
 
-Five years, still thousand CDs to go, and quite a few lines of code later, OSCAR was finally recording music again. Something my dad always enjoyed doing.
+Five years, still thousand CDs to go, and quite a few lines of code later, OSCAR was finally ripping music again. Something my dad always enjoyed doing.
 
 **OSCAR lives on.**
 
