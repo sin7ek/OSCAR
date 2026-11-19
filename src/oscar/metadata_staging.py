@@ -45,6 +45,17 @@ def _source(job_id):
     return directory, state, report
 
 
+def _streaminfo_md5_hex(value):
+    """Normalize Mutagen's 128-bit integer STREAMINFO MD5 to 32 hex digits."""
+    if isinstance(value, int):
+        if not 0 <= value < (1 << 128):
+            raise MetadataError("Invalid FLAC STREAMINFO MD5 integer")
+        return format(value, "032x")
+    if isinstance(value, (bytes, bytearray)) and len(value) == 16:
+        return bytes(value).hex()
+    raise MetadataError("Unexpected FLAC STREAMINFO MD5 representation")
+
+
 def _one_string(value):
     return str(value or "").strip()[:500]
 
@@ -209,14 +220,14 @@ def _tagged_copy(job_id, release_id, fingerprint, copy_id, *, lookup=lookup_rele
         with src.open("rb") as inp, target.open("xb") as out:
             shutil.copyfileobj(inp, out, length=1024 * 1024)
         obj = flac_factory(str(target))
-        source_audio_md5 = obj.info.md5_signature
+        source_audio_md5 = _streaminfo_md5_hex(obj.info.md5_signature)
         obj.clear()
         for key, value in track["tags"].items():
             if value:
                 obj[key] = value if isinstance(value, list) else [str(value)]
         obj.save()
         tagged = flac_factory(str(target))
-        if tagged.info.md5_signature != source_audio_md5:
+        if _streaminfo_md5_hex(tagged.info.md5_signature) != source_audio_md5:
             raise MetadataError("Audio STREAMINFO MD5 changed after tagging")
         check = runner(["flac", "-t", "--silent", str(target)],
                        stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
@@ -226,7 +237,7 @@ def _tagged_copy(job_id, release_id, fingerprint, copy_id, *, lookup=lookup_rele
         manifest[str(target.relative_to(root))] = {
             "source_sha256": original_hashes[rel],
             "tagged_sha256": verification._digest(target),
-            "audio_streaminfo_md5": source_audio_md5.hex(),
+            "audio_streaminfo_md5": source_audio_md5,
         }
     output = {
         "job_id": job_id, "copy_id": copy_id, "release_id": release_id,
