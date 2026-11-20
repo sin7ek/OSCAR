@@ -811,6 +811,27 @@ def archive_revision_operations(request: Request,
     return operations()
 
 
+class ArchiveBoxsetPreviewRequest(BaseModel):
+    release_id: str = Field(pattern=r"^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$")
+
+
+@app.post("/api/collection/archive-revisions/boxset-preview")
+def archive_revision_boxset_preview(body: ArchiveBoxsetPreviewRequest, request: Request,
+                                    x_oscar_rip_token: str | None = Header(default=None)):
+    """Read-only release-wide review; never applies partial boxset revisions."""
+    from oscar.archive_revision_boxset import BoxsetReviewError, preview
+    from oscar.archive_revision import RevisionError
+    from oscar.archive_metadata_scan import ScanError
+    from oscar.collection_catalog import CatalogError
+    from oscar.musicbrainz import MusicBrainzError
+    _rip_auth(x_oscar_rip_token, request)
+    try:
+        return preview(body.release_id)
+    except (BoxsetReviewError, RevisionError, ScanError, CatalogError,
+            MusicBrainzError, ValueError, OSError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
 class ArchiveRevisionVerifyRequest(BaseModel):
     operation_id: str = Field(pattern=r"^[a-f0-9]{32}$")
 
