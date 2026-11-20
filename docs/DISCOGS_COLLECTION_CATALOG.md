@@ -1,3 +1,23 @@
+## Multi-platform OSCAR × Discogs × MusicBrainz — updated design, 2026-11-20
+
+**Current:** local published-archive catalog and ODS/CSV/XLSX exports are implemented; Discogs PAK read-only account/folder discovery is implemented. A MusicBrainz account application was registered by the operator, but **OSCAR MusicBrainz OAuth integration is not yet implemented**. Do not report remote collection synchronization as complete.
+
+### Platform identity and reconciliation
+
+| System | Primary unit | OSCAR behavior |
+|---|---|---|
+| OSCAR | Owned physical copy; individual rip job; published per-medium archive | Authoritative local source/evidence and status; one multi-disc release can have only some CDs archived |
+| MusicBrainz | MusicBrainz release UUID in a user's collection | OAuth read-only per-collection release membership; distinct from full local boxset rip completion; no per-physical-copy assumption |
+| Discogs | Discogs physical release and per-copy collection instance/folder | Existing personal token read-only access; later explicit instance-backed mapping with no duplicate writes |
+
+**OAuth configuration names:** `OSCAR_MUSICBRAINZ_ID` = MusicBrainz client ID; `OSCAR_MUSICBRAINZ_CS` = MusicBrainz client secret; `OSCAR_DISCOGS_PAK` retains existing Discogs authentication. Secrets should be injected as Portainer/Unraid environment variables and **never** committed, logged, included in catalog exports or rendered in browser HTML. OAuth redirect URI/client type must be finalized with the deployed hostname, and a secure token store should be separately designed.
+
+**Planned phases:** (1) secure MusicBrainz OAuth connect, disconnect and read-only collections list/release listing; (2) user-initiated comparison against local OSCAR and read-only Discogs sources, with missing, extra and ambiguous states; (3) per-provider *preview* of intended additions with explicit operator approval, deduplication, rate limits and idempotent audit log; (4) optional outbound sync only after correct release/copy identity and permission checks. Never cross-map MusicBrainz UUIDs to Discogs release IDs by title alone.
+
+**Separate MusicBrainz editing feature:** OSCAR already uses saved libdiscid TOC to open the official Disc ID submission form; this is **not** OAuth collection management or an API edit. The user has attached Carmen Gomes `VxfLacbEsNFCv5Ua4bvIeBIQ3jQ-` to MusicBrainz release `fa89edc1-32f9-4290-8788-bbac2e366a46` using the website. Next: read-only fresh-match refresh and local deterministic edit-note generator based on actual physical evidence. Neither feature requires MusicBrainz collection write permission.
+
+---
+
 # OSCAR — Discogs integration and local collection catalog (design proposal)
 
 **Status:** Phase 1 implemented in PR #60; XLSX export and album-level classical/label search added in PR #61; sourced track-credit/Work index and exact-release label backfill added in PR #62 (local published-archive inventory, ODS/CSV export, read-only Discogs account/folders); collection writes, release search and complete owned-copy catalog remain planned. **Date:** 2026-11-19.  

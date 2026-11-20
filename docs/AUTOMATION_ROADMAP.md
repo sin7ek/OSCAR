@@ -1,3 +1,13 @@
+## Current Go! reality and next step — 2026-11-20
+
+**Update to supersede older “future” and “phase 1” wording below:** All three policy choices are now available; Semi Automatic has user-tested release acceptance, an isolated metadata-copy progression and reviewed archive publication. The user successfully published two different CDs from a six-CD classical boxset into one parent path on Unraid. This does **not** mean disc insertion triggers an unattended full workflow, that all metadata relationships are edition-verified, or that recovery/cleanup is automatic. Older planning sections below are historical milestones and may refer to past implementations as future.
+
+**Next implementation:** provide an explicit **refresh MusicBrainz Disc ID match** on saved, already accepted verified jobs, using a fresh MusicBrainz release-medium request. Distinguish current `exact_disc_id_and_track_count` lookup evidence from historical `INFERRED_OPERATOR_ACCEPTED` operator review; never silently reclassify user physical-edition evidence. Carmen Gomes *Desire* now has a user-attached Disc ID and is the real regression case.
+
+**Collection-management expansion:** MusicBrainz OAuth collection read is a separate optional integration; configuration names: `OSCAR_MUSICBRAINZ_ID`, `OSCAR_MUSICBRAINZ_CS`; Discogs remains `OSCAR_DISCOGS_PAK`. Server-side OAuth only, secure tokens, configurable redirect, no collection writes in phase one. Local ownership copies, MB release membership, Discogs collection instances and archived boxset media are **distinct** concepts. Edit notes for MusicBrainz Disc ID submission will be deterministic, operator-reviewed local templates, without AI/API dependency.
+
+---
+
 # OSCAR — CD inserted → Go! automation roadmap
 
 **State:** plans and implemented foundations as of November 19, 2026. This is *not* a completed automatic pipeline.
