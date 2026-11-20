@@ -742,6 +742,7 @@ def test_discid_attach_link_rejects_unaccepted_or_ambiguous_job(tmp_path, monkey
     (directory / "plan.json").write_text(json.dumps({
         "disc_id": DISC, "toc_string": "1 2 1000 150 300"}))
     monkeypatch.setenv("OSCAR_RIP_TOKEN", TOKEN)
+    monkeypatch.setenv("OSCAR_ENABLE_RIPPING", "1")
     accepted = {"identification_mode": "semi_automatic",
                 "accepted_release_id": "",
                 "release_match_status": "INFERRED_NOT_PHYSICALLY_VERIFIED"}
