@@ -19,21 +19,37 @@ _MAX_ERRORS = 100
 
 
 def _leaves():
-    """Only Collection-indexed archive leaves, bounded and deterministically ordered.
+    """Discover every OSCAR-shaped archive manifest, even if not yet indexed.
 
-    Existing catalog import discovers published manifests. Explicitly require an
-    import before a full scan so arbitrary folders are never inferred as releases.
+    Only /artist/album[/Disc NN] leaves are enumerated. A corrupted manifest
+    is still sent to the scanner so it appears as a *failed album* instead of
+    disappearing silently. Hidden retained versions and incomplete jobs are
+    excluded; every candidate is revalidated by the per-album scan.
     """
-    with catalog._connect() as db:
-        rows = db.execute(
-            "SELECT archive_path FROM archive_items ORDER BY archive_path LIMIT ?",
-            (_MAX_ALBUMS + 1,),
-        ).fetchall()
-    if len(rows) > _MAX_ALBUMS:
-        raise scanner.ScanError("Archive exceeds the per-run safety limit; scan smaller batches")
-    if not rows:
-        raise scanner.ScanError("Collection is empty; import published archive records first")
-    return [row["archive_path"] for row in rows]
+    root = catalog.archive_root()
+    paths = []
+    for manifest in sorted(root.rglob("manifest.json")):
+        if manifest.is_symlink() or not manifest.is_file():
+            continue
+        relative = manifest.parent.relative_to(root)
+        parts = relative.parts
+        if len(parts) not in (2, 3):
+            continue
+        if any(part.startswith(".oscar-") for part in parts):
+            continue
+        if len(parts) == 3 and not catalog._DISC_DIR.fullmatch(parts[-1]):
+            continue
+        if not catalog._ALBUM_DIR.fullmatch(parts[1]):
+            continue
+        if any((root.joinpath(*parts[:idx])).is_symlink()
+               for idx in range(1, len(parts)+1)):
+            continue
+        paths.append(str(manifest.parent))
+        if len(paths) > _MAX_ALBUMS:
+            raise scanner.ScanError("Archive exceeds the per-run safety limit; scan smaller batches")
+    if not paths:
+        raise scanner.ScanError("No OSCAR archive manifest leaves found under OSCAR_ARCHIVE_ROOT")
+    return paths
 
 
 def _now():
