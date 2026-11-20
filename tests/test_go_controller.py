@@ -707,6 +707,7 @@ def test_discid_attach_link_uses_saved_toc_and_never_submits_edit(tmp_path, monk
     (directory / "plan.json").write_text(json.dumps({
         "disc_id": DISC, "toc_string": "1 2 1000 150 300"}))
     monkeypatch.setenv("OSCAR_RIP_TOKEN", TOKEN)
+    monkeypatch.setenv("OSCAR_ENABLE_RIPPING", "1")
     monkeypatch.setattr(ledger, "refresh", lambda job_id: {
         "identification_mode": "semi_automatic",
         "accepted_release_id": RELEASE1,
