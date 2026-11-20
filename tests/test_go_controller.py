@@ -421,7 +421,7 @@ def test_go_archive_preview_only_after_verified_copy(rig, monkeypatch):
     assert preview["can_publish"]
     assert preview["requires_operator_confirmation"]
     assert preview["archive_review"]["tracks"][0]["work_ids"] == ["work-1"]
-    assert preview["release_match_status"] == "INFERRED_NOT_PHYSICALLY_VERIFIED"
+    assert preview["release_match_status"] == "INFERRED_OPERATOR_ACCEPTED"
 
 
 def test_go_archive_publish_confirmation_fingerprint_and_source(rig, monkeypatch):
