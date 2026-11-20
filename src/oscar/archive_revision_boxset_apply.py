@@ -218,11 +218,38 @@ def _verify_audio_pair(entry):
     return True
 
 
+def _verify_non_audio_pair(entry):
+    """Original CUE, logs, sources and artwork must be byte-for-byte preserved."""
+    original = Path(entry["backup"])
+    revised = Path(entry["source"])
+
+    def inventory(root):
+        items = {}
+        for path in root.rglob("*"):
+            if path.is_symlink():
+                raise BoxsetApplyError("Symlink encountered in published evidence")
+            if path.is_file():
+                relative = path.relative_to(root).as_posix()
+                if relative == "manifest.json" or path.suffix.lower() == ".flac":
+                    continue
+                items[relative] = scanner._digest(path)
+            elif not path.is_dir():
+                raise BoxsetApplyError("Special file encountered in published evidence")
+        return items
+
+    if inventory(original) != inventory(revised):
+        raise BoxsetApplyError(
+            "Non-audio archive evidence differs between original and new generation"
+        )
+    return True
+
+
 def _finalize(operation_id, entries):
     for entry in entries:
         _validate_leaf(Path(entry["backup"]), entry, new=False)
         _validate_leaf(Path(entry["source"]), entry, new=True)
         _verify_audio_pair(entry)
+        _verify_non_audio_pair(entry)
     with _db() as db:
         db.execute("BEGIN IMMEDIATE")
         operation = db.execute(
