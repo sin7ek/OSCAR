@@ -33,6 +33,12 @@ PR #84 has been merged to main after successful GitHub Tests and Docker build (c
 
 ---
 
+## Unraid acceptance — MusicBrainz catalog correction observed (2026-11-20)
+
+The operator tested PR #84 against existing Carmen Gomes Inc. *Desire* and saw the current MusicBrainz release return catalog `CGi2010`, absent in the original saved metadata. OSCAR correctly displayed 14 changes: one album catalog field, one CFMusic label catalog field, and the 12 proposed CATALOGNUMBER track tags. **Read-only comparison accepted on real Unraid.** A separate newly tagged staging copy has **not** yet been reported verified, and archive/Collection migration remains future work. Do not inflate domain maturity percentages based on the preview alone.
+
+---
+
 ## Progress by area
 
 | Area | Progress | Visual progress | Evidence / remaining gaps |
