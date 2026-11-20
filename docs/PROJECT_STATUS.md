@@ -1,3 +1,13 @@
+## Seven operator-approved metadata events; LABEL alias correction and developer handoff (2026-11-20)
+
+The operator supplied 7 historical metadata decision events in the live Unraid UI, including accepted `LABEL = Deutsche Grammophon` for `Disc 06` (21:57:37.921509 UTC) and `Disc 04` (21:57:41.643189 UTC) of *Boulez Conducts Stravinsky* (2010), MusicBrainz release `423f636d-742d-47b0-9ba2-51515a6fdfd2`; previous accepted Carmen Gomes Inc. (catalog number CGi2010 and CFMusic label) and Anastacia (Daylight/Epic) remain in the audit. **Acceptance is approval only, not evidence that FLACs or the multidisc album were migrated.** Multidisc migration remains explicitly unsupported in the v1 versioned migration engine.
+
+Root cause of repeated label additions: `archive_metadata_scan._fresh_values` checks actual FLAC `LABEL`, not Collection `label` or archived `label_info`, and initial metadata staging previously did not emit `LABEL` despite fetching label information. Focused branch fixes new staging to populate `LABEL` from the exact MusicBrainz release (including multi-label releases); recognizes legacy `RECORDLABEL` as an alternative for read-only scans and Collection indexing; conflicting simultaneous `LABEL` and `RECORDLABEL` are treated as an unsafe discrepancy. Previously accepted `LABEL` decisions are not discarded or silently applied. CI and live Unraid validation are separate requirements.
+
+New **[DEVELOPER_HANDOFF.md](DEVELOPER_HANDOFF.md)** preserves a reusable future-chat context: exact code map, latest operator evidence, safe architecture constraints, open issues, PR workflow, validation gates and next recommended actions. It complements rather than duplicates this canonical project status, progress dashboard and detailed lifecycle design. Its contents need updating after each significant milestone; no personal access tokens are stored.
+
+---
+
 ## Open-source onboarding — draft Compose and planned Getting Started (2026-11-20)
 
 **Documentation draft created, NOT validated for publication:** [`compose.unraid.example.yml`](../compose.unraid.example.yml). This is a thoroughly commented **Unraid/Portainer-specific example** inspired by the operator's own working Compose. The operator intentionally keeps **their existing production Compose unchanged**. Do not assume this sample is deployment-ready or use it to alter their current paths, mounted optical drives, UID/GID, br0 IP or security settings.
