@@ -161,7 +161,9 @@ def test_five_of_six_preview_includes_newly_published_discs_and_invalidates_old_
     monkeypatch.setattr(
         __import__(__name__, fromlist=["DISCS"]), "DISCS",
         {**DISCS,
-         1: "fixture-disc-1", 2: "fixture-disc-2", 3: "fixture-disc-3"},
+         1: "AAAAAAAAAAAAAAAAAAAAAAAAAAA-",
+         2: "BBBBBBBBBBBBBBBBBBBBBBBBBBB-",
+         3: "CCCCCCCCCCCCCCCCCCCCCCCCCCC-"},
     )
     root = paths[4].parent
     for n in (1, 2, 3):
