@@ -568,3 +568,20 @@ def test_real_flac_two_disc_group_apply_preserves_audio_and_cue(prepared, monkey
         old = Path(original)
         assert old.is_dir()
         assert "LABEL" not in ActualFLAC(str(old / "01 - Track.flac"))
+
+
+def test_non_audio_evidence_must_remain_byte_identical(tmp_path):
+    from oscar import archive_revision_boxset_apply as engine
+    old = tmp_path / "old"
+    new = tmp_path / "new"
+    old.mkdir()
+    new.mkdir()
+    (old / "SOURCES.txt").write_text("Original source provenance\\n")
+    (new / "SOURCES.txt").write_text("Original source provenance\\n")
+    (old / "folder.jpg").write_bytes(b"cover bytes")
+    (new / "folder.jpg").write_bytes(b"cover bytes")
+    entry = {"backup": str(old), "source": str(new)}
+    assert engine._verify_non_audio_pair(entry) is True
+    (new / "SOURCES.txt").write_text("Changed provenance\\n")
+    with pytest.raises(engine.BoxsetApplyError, match="Non-audio archive evidence"):
+        engine._verify_non_audio_pair(entry)
