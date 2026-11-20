@@ -1955,6 +1955,21 @@ document.getElementById('collection-enrich-labels').onclick=async()=>{
   out.prepend(note);
  }catch(error){out.textContent='Label enrichment failed: '+error.message}
 };
+document.getElementById('collection-sync-approved-labels').onclick=async()=>{
+ const out=document.getElementById('collection-result');
+ const headers=requestAuthHeaders('Synchronize previously applied, verified archive labels');if(!headers)return;
+ out.textContent='Checking applied label revisions against archived FLAC tags…';
+ try{
+  const response=await fetch('/api/collection/reconcile-approved-labels',{method:'POST',headers});
+  const data=await response.json();
+  if(!response.ok)throw new Error(data.detail||'Could not synchronize approved labels');
+  await fetchLocalCollection();
+  const note=document.createElement('p');
+  note.textContent=data.labels_updated+' Collection label(s) synchronized from approved FLAC tags; '+
+   data.manual_values_preserved+' manual label(s) preserved. Archive files unchanged.';
+  out.prepend(note);
+ }catch(error){out.textContent='Approved-label synchronization failed: '+error.message}
+};
 document.getElementById('collection-refresh').onclick=fetchLocalCollection;
 document.getElementById('collection-sort').onchange=fetchLocalCollection;
 document.getElementById('collection-search').onchange=fetchLocalCollection;
