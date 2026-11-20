@@ -784,9 +784,9 @@ async function showMedium(stableId, releaseId){
   enrichNamesAutomatically(area);
  }catch(error){status.textContent='Could not retrieve medium: '+error.message}
 }
-async function verifyExistingJob(){
- const target=document.getElementById('verify-output');
- const job=document.getElementById('verify-job').value.trim().toLowerCase();
+async function verifyExistingJob(jobOverride=null, targetOverride=null){
+ const target=targetOverride||document.getElementById('verify-output');
+ const job=(jobOverride||document.getElementById('verify-job').value).trim().toLowerCase();
  if(!/^[a-f0-9]{32}$/.test(job)){target.textContent='Enter an OSCAR rip job ID (32 hexadecimal characters).';return}
  const headers=requestAuthHeaders('Verify staged rip');
  if(!headers)return;
@@ -837,7 +837,7 @@ async function verifyExistingJob(){
   await poll();
  }catch(e){target.textContent='Verification unavailable: '+e.message}
 }
-document.getElementById('verify-start').onclick=verifyExistingJob;
+document.getElementById('verify-start').onclick=()=>verifyExistingJob();
 
 let reviewedMetadata=null;
 function metadataElement(tag,text){const e=document.createElement(tag);e.textContent=String(text??'—');return e;}
@@ -1806,6 +1806,18 @@ async function refreshReviewQueue(interactive=true){
     document.getElementById('go-job').value=job.job_id;
     showOscarTab('go');goAdvance();
    });
+   if(job.phase==='VERIFICATION_PENDING'){
+    const status=document.createElement('div');
+    status.setAttribute('aria-live','polite');
+    row.append(status);
+    const reverify=addGoAction(row,'Reverify saved rip',async()=>{
+     if(!window.confirm('Reverify this saved rip from existing FLAC files and cyanrip log? The original audio, CUE and rip log will not change. The prior verification report is backed up; this does not start a new rip or publish an archive.'))return;
+     reverify.disabled=true;
+     try{
+      await verifyExistingJob(job.job_id,status);
+     }finally{reverify.disabled=false}
+    });
+   }
    target.append(row);
   }
   if(!matching.length)target.textContent='No tracked jobs currently require review.';
