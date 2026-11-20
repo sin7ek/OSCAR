@@ -1,3 +1,17 @@
+## MusicBrainz missing Disc ID — operator-controlled GUI submission handoff
+
+**Implemented in this PR: GUI link preparation, NOT MusicBrainz editing.** Go! displays **Add missing Disc ID to MusicBrainz (manual review)** after an expressly accepted Semi Automatic release. The API `GET /api/go/jobs/{job_id}/musicbrainz/discid-attach` uses the *persisted original physical CD TOC* from `plan.json`; no disc has to be reinserted and OSCAR does not use hashes/track names to synthesize a TOC.
+
+The authenticated API checks: the saved job is Semi Automatic with `INFERRED_OPERATOR_ACCEPTED` and a matching accepted release; complete, successful source verification and per-track passes; strictly structured physical TOC offsets and lead-out; track count and Disc ID agreement with saved plan/state; a live MusicBrainz release lookup that finds a **single compatible CD medium** with the right track count and no matching attached Disc ID. Multi-disc ambiguity, bad/stale TOCs, an unresolved release, and unverified audio are blocked.
+
+On success the interface displays the Disc ID and selected release and offers `https://musicbrainz.org/cdtoc/attach?toc=...` as a clickable link. **MusicBrainz, not OSCAR**, handles login, selection of the correct release/medium and explicit edit confirmation. OSCAR does not send a submission, store MusicBrainz credentials, or claim the association succeeded. This avoids silently mutating a shared database and allows users to inspect physical catalog and full track listing first. After any external edit, a later fresh lookup may see the Disc ID; existing inferred provenance is **not retroactively reclassified** as physical-edition verified.
+
+**Hardware follow-up:** Carmen Gomes Inc. `Desire`, job `b68488f667cc492d8dd94f90717cdb28`, release `fa89edc1-32f9-4290-8788-bbac2e366a46` (12 tracks). Test only after deploying this update. Review the MusicBrainz attach page manually and check catalog `CGi2010` and complete tracklist. Never attach a TOC to a different physical edition or rely on track count alone as conclusive proof.
+
+**Future only (not part of this feature):** full authenticated MusicBrainz account integration and in-app edit submission, if desirable, must use a supported MusicBrainz edit API, OAuth, explicit approval, durable auditable status and no automatic edits.
+
+---
+
 ## Semi Automatic — operator-accepted single-CD metadata without attached Disc ID
 
 **Implementation in this PR; hardware acceptance still pending.** Real-world driver: Carmen Gomes Inc., *Desire* (2010), catalog `CGi2010`, 12 tracks, job `b68488f667cc492d8dd94f90717cdb28`, accepted MusicBrainz release `fa89edc1-32f9-4290-8788-bbac2e366a46`. Its `RELEASE_ACCEPTED` job previously stopped with `Release does not have one exact Disc ID + track-count medium` despite successful audio verification and saved operator acceptance.
