@@ -1020,6 +1020,20 @@ def collection_enrich_labels(request: Request,
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
+@app.post("/api/collection/reconcile-approved-labels")
+def collection_reconcile_approved_labels(request: Request,
+                                         x_oscar_rip_token: str | None = Header(default=None)):
+    """Explicit safe repair for sourced labels from previously completed revisions."""
+    from oscar.collection_labels import LabelEnrichmentError, reconcile_applied_archive_labels
+    from oscar.archive_metadata_scan import ScanError
+    from oscar.archive_revision import RevisionError
+    _rip_auth(x_oscar_rip_token, request)
+    try:
+        return reconcile_applied_archive_labels()
+    except (LabelEnrichmentError, ScanError, RevisionError, ValueError, OSError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
 class WorkflowReviewAction(BaseModel):
     action: str = Field(pattern=r"^(defer|resume)$")
 

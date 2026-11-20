@@ -222,7 +222,8 @@ def test_spreadsheet_guards_formula_in_xlsx(archive):
 def test_xlsx_endpoint_and_ui_visible(archive, monkeypatch):
     html = TestClient(app).get("/").text
     assert "collection-xlsx" in html
-    assert "Record label" in html
+    assert "Label" in html
+    assert "Record label" not in html
 
 
 def test_pop_session_vocalists_are_not_soloists_and_legacy_row_is_repaired(archive, monkeypatch):

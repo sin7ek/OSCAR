@@ -100,13 +100,15 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 <button type="button" id="collection-enrich-labels">Fill missing labels from exact MusicBrainz release (Collection only)</button>
 </details>
 <button type="button" id="collection-refresh">Refresh collection</button>
+<button type="button" id="collection-sync-approved-labels">Synchronize applied labels (Collection only)</button>
+<p>Synchronize previously approved album labels after a completed archive revision, including multiple labels such as Daylight; Epic. Actual archived FLACs are independently checked first. Locally curated values stay unchanged.</p>
 <label for="collection-search">Find in collection</label>
 <input id="collection-search" placeholder="Artist, album, label, composer, conductor or soloist" maxlength="150" style="width:350px;max-width:90%">
 <label for="collection-sort">Sort collection</label>
 <select id="collection-sort">
 <option value="artist">Artist</option><option value="title">Album title</option>
 <option value="year">Year</option><option value="catalog_number">Catalog number</option>
-<option value="archive_status">Archive status</option><option value="label">Record label</option><option value="composer">Composer</option><option value="conductor">Conductor</option><option value="orchestra">Orchestra</option><option value="soloists">Soloists</option>
+<option value="archive_status">Archive status</option><option value="label">Label</option><option value="composer">Composer</option><option value="conductor">Conductor</option><option value="orchestra">Orchestra</option><option value="soloists">Soloists</option>
 </select>
 <button type="button" id="collection-ods">Export OpenDocument (.ods)</button>
 <button type="button" id="collection-xlsx">Export Excel-compatible (.xlsx)</button>
@@ -1595,7 +1597,7 @@ async function findArchivedTracks(){
   summary.textContent=data.total+' indexed track(s), showing '+data.tracks.length+'.';out.append(summary);
   for(const track of data.tracks){
    const info=reviewCard(track.track_number+'. '+(track.title||track.filename),
-    track.artist+' — '+track.album+' · '+(track.label||'Unknown record label'));
+    track.artist+' — '+track.album+' · '+(track.label||'Unknown label'));
    const credits=document.createElement('p');
    credits.textContent=track.credits.map(x=>x.person_name+' ('+x.credit_role+
       (x.role_detail?': '+x.role_detail:'')+')').join(' · ')||'No explicit performer relationships';
@@ -1923,7 +1925,7 @@ async function fetchLocalCollection(){
   if([...selected.options].some(option=>option.value===oldSelection))selected.value=oldSelection;
   const table=document.createElement('table');table.style.width='100%';
   const head=document.createElement('tr');
-  for(const label of ['Artist','Album','Year','Record label','Catalog','Composer','Conductor','Soloists','Disc','Tracks','Status']){
+  for(const label of ['Artist','Album','Year','Label','Catalog','Composer','Conductor','Soloists','Disc','Tracks','Status']){
     const th=document.createElement('th');th.textContent=label;head.append(th);
   }
   table.append(head);
@@ -1952,6 +1954,21 @@ document.getElementById('collection-enrich-labels').onclick=async()=>{
     ' unresolved. Only matching catalog and release IDs accepted.';
   out.prepend(note);
  }catch(error){out.textContent='Label enrichment failed: '+error.message}
+};
+document.getElementById('collection-sync-approved-labels').onclick=async()=>{
+ const out=document.getElementById('collection-result');
+ const headers=requestAuthHeaders('Synchronize previously applied, verified archive labels');if(!headers)return;
+ out.textContent='Checking applied label revisions against archived FLAC tags…';
+ try{
+  const response=await fetch('/api/collection/reconcile-approved-labels',{method:'POST',headers});
+  const data=await response.json();
+  if(!response.ok)throw new Error(data.detail||'Could not synchronize approved labels');
+  await fetchLocalCollection();
+  const note=document.createElement('p');
+  note.textContent=data.labels_updated+' Collection label(s) synchronized from approved FLAC tags; '+
+   data.manual_values_preserved+' manual label(s) preserved. Archive files unchanged.';
+  out.prepend(note);
+ }catch(error){out.textContent='Approved-label synchronization failed: '+error.message}
 };
 document.getElementById('collection-refresh').onclick=fetchLocalCollection;
 document.getElementById('collection-sort').onchange=fetchLocalCollection;

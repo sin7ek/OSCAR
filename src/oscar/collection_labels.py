@@ -72,3 +72,80 @@ def backfill_labels(*, lookup=exact_release_labels, max_items=20):
             "provider": "MusicBrainz exact release and physical catalog number",
             "archive_modified": False,
             "note": "Read-only MusicBrainz lookup; only previously empty local labels filled."}
+
+
+def reconcile_applied_archive_labels():
+    """Explicitly synchronize only sourced Collection labels after completed revisions.
+
+    Earlier versions retained a partial label (e.g. Epic) when an approved
+    archive revision wrote the full FLAC set (Daylight; Epic). Only operator-
+    approved, journal-completed changes with verified actual FLAC tags may
+    update existing catalog rows; manually edited or unknown provenance wins.
+    """
+    import json
+    from oscar import archive_metadata_scan as scan, archive_revision
+
+    allowed = {
+        "", "archive_manifest_label_info", "archived_flac_label_tag",
+        "musicbrainz_exact_release_catalog_match", "archive_revision_approved_labels",
+    }
+    updated = 0
+    skipped_manual = 0
+    verified = 0
+    with archive_revision._db() as db:
+        operations = db.execute(
+            "SELECT operation_id,dest_path,proposal_fingerprints "
+            "FROM archive_revision_operations WHERE status='completed' "
+            "ORDER BY started_at"
+        ).fetchall()
+    for op in operations:
+        with archive_revision._db() as db:
+            rows = []
+            for fp in json.loads(op["proposal_fingerprints"]):
+                row = db.execute(
+                    "SELECT field,status,after_json FROM metadata_proposals "
+                    "WHERE fingerprint=?", (fp,)
+                ).fetchone()
+                if row and row["field"] == "LABEL" and row["status"] == "applied":
+                    rows.append(row)
+            if len(rows) != 1:
+                continue
+            names = json.loads(rows[0]["after_json"])
+            if not isinstance(names, list) or not names or not all(
+                isinstance(name, str) and name.strip() for name in names
+            ):
+                continue
+            target = "; ".join(names)
+            indexed = db.execute(
+                "SELECT label,label_provenance FROM archive_items WHERE archive_path=?",
+                (op["dest_path"],)
+            ).fetchone()
+            if indexed is None or indexed["label"] == target:
+                continue
+            if indexed["label_provenance"] not in allowed:
+                skipped_manual += 1
+                continue
+        # Before any SQLite change, read and rehash the archived, published
+        # FLACs; do not trust a stale journal or a MusicBrainz lookup alone.
+        snapshot = scan._archive_snapshot(op["dest_path"])
+        if any(scan._canonical(t["tags"].get("LABEL", [])) != scan._canonical(names)
+               for t in snapshot["tracks"]):
+            raise LabelEnrichmentError(
+                "Archived LABEL tags differ from approved revision; refusing Collection resync"
+            )
+        with archive_revision._db() as db:
+            changed = db.execute(
+                "UPDATE archive_items SET label=?,label_provenance=? "
+                "WHERE archive_path=? AND label=? AND label_provenance=?",
+                (target, "archive_revision_approved_labels", op["dest_path"],
+                 indexed["label"], indexed["label_provenance"])
+            )
+            updated += changed.rowcount
+            verified += 1
+    return {
+        "labels_updated": updated,
+        "verified_completed_revisions": verified,
+        "manual_values_preserved": skipped_manual,
+        "archive_modified": False,
+        "note": "Only approved revisions with matching actual archived LABEL tags are synchronized.",
+    }

@@ -357,3 +357,89 @@ def test_revision_updates_existing_recordlabel_alias_on_approved_label_change(fi
         assert tags.get("LABEL") == ["CFMusic"]
         assert tags.get("RECORDLABEL") == ["CFMusic"]
     assert scanner.scan("changes", str(migrated), lookup=lookup)["detected"] == 0
+
+
+def test_approved_multilabel_revision_updates_exact_sourced_collection_label(fixture, monkeypatch):
+    root, old, original, lookup = fixture
+    # Previously enriched Collection values can be partial while the newly
+    # reviewed release explicitly names multiple labels.
+    with catalog._connect() as db:
+        db.execute("UPDATE archive_items SET label=?,label_provenance=? WHERE archive_path=?",
+                   ("Epic", "musicbrainz_exact_release_catalog_match", str(old)))
+    def multilabel(*args):
+        value = lookup(*args)
+        value["label_info"] = [
+            {"name": "Daylight", "catalog_number": "CGi2010"},
+            {"name": "Epic", "catalog_number": "CGi2010"},
+        ]
+        return value
+    monkeypatch.setattr(scanner, "lookup_release_medium", multilabel)
+    result = scanner.scan("additions", str(old), lookup=multilabel)
+    label = next(x for x in result["pending"] if x["field"] == "LABEL")
+    scanner.decide(label["fingerprint"], "accept", lookup=multilabel)
+    plan = revision._plan(str(old), lookup=multilabel)
+    # No need to also approve catalog change; the label-only migration can
+    # update the Collection row while preserving the original folder name.
+    revision.apply(str(old), plan["fingerprint"], "APPLY_VERIFIED_ARCHIVE_REVISION")
+    assert catalog.list_items()["items"][0]["label"] == "Daylight; Epic"
+    assert catalog.list_items()["items"][0]["label_provenance"] == "archive_revision_approved_labels"
+    catalog.import_published()
+    assert catalog.list_items()["items"][0]["label"] == "Daylight; Epic"
+
+
+def test_approved_label_revision_preserves_manual_collection_value(fixture):
+    _, old, _, lookup = fixture
+    with catalog._connect() as db:
+        db.execute("UPDATE archive_items SET label=?,label_provenance=? WHERE archive_path=?",
+                   ("My verified physical label", "manual", str(old)))
+    result = scanner.scan("additions", str(old), lookup=lookup)
+    label = next(x for x in result["pending"] if x["field"] == "LABEL")
+    scanner.decide(label["fingerprint"], "accept", lookup=lookup)
+    plan = revision.preview(str(old))
+    revision.apply(str(old), plan["fingerprint"], "APPLY_VERIFIED_ARCHIVE_REVISION")
+    assert catalog.list_items()["items"][0]["label"] == "My verified physical label"
+
+def test_explicit_reconciliation_repairs_previously_completed_multilabel_row(fixture, monkeypatch):
+    from oscar.collection_labels import reconcile_applied_archive_labels
+    _, old, _, lookup = fixture
+    def multilabel(*args):
+        value = lookup(*args)
+        value["label_info"] = [
+            {"name": "Daylight", "catalog_number": "CGi2010"},
+            {"name": "Epic", "catalog_number": "CGi2010"},
+        ]
+        return value
+    monkeypatch.setattr(scanner, "lookup_release_medium", multilabel)
+    with catalog._connect() as db:
+        db.execute("UPDATE archive_items SET label=?,label_provenance=? WHERE archive_path=?",
+                   ("Epic", "musicbrainz_exact_release_catalog_match", str(old)))
+    proposal = scanner.scan("additions", str(old), lookup=multilabel)["pending"]
+    label = next(x for x in proposal if x["field"] == "LABEL")
+    scanner.decide(label["fingerprint"], "accept", lookup=multilabel)
+    plan = revision.preview(str(old))
+    done = revision.apply(str(old), plan["fingerprint"], "APPLY_VERIFIED_ARCHIVE_REVISION")
+    revised = done["archive_path"]
+    # Model a historical completed migration from before the new finalizer:
+    with catalog._connect() as db:
+        db.execute("UPDATE archive_items SET label=?,label_provenance=? WHERE archive_path=?",
+                   ("Epic", "musicbrainz_exact_release_catalog_match", revised))
+    before = (Path(revised) / "01 - Song.flac").read_bytes()
+    report = reconcile_applied_archive_labels()
+    assert report["labels_updated"] == 1
+    assert catalog.list_items()["items"][0]["label"] == "Daylight; Epic"
+    assert (Path(revised) / "01 - Song.flac").read_bytes() == before
+    assert reconcile_applied_archive_labels()["labels_updated"] == 0
+
+
+def test_explicit_reconciliation_preserves_manually_curated_label(fixture, monkeypatch):
+    from oscar.collection_labels import reconcile_applied_archive_labels
+    _, old, _, lookup = fixture
+    plan = _approve(fixture)
+    done = revision.apply(str(old), plan["fingerprint"], "APPLY_VERIFIED_ARCHIVE_REVISION")
+    with catalog._connect() as db:
+        db.execute("UPDATE archive_items SET label=?,label_provenance=? WHERE archive_path=?",
+                   ("My curated edition note", "manual", done["archive_path"]))
+    result = reconcile_applied_archive_labels()
+    assert result["labels_updated"] == 0
+    assert result["manual_values_preserved"] == 1
+    assert catalog.list_items()["items"][0]["label"] == "My curated edition note"

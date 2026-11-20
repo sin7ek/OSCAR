@@ -306,10 +306,31 @@ def _finalize(db, row, *, snapshot_verified=True):
         collisions = db.execute("SELECT 1 FROM archive_items WHERE archive_path=?", (dest,)).fetchone()
         if collisions and dest != source:
             raise RevisionError("Collection destination already indexed; cannot reconcile")
+        # Keep a truly curator-edited Collection label untouched. Labels
+        # sourced from OSCAR / exact MusicBrainz may be refreshed after an
+        # explicitly approved FLAC LABEL revision, including multi-label
+        # values such as "Daylight; Epic" (rather than the former "Epic").
+        # A blank target_label means this revision approved other fields.
         db.execute(
-            "UPDATE archive_items SET archive_path=?, catalog_number=?,"
-            "label=CASE WHEN label='' THEN ? ELSE label END WHERE archive_path=?",
-            (dest, row["target_catalog"], row["target_label"], source),
+            """UPDATE archive_items SET
+                 archive_path=?, catalog_number=?,
+                 label=CASE WHEN ?<>'' AND
+                       (label='' OR label_provenance IN
+                       ('archive_manifest_label_info','archived_flac_label_tag',
+                        'musicbrainz_exact_release_catalog_match',
+                        'archive_revision_approved_labels'))
+                       THEN ? ELSE label END,
+                 label_provenance=CASE WHEN ?<>'' AND
+                       (label='' OR label_provenance IN
+                       ('archive_manifest_label_info','archived_flac_label_tag',
+                        'musicbrainz_exact_release_catalog_match',
+                        'archive_revision_approved_labels'))
+                       THEN 'archive_revision_approved_labels'
+                       ELSE label_provenance END
+               WHERE archive_path=?""",
+            (dest, row["target_catalog"],
+             row["target_label"], row["target_label"],
+             row["target_label"], source),
         )
     elif db.execute("SELECT 1 FROM archive_items WHERE archive_path=?", (dest,)).fetchone() is None:
         raise RevisionError("Neither old nor new Collection archive entry exists")
