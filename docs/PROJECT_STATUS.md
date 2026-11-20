@@ -1,3 +1,13 @@
+## Real Unraid test — MusicBrainz metadata refresh returns corrected catalog number (2026-11-20)
+
+**Observed operator GUI evidence for PR #84:** existing Carmen Gomes Inc. *Desire* (2010) job `b68488f667cc492d8dd94f90717cdb28` now reports **14 metadata changes** during the authenticated read-only comparison: album `catalog_numbers: [] → ["CGi2010"]`, release label `CFMusic` catalog-number `null → "CGi2010"`, plus `CATALOGNUMBER` added to the *proposed* tags of all twelve tracks. This confirms that MusicBrainz's updated catalog field has become available to OSCAR and that old/new metadata comparison behaves as designed.
+
+**Boundary of validation:** user has not yet reported creating or inspecting the new independent staging copy. The comparison does not retag the previously published archive, rename its folder, adjust the Collection SQLite record, or alter the historical `ARCHIVE_PUBLISHED` job. The catalog number should be corroborated against the actual physical disc/booklet; the Disc ID association alone does not prove the edition.
+
+**Next acceptance test:** with the physical catalog verified, explicitly create a new reviewed staging copy; confirm `tagged_copy_ready_for_review` and `tags_match_preview` (all 12 FLACs); only then design a separate opt-in, audited archive migration with safe catalog reconciliation, never deletion or manual workflow reset.
+
+---
+
 ## Fresh MusicBrainz metadata comparison and independent restaging — 20 November 2026 (PR #84 merged; Unraid acceptance pending)
 
 New isolated implementation on `feature/metadata-refresh-reprocess-preview` lets an operator reload current MusicBrainz data **for an already accepted Semi Automatic Go! release**, compare it against the previous integrity-checked tagged staging copy, then optionally create a **new independently identified metadata staging copy** with an explicit confirmation and a freshly rechecked preview fingerprint. The old staging files, old tagged copy, durable `ARCHIVE_PUBLISHED` ledger, existing archive directory and Collection SQLite are never rewritten by this flow. Its public API/GUI does not offer archive replacement.
