@@ -374,3 +374,47 @@ def test_index_single_archive_does_not_scan_unrelated_entries(archive):
     assert result["imported"] == 1
     assert catalog.list_items()["total"] == 1
     assert catalog.list_items()["items"][0]["track_count"] == 32
+
+
+def test_catalogless_published_album_imports_and_is_idempotent(archive):
+    root, _, _ = archive
+    album = root / "Carmen Gomes Inc" / "Desire (2010) [fa89edc1]"
+    album.mkdir(parents=True)
+    original = {
+        "status": "published_verified",
+        "release_id": "fa89edc1-32f9-4290-8788-bbac2e366a46",
+        "release_match_status": "INFERRED_OPERATOR_ACCEPTED",
+        "disc_number": 1, "disc_total": 1,
+        "files": [{"track": i, "filename": f"{i:02} - Track.flac"}
+                  for i in range(1, 13)],
+    }
+    path = album / "manifest.json"
+    path.write_text(json.dumps(original), encoding="utf-8")
+    previous = path.read_bytes()
+    result = catalog.import_published(only_path=album)
+    assert result["indexed"] is True
+    assert result["imported"] == 1
+    item = next(x for x in catalog.list_items()["items"] if x["title"] == "Desire")
+    assert item["artist"] == "Carmen Gomes Inc"
+    assert item["catalog_number"] == ""
+    assert item["year"] == "2010"
+    assert item["track_count"] == 12
+    assert item["identification_status"] == "INFERRED_OPERATOR_ACCEPTED"
+    assert catalog.import_published(only_path=album)["imported"] == 0
+    assert catalog.import_published(only_path=album)["indexed"] is True
+    assert path.read_bytes() == previous
+
+
+def test_skipped_manifest_must_not_be_reported_as_indexed(archive):
+    root, _, _ = archive
+    album = root / "Carmen Gomes Inc" / "Desire (2010) [fa89edc1]"
+    album.mkdir(parents=True)
+    (album / "manifest.json").write_text(json.dumps({
+        "status": "published_verified",
+        "release_id": "00000000-0000-0000-0000-000000000000",
+        "files": [{"track": 1, "filename": "01.flac"}],
+    }), encoding="utf-8")
+    result = catalog.import_published(only_path=album)
+    assert result["imported"] == 0
+    assert result["indexed"] is False
+    assert catalog.list_items()["total"] == 0

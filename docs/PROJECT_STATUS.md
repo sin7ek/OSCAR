@@ -1,3 +1,19 @@
+## Collection indexing correction — Carmen Gomes Inc. *Desire* (2026-11-20)
+
+**Operator-observed discrepancy:** Go! reported publication `3908eef79f114450b0a7eb76bec44926` as `ARCHIVE_PUBLISHED · catalog: indexed`, but Collection's manual import returned `Imported 0 new archive record(s)` and the collection remained at three local records (Anastacia and two Boulez boxset discs). Thus the earlier `indexed` report was a false-positive claim for this release, not proof that the SQLite catalog contains it. The already-published FLACs, manifest and staging evidence must not be touched.
+
+**Root cause found in code:** archive publishing legally names an edition without a catalog number `Carmen Gomes Inc/Desire (2010) [fa89edc1]`, but `collection_catalog._ALBUM_DIR` previously required a `[CATALOG] ` prefix. The importer silently skipped that valid published folder. Separately, the publisher/reconciler reported `indexed` whenever import returned normally, without confirming the row was present.
+
+**Fix:** accept the publisher's existing catalogless naming form while still checking the MusicBrainz release prefix, year, disc layout and publication manifest. Return `indexed` for a specific import only if a matching SQLite `archive_path` row exists. Publisher and Go! reconciliation use this result before reporting `indexed`. No archive renaming, metadata rewriting, reripping, destructive changes or automatic re-publication.
+
+**Physical release catalog metadata warning:** the operator confirmed that *Desire* was supposed to have a catalog number, but its selected MusicBrainz release did not supply one. Before archiving future physical CDs, the standard read-only archive review now raises `missing_release_catalog_number` when its saved MusicBrainz metadata has no nonblank catalog number. The warning requires explicit acknowledgment under the existing approval gate; OSCAR never invents a printed number. The reported `CGi2010` from prior release review still needs verification against the physical CD/booklet before any MusicBrainz edit. Existing published folders, manifests, FLAC tags and prior approvals remain untouched. Adding a number to MusicBrainz later does not retroactively rename a published archive: any such repair must be separately reviewed and non-destructive.
+
+**Acceptance:** GitHub tests and Docker build must pass before merge. After deploying, explicitly click **Import published archive records** in Collection, then **Refresh collection**. The expected result is one additional Carmen Gomes Inc. *Desire* record, 12 tracks, `catalog_number` empty (not fabricated), `INFERRED_OPERATOR_ACCEPTED`. If not visible, inspect the importer result and configuration/mount paths; do not re-publish the same audio. The pre-fix durable ledger `indexed` value is historical and cannot itself be taken as current catalog evidence.
+
+**Follow-on:** improve Collection UI diagnostics for skipped manifests if necessary, then resume MusicBrainz edit-note UX and OAuth collection read access.
+
+---
+
 ## Unraid acceptance result — MusicBrainz Match Refresh (2026-11-20)
 
 **Observed directly in the operator's OSCAR UI:** PR #79's read-only refresh succeeded on historical staging job `b68488f667cc492d8dd94f90717cdb28` for Carmen Gomes Inc. *Desire* (2010), accepted MusicBrainz release `fa89edc1-32f9-4290-8788-bbac2e366a46`, Disc ID `VxfLacbEsNFCv5Ua4bvIeBIQ3jQ-`. OSCAR reported **"Saved Disc ID is now attached to the accepted release · medium 1"** while preserving `INFERRED_OPERATOR_ACCEPTED`. The workflow was `METADATA_READY`, `semi_automatic`, with tagged staging copy `9af8f01c736843ff8f53a1d7e8af2b56`; archive preview listed 12 tracks and proposed `Carmen Gomes Inc/Desire (2010) [fa89edc1]`.

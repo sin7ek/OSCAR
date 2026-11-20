@@ -527,7 +527,7 @@ def test_archive_reconciliation_recovers_manifest_after_worker_restart(rig, monk
                         lambda: rig[0])
     monkeypatch.setattr(
         __import__("oscar.collection_catalog", fromlist=["import_published"]),
-        "import_published", lambda **kw: {"imported": 1})
+        "import_published", lambda **kw: {"imported": 1, "indexed": True})
     done = go.reconcile_archive(job_id, publish_status=missing,
                                manifest_reader=lambda *a: validated)
     assert done["action"] == "archive_published"

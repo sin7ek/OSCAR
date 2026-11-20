@@ -381,6 +381,21 @@ def review(job_id, copy_id, kind="classical_v2", *, profile="auto", artwork=True
             track["musicbrainz_length_ms"] = known_lengths.get(track["number"])
     processing = resolve_music_profile(tracks, kind, requested=profile)
     metadata_review = consistency(tracks, profile=processing["name"])
+    # Missing MusicBrainz catalog metadata is an operator review condition,
+    # not permission to invent a catalog number from a different pressing.
+    catalog_numbers = album.get("catalog_numbers")
+    if not isinstance(catalog_numbers, list) or not any(
+            isinstance(number, str) and number.strip() for number in catalog_numbers):
+        metadata_review["flags"].append({
+            "severity": "review",
+            "code": "missing_release_catalog_number",
+            "tracks": [],
+            "message": ("Selected MusicBrainz release has no catalog number. "
+                        "Check the CD/disc/booklet and correct MusicBrainz if documented. "
+                        "OSCAR will not invent one; archive naming omits it."),
+        })
+        metadata_review["review_count"] = len(metadata_review["flags"])
+        metadata_review["status"] = "review_recommended"
     cue = cue_preview(root, tracks, album.get("title"), album.get("artist"),
                       profile=processing["name"])
     cover = cover_lookup(release_id) if artwork else {"status": "not_checked"}
