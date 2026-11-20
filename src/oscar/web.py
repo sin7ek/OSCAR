@@ -2099,8 +2099,22 @@ document.getElementById('save').onclick=async()=>{
  if(!r.ok)throw new Error(await r.text());status.textContent='Settings saved. No rip started.';}
  catch(e){status.textContent='Could not save: '+e.message}
 };
-init().then(()=>{
- if(trustedLocalUI){refreshGoCards(false);refreshReviewQueue(false)}
+init().then(async()=>{
+ // The access capability request and settings request race on first load.
+ // Await a definitive access response before filling the drive cards.
+ try{
+  const access=await fetch('/api/ui/access');
+  if(access.ok)trustedLocalUI=!!(await access.json()).trusted_local_ui;
+ }catch(e){trustedLocalUI=false}
+ if(trustedLocalUI){
+  await refreshGoCards(false);
+  await refreshReviewQueue(false);
+ }else{
+  document.getElementById('go-drive-cards').textContent=
+   'Use Refresh drive status to authenticate and load your drives.';
+  document.getElementById('review-jobs').textContent=
+   'Use Refresh review queue to authenticate and load tracked jobs.';
+ }
 }).catch(e=>document.getElementById('status').textContent=e.message);
 </script></body></html>"""
 
