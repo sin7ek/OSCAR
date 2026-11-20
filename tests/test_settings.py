@@ -104,7 +104,7 @@ def test_identification_modes_visible_but_not_misrepresented_as_active():
     html = TestClient(app).get("/").text
     for text in ("identification-mode", "secure-review-level", "best_guess", "semi_automatic",
                  "on_ambiguity", "before_archive", "every_step",
-                 "fully automatic tagging/publishing engine is not implemented yet"):
+                 "Best Guess automatic publication requires a separate container opt-in"):
         assert text in html
 
 
