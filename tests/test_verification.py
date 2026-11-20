@@ -245,7 +245,7 @@ def test_unpadded_cyanrip_tracks_pass_strict_checks_without_modifying_source(sta
     log = stage / "cyanrip-console.log"
     log.write_text(log_track(1).replace("audio/01 -", "audio/1 -") +
                    log_track(2).replace("audio/02 -", "audio/2 -") +
-                   "Ripping errors: 0\\n")
+                   "Ripping errors: 0\n")
     before = {p.name: p.read_bytes() for p in audio.iterdir()}
     result = verification._verify(stage, JOB, runner=mock_flac)
     assert result["status"] == "checks_passed"
