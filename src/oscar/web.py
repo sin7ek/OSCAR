@@ -1632,6 +1632,105 @@ async function goAdvance(){
    link.target='_blank';link.rel='noopener noreferrer';
    const row=document.createElement('p');row.append(link);output.append(row);
   }
+  if(data.action==='metadata_ready'){
+   const previewButton=document.createElement('button');
+   previewButton.type='button';
+   previewButton.textContent='Review actual tags, classical works, CUE and archive destination';
+   output.append(previewButton);
+   previewButton.onclick=async()=>{
+    const auth=requestAuthHeaders('Read Go archive preview');if(!auth)return;
+    previewButton.disabled=true;
+    try{
+     const response=await fetch('/api/go/jobs/'+id+'/archive/preview',{method:'POST',headers:auth});
+     const info=await response.json();
+     if(!response.ok)throw new Error(info.detail||'Archive review unavailable');
+     const r=info.archive_review||{}, p=info.publication_plan||{};
+     const section=document.createElement('section');
+     const title=document.createElement('h3');title.textContent='Archive review · '+(r.album?.title||info.release_id);
+     section.append(title);
+     const warn=document.createElement('p');
+     warn.textContent='INFERRED release: NOT physical-edition verified. Inspect physical packaging and the actual audio before final confirmation.';
+     section.append(warn);
+     const path=document.createElement('p');
+     path.textContent='Proposed archive destination: '+(p.relative_directory||'(unavailable)')+
+      (p.output_exists?' · ALREADY EXISTS: publishing blocked':'');
+     section.append(path);
+     const profile=document.createElement('p');
+     profile.textContent='Processing profile: '+(r.music_profile?.name||'unknown')+
+      ' · track count: '+(r.tracks||[]).length;
+     section.append(profile);
+     const heading=document.createElement('h4');heading.textContent='Actual FLAC tags / MusicBrainz relationships';
+     section.append(heading);
+     const table=document.createElement('table');
+     const head=document.createElement('tr');
+     for(const field of ['#','Title','Artist','Composer','Conductor','Work','Work ID','Recording ID']){
+      const th=document.createElement('th');th.textContent=field;head.append(th);
+     }
+     table.append(head);
+     for(const track of r.tracks||[]){
+      const row=document.createElement('tr');
+      for(const value of [track.number,track.title,track.artist,
+       (track.composer||[]).join('; '),(track.conductor||[]).join('; '),
+       (track.work_names||[]).join('; '),(track.work_ids||[]).join('; '),
+       track.recording_id||'']){
+       const cell=document.createElement('td');cell.textContent=String(value??'');row.append(cell);
+      }
+      table.append(row);
+     }
+     section.append(table);
+     const observations=p.metadata_observations||[];
+     const issues=document.createElement('p');
+     issues.textContent=observations.length?
+      'Metadata warnings: '+observations.map(x=>x.code+': '+x.message).join(' | '):
+      'No automatic metadata consistency warnings (not proof of correctness).';
+     section.append(issues);
+     const cueTitle=document.createElement('h4');cueTitle.textContent='Proposed archive CUE';section.append(cueTitle);
+     const cue=document.createElement('pre');cue.textContent=r.cue?.archive_cue_proposal||'No CUE proposal';section.append(cue);
+     const fingerprint=document.createElement('p');
+     fingerprint.textContent='Publication fingerprint: '+p.fingerprint;section.append(fingerprint);
+     const approval=document.createElement('button');approval.type='button';
+     approval.textContent='Approve reviewed archive publication (explicit, no source deletion)';
+     approval.disabled=Boolean(p.output_exists);
+     section.append(approval);
+     approval.onclick=async()=>{
+      const confirmation=window.confirm(
+       'Confirm this exact inferred MusicBrainz release, actual tags, CUE and destination for permanent archive publication? The physical edition is NOT verified by OSCAR. No original files are removed.');
+      if(!confirmation)return;
+      const acknowledge=observations.length>0 && window.confirm(
+       'The metadata consistency review flagged '+observations.length+' observations. Acknowledge and publish anyway?');
+      if(observations.length&&!acknowledge)return;
+      const headers=requestAuthHeaders('Publish reviewed Go archive');if(!headers)return;
+      approval.disabled=true;
+      try{
+       const publishResponse=await fetch('/api/go/jobs/'+id+'/archive/publish',{
+        method:'POST',headers:{'Content-Type':'application/json',...headers},
+        body:JSON.stringify({fingerprint:p.fingerprint,confirmation:'PUBLISH_REVIEWED_ARCHIVE',
+         acknowledge_metadata_observations:acknowledge})
+       });
+       const started=await publishResponse.json();
+       if(!publishResponse.ok)throw new Error(started.detail||'Publication blocked');
+       const msg=document.createElement('p');
+       msg.textContent='Archive publication '+started.result.publish_id+' started; original rip preserved.';
+       section.append(msg);
+       const progress=async()=>{
+        const statusResponse=await fetch('/api/rip/jobs/'+id+'/archive-publish/'+started.result.publish_id,{headers});
+        const status=await statusResponse.json();
+        if(!statusResponse.ok){msg.textContent='Publication status unavailable: '+(status.detail||'inspect archive');return}
+        msg.textContent='Archive publication '+started.result.publish_id+' · '+status.status+
+         (status.error?' · '+status.error:'')+
+         '. Catalog indexing is a separate step.';
+        if(status.status==='running')setTimeout(progress,4000);
+       };
+       await progress();
+      }catch(err){approval.disabled=false;const msg=document.createElement('p');
+       msg.textContent='Publication blocked: '+err.message;section.append(msg)}
+     };
+     output.append(section);
+    }catch(err){const error=document.createElement('p');
+     error.textContent='Archive preview unavailable: '+err.message;output.append(error)}
+    finally{previewButton.disabled=false}
+   };
+  }
   if(data.action==='semi_release_review'){
    const label=document.createElement('label');
    label.textContent='Review the MusicBrainz candidate (this is NOT physical-edition verification)';

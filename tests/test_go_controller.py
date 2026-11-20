@@ -378,3 +378,111 @@ def test_go_metadata_preview_failure_never_reserves_copy(rig):
     state = ledger.refresh(job_id)
     assert state["phase"] == "RELEASE_ACCEPTED"
     assert state["metadata_copy_id"] == ""
+
+
+def _prepare_verified_go_archive(rig, monkeypatch, mode="semi_automatic"):
+    from oscar import metadata_staging
+    rig[1]["mode"] = mode
+    job_id = _finish(rig)
+    rig[2]["status"] = "checks_passed"
+    go.advance(job_id, lookup=lambda disc, toc: {"releases": [{"id": RELEASE1}]})
+    if mode == "semi_automatic":
+        ledger.accept_semi_release(job_id, RELEASE1, "ACCEPT_INFERRED_RELEASE")
+    calls, adapters = _fake_metadata_flow(job_id, RELEASE1)
+    go.advance(job_id, **adapters)
+    go.advance(job_id, **adapters)
+    state = ledger.refresh(job_id)
+    assert state["phase"] == "METADATA_READY"
+    monkeypatch.setattr(metadata_staging, "inspect_copy", lambda job, copy: {
+        "status": "tags_match_preview", "release_id": RELEASE1})
+    return job_id, state["metadata_copy_id"]
+
+
+def _fake_go_archive_plan(job_id, copy_id):
+    return {"job_id": job_id, "copy_id": copy_id, "release_id": RELEASE1,
+            "fingerprint": "a" * 64, "relative_directory": "Boulez/Stravinsky",
+            "output_exists": False, "metadata_observations": []}
+
+
+def test_go_archive_preview_only_after_verified_copy(rig, monkeypatch):
+    job_id = _finish(rig)
+    rig[2]["status"] = "checks_passed"
+    with pytest.raises(go.GoError, match="METADATA_READY"):
+        go.archive_preview(job_id)
+    # The shared fixture tracks verification callbacks for each mocked rip.
+    # Reset its list before starting the independent verified-copy scenario.
+    rig[3].clear()
+    prepared_job, copy = _prepare_verified_go_archive(rig, monkeypatch)
+    review = lambda *a, **kw: {"release_id": RELEASE1, "tracks": [
+        {"number": 1, "work_ids": ["work-1"], "conductor": ["Boulez"]}]}
+    preview = go.archive_preview(
+        prepared_job, review=review,
+        prepare=lambda *a, **kw: _fake_go_archive_plan(prepared_job, copy))
+    assert preview["can_publish"]
+    assert preview["requires_operator_confirmation"]
+    assert preview["archive_review"]["tracks"][0]["work_ids"] == ["work-1"]
+    assert preview["release_match_status"] == "INFERRED_OPERATOR_ACCEPTED"
+
+
+def test_go_archive_publish_confirmation_fingerprint_and_source(rig, monkeypatch):
+    job_id, copy = _prepare_verified_go_archive(rig, monkeypatch)
+    plan = _fake_go_archive_plan(job_id, copy)
+    launched = []
+    def publish(*args, **kwargs):
+        launched.append((args, kwargs))
+        return {"publish_id": "b" * 32, "status": "running"}
+    adapter = lambda *a, **kw: plan
+    with pytest.raises(go.GoError, match="confirmation"):
+        go.archive_publish_start(job_id, "a"*64, "NOT_APPROVED",
+                                 prepare=adapter, start=publish)
+    with pytest.raises(go.GoError, match="changed"):
+        go.archive_publish_start(job_id, "b"*64, "PUBLISH_REVIEWED_ARCHIVE",
+                                 prepare=adapter, start=publish)
+    assert not launched
+    result = go.archive_publish_start(
+        job_id, "a"*64, "PUBLISH_REVIEWED_ARCHIVE",
+        prepare=adapter, start=publish)
+    assert len(launched) == 1
+    assert launched[0][0][1] == copy
+    assert result["release_match_status"] == "INFERRED_OPERATOR_ACCEPTED"
+
+
+def test_go_archive_publish_observations_and_existing_destination_block(rig, monkeypatch):
+    job_id, copy = _prepare_verified_go_archive(rig, monkeypatch)
+    plan = _fake_go_archive_plan(job_id, copy)
+    plan["metadata_observations"] = [{"code": "missing_classical_work_link"}]
+    launched = []
+    publisher = lambda *a, **kw: launched.append((a,kw))
+    with pytest.raises(go.GoError, match="acknowledgement"):
+        go.archive_publish_start(job_id, "a"*64, "PUBLISH_REVIEWED_ARCHIVE",
+                                 prepare=lambda *a, **kw: plan, start=publisher)
+    plan["output_exists"] = True
+    with pytest.raises(go.GoError, match="exists"):
+        go.archive_publish_start(job_id, "a"*64, "PUBLISH_REVIEWED_ARCHIVE",
+                                 acknowledge_observations=True,
+                                 prepare=lambda *a, **kw: plan, start=publisher)
+    assert not launched
+
+
+def test_go_archive_publisher_rejects_wrong_release_and_inspection(rig, monkeypatch):
+    from oscar import metadata_staging
+    job_id, copy = _prepare_verified_go_archive(rig, monkeypatch)
+    wrong = _fake_go_archive_plan(job_id, copy)
+    wrong["release_id"] = RELEASE2
+    with pytest.raises(go.GoError, match="differs"):
+        go.archive_preview(job_id,
+            review=lambda *a, **kw: {"release_id": RELEASE1},
+            prepare=lambda *a, **kw: wrong)
+    monkeypatch.setattr(metadata_staging, "inspect_copy", lambda *a: {
+        "status": "review_required", "release_id": RELEASE1})
+    with pytest.raises(go.GoError, match="no longer matches"):
+        go.archive_publish_start(job_id, "a"*64, "PUBLISH_REVIEWED_ARCHIVE")
+
+
+def test_go_archive_endpoints_require_auth(rig):
+    client = TestClient(app)
+    job_id = "f" * 32
+    assert client.post(f"/api/go/jobs/{job_id}/archive/preview").status_code == 403
+    assert client.post(f"/api/go/jobs/{job_id}/archive/publish",
+        json={"fingerprint": "a"*64,
+              "confirmation": "PUBLISH_REVIEWED_ARCHIVE"}).status_code == 403
