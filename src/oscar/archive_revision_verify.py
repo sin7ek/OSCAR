@@ -93,11 +93,12 @@ def _verify_locked(operation_id):
             or lineage.get("parent_publish_id") != row["source_publish_id"]
             or lineage.get("parent_manifest_sha256") != row["source_manifest_sha256"]):
         raise ArchiveVerifyError("Archive publication ancestry differs from journal")
-    old_snapshot = scan._archive_snapshot(str(old))
+    # Historical versions are intentionally hidden under a 4-level archive
+    # history path, not the regular /artist/album layout understood by the
+    # live archive scanner. Verify their original hashes directly instead.
     new_snapshot = scan._archive_snapshot(str(new))
-    if (old_snapshot["release_id"] != new_snapshot["release_id"]
-            or old_snapshot["disc_id"] != new_snapshot["disc_id"]):
-        raise ArchiveVerifyError("Original/new disc identity differs")
+    if original.get("release_id") != new_snapshot["release_id"]:
+        raise ArchiveVerifyError("Original/new MusicBrainz release identity differs")
     old_files = original.get("files") or []
     new_files = current.get("files") or []
     if (not old_files or len(old_files) != len(new_files)
@@ -117,8 +118,15 @@ def _verify_locked(operation_id):
         raise ArchiveVerifyError("Non-audio evidence or cover art differs from original")
     checked = 0
     for index, (before, after) in enumerate(zip(old_files, new_files), 1):
-        source = FLAC(str(old / before["filename"]))
+        original_file = old / before["filename"]
+        if (original_file.is_symlink() or not original_file.is_file()
+                or scan._digest(original_file) != before["sha256"]):
+            raise ArchiveVerifyError("Retained original FLAC SHA-256 mismatch")
+        source = FLAC(str(original_file))
         target = FLAC(str(new / after["filename"]))
+        if (source.get("MUSICBRAINZ_ALBUMID", []) != [new_snapshot["release_id"]]
+                or source.get("MUSICBRAINZ_DISCID", []) != [new_snapshot["disc_id"]]):
+            raise ArchiveVerifyError("Original/new MusicBrainz CD identity differs")
         if (_streaminfo_md5_hex(source.info.md5_signature)
                 != _streaminfo_md5_hex(target.info.md5_signature)):
             raise ArchiveVerifyError("FLAC audio STREAMINFO MD5 was changed")
