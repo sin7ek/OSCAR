@@ -4,7 +4,7 @@
 >
 > **Maintained manually at each significant milestone.** This is a working *handoff*, not another roadmap/dashboard. Review GitHub `main` and recent PRs before trusting status details. Do not paste API keys, access tokens, private file contents, or real secrets into this document.
 >
-> **Last factual operator report:** 2026-11-20 21:57 UTC (7 SQLite decision events on real Unraid). **Latest merged engineering change:** PR #98, merge commit `2cb9c47e6603a95da81aaebf6f496dd4d5543049`, after two successful GitHub Tests runs and a successful Docker build. Real Unraid acceptance for new alias/tagging behavior is still pending. Verify current `main` in the next chat; subsequent changes may supersede this handoff.
+> **Last factual operator report:** 2026-11-20 (seven SQLite decision events plus **successful read-only migration preview for Carmen Gomes on real Unraid**). **Latest merged engineering change:** PR #98, merge commit `2cb9c47e6603a95da81aaebf6f496dd4d5543049`, after two successful GitHub Tests runs and a successful Docker build. Real Unraid acceptance for new alias/tagging behavior is still pending. Verify current `main` in the next chat; subsequent changes may supersede this handoff.
 
 ## 1. Fast context for the next assistant
 
@@ -50,6 +50,8 @@ Exact recorded decision history (UTC, from operator-provided output):
 - 21:57:37.921509 — accepted Boulez `Disc 06 LABEL`.
 - 21:57:41.643189 — accepted Boulez `Disc 04 LABEL`.
 
+**Additional live Unraid acceptance:** the Carmen Gomes single-disc Archive Metadata Migration preview rendered the correct catalog-number path change, 2 reviewed differences, 12 tracks, original publish ID `3908eef79f114450b0a7eb76bec44926` and stated `No changes yet`. No apply has been performed or verified. Do not conflate rendered preview with persistent migration, archive hash verification after publication, or rollback acceptance.
+
 Operator previously reported a repeated scan with `1 detected; 1 already accepted/ignored; 0 pending`, confirming same-semantic-proposal suppression on that real instance. Separate container-restart persistence / full-root scan and versioned-apply tests may need explicit new evidence depending on what has since been reported.
 
 ### Expected safe catalog rename when operator eventually approves apply
@@ -70,7 +72,7 @@ Revision engine must keep the original byte-identical publication in hidden `.os
 ## 5. Highest-priority next work (NOT automatically done)
 
 1. Verify PR #98's actual deployment and `LABEL`/`RECORDLABEL` behavior on Unraid; GitHub Tests and Docker CI passed, but live operator acceptance is pending.
-2. Operator should pull the current OSCAR image and run a **read-only full-archive metadata scan**, reporting counts/errors, then inspect **Archive Metadata Migration Preview** for Carmen Gomes and Anastacia. The migration **apply** remains deliberately disabled until a separate real-Unraid safety review.
+2. **Carmen Gomes Unraid preview CONFIRMED:** the operator's live Archive Metadata Migration preview found 12 tracks, 2 accepted changes, original publish ID `3908eef79f114450b0a7eb76bec44926`, and proposed `/archive/Carmen Gomes Inc/Desire (2010) [fa89edc1]` → `/archive/Carmen Gomes Inc/[CGi2010] Desire (2010) [fa89edc1]`. This proves preview/planning only: **NO APPLY OR ARCHIVE MUTATION HAS BEEN CONFIRMED**. Next check full-root scan results, Anastacia preview, archive + Collection DB backups, capacity, and filesystem readiness before explicitly reviewing any apply. The opt-in apply remains unaccepted on Unraid.
 3. Audit/strengthen boxset-wide album label semantics: multi-disc release grouping, avoid duplicates in user review, exact CD-medium checks, incomplete boxsets, coordinated safe archive publication and persistent Collection linkage. Do not repurpose single-CD migration.
 4. Perform a deliberate Unraid single-CD version-migration acceptance, with backup, adequate free space, `flac -t` on each track, correct new directory, retained original generation, manifest provenance, Collection row and no rescan duplicates. Failure scenarios and recovery/reconcile need explicit evidence before promoting this to a recommended procedure.
 5. Revisit label sources: actual FLAC `LABEL` vs `RECORDLABEL`, Collection `label`, manifest `label_info`, exact MusicBrainz release `label_info`. Keep canonical writes and transparent provenance; do not silently overwrite manually curated values.
