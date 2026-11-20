@@ -1,0 +1,140 @@
+# OSCAR — beginner-friendly Unraid / Portainer Compose DRAFT
+#
+# DOCUMENTATION DRAFT ONLY — NOT REVIEWED OR APPROVED FOR PUBLIC INSTALLATION.
+# See docs/PROJECT_STATUS.md for the mandatory validation checklist.
+# Do not automatically deploy this example on an existing OSCAR installation.
+# It deliberately uses example paths and conservative feature flags.
+# Keep your own working stack until you have reviewed and adapted every setting.
+#
+# A Docker *image* is the application package.
+# A *container* is the running application created from that image.
+# A *volume* (bind mount here) maps a folder on your server into the container.
+# An *environment variable* configures application behavior or supplies a secret.
+# A *network* determines how other devices can reach the container.
+
+services:
+  oscar:
+    # Main is the current DEVELOPMENT version, not a stable release.
+    image: ghcr.io/sin7ek/oscar:main
+    # Friendly name visible in Portainer and Docker.
+    container_name: oscar
+    # Restart after reboot unless you stopped OSCAR manually.
+    restart: unless-stopped
+
+    # Run as an ordinary Linux user instead of root.
+    # 1000:1000 is only an example, NOT a universal Unraid UID/GID.
+    # Check "id" and ensure this user can access your mapped folders/drives.
+    user: "1000:1000"
+
+    environment:
+      # ---- Container folder paths --------------------------------------
+      # These are paths INSIDE OSCAR's container, NOT on the host.
+      # The "volumes" section below maps real host folders to these paths.
+      OSCAR_CONFIG_PATH: /config/settings.json  # persistent settings file
+      OSCAR_RIP_ROOT: /staging                   # temporary rip/work files
+      OSCAR_ARCHIVE_ROOT: /archive               # permanent verified archive
+
+      # ---- OSCAR features: "1" = on, "0" = off --------------------------
+      OSCAR_ENABLE_MEDIA_PROBE: "1"              # detect inserted media
+      OSCAR_ENABLE_TOC_PROBE: "1"                # inspect CD table of contents
+      OSCAR_ENABLE_MUSICBRAINZ: "1"              # read public release metadata
+      OSCAR_ENABLE_METADATA_WORKER: "1"         # prepare metadata in staging
+      OSCAR_ENABLE_RIPPING: "1"                 # allow CD ripping
+      OSCAR_ENABLE_ARCHIVE_PUBLISH: "1"        # allow explicit reviewed publishing
+
+      # For beginners, avoid autonomous best-guess archive publication.
+      OSCAR_ENABLE_BEST_GUESS_AUTO_PUBLISH: "0"
+
+      # CAUTION: enables metadata revisions that WRITE to the archive.
+      # Keep disabled until you have tested the preview, read recovery
+      # instructions, and backed up the archive and Collection database.
+      OSCAR_ENABLE_ARCHIVE_REVISIONS: "0"
+
+      # OSCAR has no built-in user login; local trusted mode does not
+      # replace authentication. Enable only on an isolated LAN or behind
+      # an authenticated reverse proxy, after reviewing the risk.
+      OSCAR_TRUSTED_LOCAL_UI: "0"
+
+      # ---- Secrets ------------------------------------------------------
+      # NEVER commit actual tokens to GitHub or paste them in issue reports.
+      # Configure these using Portainer Stack > Environment variables,
+      # or a local .env file outside version control.
+      # Syntax ${NAME:?message} stops deployment when a value is missing.
+      # Create RIP_TOKEN with "openssl rand -hex 32": 32 random bytes,
+      # represented as 64 hexadecimal characters (256 bits).
+      OSCAR_RIP_TOKEN: ${OSCAR_RIP_TOKEN:?Set OSCAR_RIP_TOKEN}
+
+      # OPTIONAL: Discogs Personal Access Token, NOT application API keys.
+      # Generate it at https://www.discogs.com/settings/developers
+      # The variable is PAT (Personal Access Token), not PAK.
+      OSCAR_DISCOGS_PAT: ${OSCAR_DISCOGS_PAT:-}
+
+      # RESERVED FOR FUTURE MusicBrainz OAuth account features:
+      # ordinary MusicBrainz metadata lookups do not need these.
+      # OSCAR_MUSICBRAINZ_ID: ${OSCAR_MUSICBRAINZ_ID:-}
+      # OSCAR_MUSICBRAINZ_CS: ${OSCAR_MUSICBRAINZ_CS:-}
+
+      # Container timezone. Change to your IANA timezone when elsewhere.
+      TZ: Europe/Amsterdam
+
+    # ---- Optical drives ------------------------------------------------
+    # This example uses one drive; uncomment others only if present.
+    # Check "lsblk" and "ls -l /dev/sr0" on the Docker host.
+    # Device permissions vary. Read-only :r may need hardware validation.
+    devices:
+      - /dev/sr0:/dev/sr0:r
+      # - /dev/sr1:/dev/sr1:r
+      # - /dev/sr2:/dev/sr2:r
+
+    # Supplementary host group for CD drive access. Group 19 is only
+    # an example; verify the numeric group shown by "ls -l /dev/sr0".
+    group_add:
+      - "19"
+
+    # ---- Persistent data -----------------------------------------------
+    # Format: HOST_PATH:CONTAINER_PATH:ACCESS
+    # HOST_PATH belongs to your server; choose paths you own and back up.
+    # :rw allows reads and writes. :ro permits reads only.
+    # The sample staging and archive paths are intentionally separate.
+    # Do NOT place /archive inside the host folder mounted as /staging.
+    # Do NOT copy these example paths over your existing production paths.
+    volumes:
+      - /mnt/user/appdata/oscar:/config:rw
+      - /mnt/user/ai-workspace/oscar-staging:/staging:rw
+      - /mnt/user/ai-workspace/oscar-archive:/archive:rw
+
+      # Linux device discovery information; read-only.
+      - /sys/class/block:/sys/class/block:ro
+      - /dev/disk/by-id:/dev/disk/by-id:ro
+      - /dev/disk/by-path:/dev/disk/by-path:ro
+
+    # ---- Network: advanced Unraid br0 example -------------------------
+    # This assumes an existing, correctly configured external "br0"
+    # Docker network. Choose a FREE LAN address and reserve it in DHCP.
+    # If you do not have br0, use a basic bridge + published port instead;
+    # the beginner Getting Started guide will explain both approaches.
+    networks:
+      lan:
+        ipv4_address: 192.168.1.70
+
+    # ---- Container hardening -------------------------------------------
+    # read_only protects the container image filesystem itself;
+    # host folders mapped as :rw remain writable.
+    read_only: true
+
+    # /tmp is RAM-backed, and does not survive container restarts.
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+
+    # Drop unnecessary capabilities and disable privilege escalation.
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+# The existing Docker network on the HOST must be called "br0".
+# This is an Unraid-specific advanced example; not portable as-is.
+networks:
+  lan:
+    external: true
+    name: br0
