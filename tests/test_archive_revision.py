@@ -56,6 +56,10 @@ def fixture(tmp_path, monkeypatch):
     monkeypatch.delenv("OSCAR_TRUSTED_LOCAL_UI", raising=False)
     monkeypatch.setattr(scanner, "FLAC", FakeFlac)
     monkeypatch.setattr(revision, "FLAC", FakeFlac)
+    monkeypatch.setattr(catalog, "_archive_tag_metadata", lambda album, manifest: {
+        **{field: "" for field in catalog._ENRICHED},
+        "legacy_soloists": "",
+    })
     monkeypatch.setattr(revision.subprocess, "run", lambda *args, **kwargs: SimpleNamespace(returncode=0))
     source_bytes = {}
     files = []
@@ -177,7 +181,7 @@ def test_no_mutation_when_opt_in_disabled_or_fingerprint_stale(fixture, monkeypa
     with pytest.raises(revision.RevisionError, match="disabled"):
         revision.apply(str(old), plan["fingerprint"], "APPLY_VERIFIED_ARCHIVE_REVISION")
     monkeypatch.setenv("OSCAR_ENABLE_ARCHIVE_REVISIONS", "1")
-    with pytest.raises(revision.RevisionError, match="fingerprint"):
+    with pytest.raises(revision.RevisionError, match="changed since migration preview"):
         revision.apply(str(old), "0"*64, "APPLY_VERIFIED_ARCHIVE_REVISION")
     assert {name: (old/name).read_bytes() for name in source_bytes} == source_bytes
     assert len(revision.operations()["items"]) == 0
