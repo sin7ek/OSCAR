@@ -384,6 +384,7 @@ def _do_publish(plan, publish_id, *, allow_metadata_observations, cover_download
                 "status": "published_verified", "publish_id": publish_id,
                 "job_id": job_id, "copy_id": copy_id,
                 "release_id": new_plan["release_id"], "profile": new_plan["profile"],
+                "release_match_status": plan.get("_release_match_status") or "EDITION_NOT_VERIFIED",
                 "label_info": new_plan["album"].get("labels") or [],
                 "disc_number": new_plan["disc_number"],
                 "disc_total": new_plan["disc_total"],
@@ -434,9 +435,12 @@ def _do_publish(plan, publish_id, *, allow_metadata_observations, cover_download
 
 def start(job_id, copy_id, kind, profile, fingerprint, confirmation,
           *, acknowledge_observations=False, include_cover=False,
-          approve_cover=False):
+          approve_cover=False, release_match_status=None):
     if confirmation != _CONFIRM:
         raise PublishError("Explicit archive publishing confirmation is required")
+    if release_match_status not in {None, "INFERRED_OPERATOR_ACCEPTED",
+                                    "INFERRED_NOT_PHYSICALLY_VERIFIED"}:
+        raise PublishError("Unsupported edition provenance for archive publishing")
     if not isinstance(fingerprint, str) or not re.fullmatch(r"[a-f0-9]{64}", fingerprint):
         raise PublishError("A reviewed plan fingerprint is required")
     if include_cover and not approve_cover:
@@ -449,6 +453,8 @@ def start(job_id, copy_id, kind, profile, fingerprint, confirmation,
         raise PublishError("Archive target already exists; refusing to overwrite")
     if plan["metadata_observations"] and not acknowledge_observations:
         raise PublishError("Review observations require acknowledgement")
+    # Provenance is server-supplied; not an operator-editable MusicBrainz match.
+    plan["_release_match_status"] = release_match_status
     publish_id = uuid.uuid4().hex
     with _LOCK:
         if (job_id, copy_id) in _RUNNING:
@@ -460,6 +466,17 @@ def start(job_id, copy_id, kind, profile, fingerprint, confirmation,
         try:
             result = _do_publish(plan, publish_id,
                                  allow_metadata_observations=acknowledge_observations)
+            if result.get("status") == "published_verified":
+                # Archive verification is independent of catalog SQLite success.
+                # Index only the newly promoted directory, never the entire tree.
+                try:
+                    from oscar.collection_catalog import import_published
+                    dest = archive_root() / result["relative_directory"]
+                    result["catalog"] = {"status": "indexed",
+                                         **import_published(only_path=dest)}
+                except Exception as catalog_exc:
+                    result["catalog"] = {"status": "index_required",
+                                         "error": f"{type(catalog_exc).__name__}: {catalog_exc}"[:350]}
         except Exception as exc:
             result = {"job_id": job_id, "copy_id": copy_id,
                       "publish_id": publish_id, "status": "failed",
