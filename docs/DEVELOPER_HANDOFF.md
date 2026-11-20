@@ -4,7 +4,7 @@
 >
 > **Maintained manually at each significant milestone.** This is a working *handoff*, not another roadmap/dashboard. Review GitHub `main` and recent PRs before trusting status details. Do not paste API keys, access tokens, private file contents, or real secrets into this document.
 >
-> **Last factual operator report:** 2026-11-20 21:57 UTC (7 SQLite decision events on real Unraid). **Draft engineering branch at handoff creation:** `feature/label-alias-and-developer-handoff`. Verify its final merge/CI outcome via GitHub; this document is intentionally future-proof against subsequent branch changes.
+> **Last factual operator report:** 2026-11-20 21:57 UTC (7 SQLite decision events on real Unraid). **Latest merged engineering change:** PR #98, merge commit `2cb9c47e6603a95da81aaebf6f496dd4d5543049`, after two successful GitHub Tests runs and a successful Docker build. Real Unraid acceptance for new alias/tagging behavior is still pending. Verify current `main` in the next chat; subsequent changes may supersede this handoff.
 
 ## 1. Fast context for the next assistant
 
@@ -28,7 +28,7 @@
 - **PR #89** built an archive-first read-only MusicBrainz change scanner and durable SQLite decisions. **#90** documented status. **#91** recorded first real Unraid proposed-field detections.
 - **PR #92** added `Reopen decision` preserving the original `ignored` event; **#93** prevented reopening superseded historical rows. These were demonstrated on real Unraid.
 - **PR #94** added whole-archive scanning and renamed the Discogs environment variable to **`OSCAR_DISCOGS_PAT`** (not PAK). **#95** added single-CD archive revision apply/preview, original-generation retention and crash journal; **#96** updated status docs.
-- **PR #97** saved an **explicitly unreviewed** beginner-oriented `compose.unraid.example.yml` draft and scheduled a clear `docs/GETTING_STARTED.md`. The user's own working Docker Compose was NOT changed.
+- **PR #97** saved an **explicitly unreviewed** beginner-oriented `compose.unraid.example.yml` draft and scheduled a clear `docs/GETTING_STARTED.md`. The user's own working Docker Compose was NOT changed.\n- **PR #98** merged the LABEL/RECORDLABEL scan and initial FLAC tagging fix, an approved-label migration alias consistency fix, tests and this handoff. GitHub Tests + Docker CI green; *not* yet verified against real Unraid label-tag output.
 - `MUSICBRAINZ_ALBUMID` is the physical **MusicBrainz release ID** in FLAC tags; `MUSICBRAINZ_DISCID` is the Disc ID; `MUSICBRAINZ_TRACKID` is recording identity. `manifest.json.release_id` and `archive_items.musicbrainz_release_id` carry the release UUID.
 - **PR #95 archive migrations are disabled by default**. The Unraid operator must explicitly set `OSCAR_ENABLE_ARCHIVE_REVISIONS=1` and approve preview/apply before any version promotion. This code has GitHub Tests/Docker evidence, **not live-Unraid mutation acceptance**. Single-CD only; boxsets blocked.
 - Unraid had **7 auditable decision events** at the last operator report. They are decisions, NOT automatically applied metadata revisions.
@@ -63,13 +63,13 @@ Revision engine must keep the original byte-identical publication in hidden `.os
 
 - User reported Boulez label suggestions despite Deutsche Grammophon appearing in Collection and wondered whether `RECORDLABEL` was involved.
 - Verified root: the scanner used the **first published FLAC `LABEL` tag**, not the independent Collection `label` value or `manifest.label_info`. An absent FLAC `LABEL` therefore legitimately creates an archive-tag enrichment proposal. Do not mark a missing FLAC tag as already applied merely because SQLite has that label.
-- In the current `feature/label-alias-and-developer-handoff` branch, a focused correction is in progress: newly staged copies write exact MusicBrainz label names to multivalue `LABEL`; existing FLAC `RECORDLABEL` may be recognized as a legacy alias; conflicting `LABEL`/`RECORDLABEL` must fail closed instead of silently replacing metadata; Collection reads `RECORDLABEL` as supplementary label evidence.
+- Merged in PR #98: new staging copies now write exact MusicBrainz label names to multivalue `LABEL`; existing FLAC `RECORDLABEL` may be recognized as a legacy alias; conflicting `LABEL`/`RECORDLABEL` must fail closed instead of silently replacing metadata; Collection reads `RECORDLABEL` as supplementary label evidence.
 - **Critical compatibility:** existing accepted fingerprints (including both Boulez discs) should remain valid; proposal fingerprints are derived from original archived manifest, field and before/after. Do not alter `LABEL` canonical naming or rewrite existing decisions without migration design.
 - Cross-disc boxset label proposals currently remain **per archived disc**. Future feature must group them logically by physical MusicBrainz release while still explicitly reviewing per-disc applicability and only writing tags for verified/available discs. A 6CD release with only discs 4 and 6 in OSCAR must not be treated as complete or expose a single-disc apply action.
 
 ## 5. Highest-priority next work (NOT automatically done)
 
-1. Verify the code/CI/merge outcome of the label-alias and handoff PR (branch named above); fix tests if needed.
+1. Verify PR #98's actual deployment and `LABEL`/`RECORDLABEL` behavior on Unraid; GitHub Tests and Docker CI passed, but live operator acceptance is pending.
 2. Operator should pull the current OSCAR image and run a **read-only full-archive metadata scan**, reporting counts/errors, then inspect **Archive Metadata Migration Preview** for Carmen Gomes and Anastacia. The migration **apply** remains deliberately disabled until a separate real-Unraid safety review.
 3. Audit/strengthen boxset-wide album label semantics: multi-disc release grouping, avoid duplicates in user review, exact CD-medium checks, incomplete boxsets, coordinated safe archive publication and persistent Collection linkage. Do not repurpose single-CD migration.
 4. Perform a deliberate Unraid single-CD version-migration acceptance, with backup, adequate free space, `flac -t` on each track, correct new directory, retained original generation, manifest provenance, Collection row and no rescan duplicates. Failure scenarios and recovery/reconcile need explicit evidence before promoting this to a recommended procedure.
