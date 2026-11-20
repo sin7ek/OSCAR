@@ -15,7 +15,7 @@ Created an explicitly **unreviewed** commented Unraid/Portainer Compose example:
 
 ## Developer handoff and exact label handling (2026-11-20)
 
-Added a dedicated [developer handoff](DEVELOPER_HANDOFF.md) for OSCAR chat 5, separate from chronological project status and progress scores: concise source map, verified status vs untested claims, 7 Unraid decision events, blockers, migration safety contracts and explicit next tasks. The latest operator report includes separate accepted Deutsche Grammophon labels on Boulez discs 4 and 6; these are **not applied archive changes**. A focused code branch addresses missing initial `LABEL` tags and `RECORDLABEL` alias detection; a safe coordinated boxset migration still remains future work. GitHub tests and actual Unraid validation for these new changes pending. No maturity percent increase.
+Added a dedicated [developer handoff](DEVELOPER_HANDOFF.md) for OSCAR chat 5, separate from chronological project status and progress scores: concise source map, verified status vs untested claims, 7 Unraid decision events, blockers, migration safety contracts and explicit next tasks. The latest operator report includes separate accepted Deutsche Grammophon labels on Boulez discs 4 and 6; these are **not applied archive changes**. PR #98 merged after GitHub Tests and Docker CI; its code addresses missing initial `LABEL` tags and `RECORDLABEL` alias detection; a safe coordinated boxset migration still remains future work. GitHub tests and Docker build succeeded; real Unraid verification of the new LABEL/RECORDLABEL behavior is still pending. No maturity percent increase.
 
 ---
 
