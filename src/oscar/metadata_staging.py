@@ -22,7 +22,7 @@ from oscar.musicbrainz import MusicBrainzError
 _LOCK = threading.Lock()
 _JOBS = {}
 _RUNNING = set()
-_SAFE_FLAC = re.compile(r"audio/(\d{2,3}) - [^/\\]+\.flac\Z")
+_SAFE_FLAC = re.compile(r"audio/([1-9]\d{0,2}) - [^/\\]+\.flac\Z")
 _COPY_ID = re.compile(r"[a-f0-9]{32}\Z")
 
 
