@@ -167,6 +167,34 @@ def preview(archive_path):
     return _plan(archive_path)
 
 
+def _verify_preserved_evidence(base, manifest):
+    """Validate non-audio publication evidence, independent of original staging."""
+    cue = manifest.get("cue") or {}
+    filename = cue.get("filename")
+    digest = cue.get("sha256")
+    if (not isinstance(filename, str) or Path(filename).name != filename
+            or not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest)):
+        raise RevisionError("Original archive CUE lacks a verified manifest digest")
+    path = base / filename
+    if path.is_symlink() or not path.is_file() or scanner._digest(path) != digest:
+        raise RevisionError("Original published CUE changed or is missing")
+    for evidence in manifest.get("source_evidence") or []:
+        if not isinstance(evidence, dict):
+            raise RevisionError("Invalid archived extraction evidence manifest")
+        relative = evidence.get("filename")
+        wanted = evidence.get("sha256")
+        if (not isinstance(relative, str) or not relative.startswith("ExtractionEvidence/")
+                or Path(relative).is_absolute() or ".." in Path(relative).parts
+                or not isinstance(wanted, str) or not re.fullmatch(r"[a-f0-9]{64}", wanted)):
+            raise RevisionError("Unsafe original extraction evidence filename/hash")
+        source = base / relative
+        if (source.is_symlink() or not source.is_file()
+                or scanner._digest(source) != wanted
+                or source.stat().st_size != evidence.get("size")):
+            raise RevisionError("Archived extraction CUE/log differs from original evidence")
+    return True
+
+
 def _copy_and_retag(plan, temp, source, *, flac_factory=None, runner=None):
     factory = flac_factory or FLAC
     command = runner or subprocess.run
@@ -179,6 +207,8 @@ def _copy_and_retag(plan, temp, source, *, flac_factory=None, runner=None):
     shutil.copytree(source, temp, symlinks=False)
     manifest_path = temp / "manifest.json"
     original_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    _verify_preserved_evidence(source, original_manifest)
+    _verify_preserved_evidence(temp, original_manifest)
     changes = plan["accepted_changes"]
     files = original_manifest["files"]
     release_fields = {x["field"]: x["after"] for x in changes if x["scope"] == "release"}
