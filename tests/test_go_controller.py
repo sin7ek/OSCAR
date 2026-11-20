@@ -644,3 +644,44 @@ def test_reconciler_refuses_symlinked_archive_parent(rig, monkeypatch, tmp_path)
     (rig[0] / "Linked").symlink_to(elsewhere, target_is_directory=True)
     monkeypatch.setattr(archive_publish, "archive_root", lambda: rig[0])
     assert go._read_published_archive(job_id, reserved) is None
+
+
+def test_new_oscar_navigation_preserves_advanced_tools_and_auth_endpoints():
+    """PR71 changes layout only: all original safe review APIs remain reachable."""
+    html = TestClient(app).get("/").text
+    for name in ("go", "review", "collection", "settings"):
+        assert f"panel-{name}" in html
+        assert f"tab-{name}" in html
+    for marker in (
+        "go-drive-cards", "go-workflows", "go-refresh-drives",
+        "review-jobs", "review-refresh", "oscar-advanced",
+        "go-job", "go-advance", "go-start",
+        "workflow-register", "verify-start",
+        "metadata-preview-btn", "physical-compare-btn",
+        "collection-import", "discogs-check",
+        "profile", "identification-mode", "drives", "save",
+    ):
+        assert marker in html
+    assert "startGoForDrive" in html
+    assert "refreshGoCards" in html
+    assert "refreshReviewQueue" in html
+    assert "Only explicit actions change metadata" in html
+    assert "no archive publication" not in html.lower().split("<script>")[0][-120:]
+
+
+def test_oscar_inline_javascript_syntax_if_node_available():
+    """Catch broken UI scripts without making Node a runtime dependency."""
+    import shutil
+    import subprocess
+    import re
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("Node is not installed in this test environment")
+    html = TestClient(app).get("/").text
+    scripts = re.findall(r"<script(?: [^>]*)?>(.*?)</script>", html, flags=re.S)
+    assert scripts
+    for script in scripts:
+        result = subprocess.run([node, "--check", "--input-type=commonjs"],
+                                input=script, capture_output=True, text=True,
+                                timeout=15, check=False)
+        assert result.returncode == 0, result.stderr
