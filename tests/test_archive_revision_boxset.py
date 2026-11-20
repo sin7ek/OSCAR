@@ -533,7 +533,7 @@ def test_real_flac_two_disc_group_apply_preserves_audio_and_cue(prepared, monkey
         old_audio_md5[disc] = format(ActualFLAC(str(audio)).info.md5_signature, "032x")
         cue = leaf / "album.cue"
         cue.write_text(
-            'FILE "01 - Track.flac" WAVE\\n  TRACK 01 AUDIO\\n    INDEX 01 00:00:00\\n'
+            'FILE "01 - Track.flac" WAVE\n  TRACK 01 AUDIO\n    INDEX 01 00:00:00\n'
         )
         original_cues[disc] = cue.read_bytes()
         manifest_path = leaf / "manifest.json"
