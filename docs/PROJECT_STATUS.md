@@ -1,3 +1,21 @@
+## Semi Automatic — operator-accepted single-CD metadata without attached Disc ID
+
+**Implementation in this PR; hardware acceptance still pending.** Real-world driver: Carmen Gomes Inc., *Desire* (2010), catalog `CGi2010`, 12 tracks, job `b68488f667cc492d8dd94f90717cdb28`, accepted MusicBrainz release `fa89edc1-32f9-4290-8788-bbac2e366a46`. Its `RELEASE_ACCEPTED` job previously stopped with `Release does not have one exact Disc ID + track-count medium` despite successful audio verification and saved operator acceptance.
+
+A narrowly scoped alternate metadata path is now available **only** if all of these are true:
+
+1. Workflow is **Semi Automatic** and the stored `accepted_release_id` exactly equals the selected release, with `INFERRED_OPERATOR_ACCEPTED` status. Best Guess or Secure may not use the bypass.
+2. MusicBrainz has **no matching Disc ID medium** for this CD, and the release consists of **exactly one medium**, explicitly marked `CD` and positioned as disc 1.
+3. The CD medium has the **same track count**, a complete ordered list of track titles and valid medium position. Existing staging FLAC manifest, SHA-256, decode and AccurateRip gates remain mandatory.
+4. Metadata preview marks `medium_match_method=single_cd_operator_accepted_track_count_only`, explicitly says **NO attached matching Disc ID**, and warns that neither physical edition nor Disc ID match has been verified. It still needs metadata, physical-packaging and final publication review.
+5. No source FLAC, CUE, rip log, verification record or existing archive is modified. The tagged copy is isolated and retains this inference provenance.
+
+**Not allowed:** guessing a disc in a multi-disc boxset by track count, using a Digital Media edition as a CD medium, accepting multiple or conflicting matching media, silently adding a Disc ID to MusicBrainz, or treating the user's earlier release acceptance as proof of physical-edition identity.
+
+**To test on Unraid:** after update, open the saved Carmen Gomes job in **Go! → Check next safe step**, inspect the separate tagged-copy review and only then approve archive if the real cover, catalog `CGi2010`, complete 12-track listing and music metadata match. If MB's release is not a unique, single CD or metadata is missing, OSCAR must remain in review. A separate **opt-in MusicBrainz Disc ID submission** remains a future task and is not performed by this change.
+
+---
+
 ## Review UI — explicit Reverify saved rip button
 
 The Review tab offers an explicitly confirmed **Reverify saved rip** action for tracked jobs in `VERIFICATION_PENDING`. It reuses OSCAR's authenticated `POST /api/rip/jobs/{job_id}/verification` endpoint and polls the existing report endpoint, displaying outcomes in the relevant job row. The user need not manually copy the job ID or use the terminal.
