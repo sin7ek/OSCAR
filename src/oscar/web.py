@@ -1707,6 +1707,31 @@ async function showArchiveRevisionOperations(){
    item.textContent=entry.status+' · '+entry.source_path+' → '+entry.dest_path+
     ' · original retained: '+entry.backup_path;
    out.append(item);
+   if(entry.status==='completed'){
+    const verifyButton=document.createElement('button');
+    verifyButton.type='button';verifyButton.textContent='Verify archive revision';
+    const verification=document.createElement('p');
+    item.append(verifyButton);out.append(verification);
+    verifyButton.onclick=async()=>{
+     const auth=requestAuthHeaders('Independently verify both archive generations');if(!auth)return;
+     verifyButton.disabled=true;verification.textContent='Checking original and new FLAC checksums, audio decoding, CUE/evidence and Collection…';
+     try{
+      const response=await fetch('/api/collection/archive-revisions/verify',{
+       method:'POST',headers:{'Content-Type':'application/json',...auth},
+       body:JSON.stringify({operation_id:entry.operation_id})
+      });
+      const result=await response.json();
+      if(!response.ok)throw Error(result.detail||'Archive verification failed');
+      verification.textContent='Verified: '+result.revised_flacs_verified+' revised FLACs, '+
+       result.original_flacs_verified+' retained originals, '+
+       result.approved_fields_verified+' approved metadata field(s), '+
+       'audio/CUE/evidence/Collection OK. No files changed.';
+     }catch(error){
+      verification.textContent='Verification NOT passed: '+error.message+
+       '. Originals have NOT been cleaned. Review before proceeding.';
+     }finally{verifyButton.disabled=false}
+    };
+   }
    if(entry.status==='prepared'){
     const button=document.createElement('button');
     button.type='button';button.textContent='Reconcile interrupted revision';
