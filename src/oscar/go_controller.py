@@ -149,6 +149,79 @@ def _metadata_handoff(job_id, workflow, *, preview=None, copy_start=None,
                         "Tagged copy failed or verification is ambiguous. No automatic retry.")}
 
 
+def _go_publish_source(job_id):
+    """Fail closed unless the exact durable metadata copy passed verification."""
+    from oscar import metadata_staging
+    state = workflow_ledger.refresh(job_id)
+    if state["phase"] != "METADATA_READY":
+        raise GoError("Only METADATA_READY jobs may prepare publication")
+    if state["identification_mode"] not in {"best_guess", "semi_automatic"}:
+        raise GoError("Secure requires separate evidence-based physical release review")
+    release_id = (state["accepted_release_id"] if
+                  state["identification_mode"] == "semi_automatic" else
+                  state["proposed_release_id"])
+    if not release_id or release_id != state["metadata_release_id"]:
+        raise GoError("Metadata copy release differs from persistent identity decision")
+    copy_id = state["metadata_copy_id"]
+    if not copy_id:
+        raise GoError("No verified tagged copy recorded")
+    inspection = metadata_staging.inspect_copy(job_id, copy_id)
+    if inspection.get("status") != "tags_match_preview" or inspection.get("release_id") != release_id:
+        raise GoError("Tagged copy no longer matches saved metadata evidence")
+    return state, release_id, copy_id
+
+
+def archive_preview(job_id, *, prepare=None, review=None):
+    """Read-only Go publication preview with actual classical metadata/CUE."""
+    from oscar import archive_publish, archive_review
+    state, release_id, copy_id = _go_publish_source(job_id)
+    reviewer = review or archive_review.review
+    planner = prepare or archive_publish.prepare
+    inspected = reviewer(job_id, copy_id, "original_tags", profile="auto", artwork=False)
+    if inspected.get("release_id") != release_id:
+        raise GoError("Archive review changed the accepted MusicBrainz release")
+    plan = planner(job_id, copy_id, "original_tags", "auto", include_cover=False)
+    if plan.get("release_id") != release_id or plan.get("copy_id") != copy_id:
+        raise GoError("Archive plan differs from approved copy")
+    return {"workflow": state, "action": "archive_preview_ready",
+            "release_id": release_id, "copy_id": copy_id,
+            "release_match_status": state["release_match_status"],
+            "archive_review": inspected, "publication_plan": plan,
+            "can_publish": not plan.get("output_exists", True),
+            "requires_operator_confirmation": True,
+            "message": "Inspect actual classical Work/recording credits, CUE, file names and warnings. "
+                       "An inferred release is never physically verified by this preview."}
+
+
+def archive_publish_start(job_id, fingerprint, confirmation, *,
+                          acknowledge_observations=False, start=None,
+                          prepare=None):
+    """Explicit Semi Automatic/Best Guess archive handoff; never implicit."""
+    from oscar import archive_publish
+    if confirmation != "PUBLISH_REVIEWED_ARCHIVE":
+        raise GoError("Explicit final archive publication confirmation required")
+    state, release_id, copy_id = _go_publish_source(job_id)
+    planner = prepare or archive_publish.prepare
+    plan = planner(job_id, copy_id, "original_tags", "auto", include_cover=False)
+    if plan.get("release_id") != release_id or plan.get("copy_id") != copy_id:
+        raise GoError("Archive plan differs from persistent release/copy identity")
+    if plan.get("fingerprint") != fingerprint:
+        raise GoError("Archive plan changed; inspect a new preview")
+    if plan.get("output_exists"):
+        raise GoError("Archive destination exists; refusing overwrite")
+    if plan.get("metadata_observations") and not acknowledge_observations:
+        raise GoError("Explicit acknowledgement of metadata observations required")
+    publisher = start or archive_publish.start
+    result = publisher(job_id, copy_id, "original_tags", "auto", fingerprint, confirmation,
+                       acknowledge_observations=acknowledge_observations,
+                       include_cover=False, approve_cover=False)
+    return {"workflow": state, "release_id": release_id,
+            "release_match_status": state["release_match_status"],
+            "result": result,
+            "notice": "Publication started by explicit operator action. "
+                      "No claim of physical edition verification or source removal."}
+
+
 def advance(job_id, *, lookup=None, verify_start=None,
             metadata_preview=None, metadata_copy_start=None,
             metadata_copy_status=None, metadata_copy_inspect=None):
