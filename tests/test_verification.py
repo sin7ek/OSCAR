@@ -223,3 +223,44 @@ def test_missing_both_accuraterip_versions_requires_review(stage):
     result=verification._verify(stage,JOB,runner=mock_flac)
     assert result["status"]=="review_required"
     assert all(t["accuraterip_assessment"]["status"]=="no_confirmed_match" for t in result["tracks"])
+
+
+def test_unpadded_cyanrip_tracks_pass_strict_checks_without_modifying_source(stage):
+    """Cyanrip 0.9.3 can output '1 - Unknown track.flac', not only '01 - ...'."""
+    audio = stage / "audio"
+    for n in (1, 2):
+        (audio / f"{n:02d} - Unknown track.flac").rename(
+            audio / f"{n} - Unknown track.flac")
+    hashes = {}
+    for n in (1, 2):
+        path = audio / f"{n} - Unknown track.flac"
+        hashes[f"audio/{path.name}"] = hashlib.sha256(path.read_bytes()).hexdigest()
+    state_path = stage / "state.json"
+    state = json.loads(state_path.read_text())
+    state["files_sha256"] = hashes
+    state_path.write_text(json.dumps(state))
+    cue = next(audio.glob("*.cue"))
+    cue.write_text(cue.read_text().replace("01 - Unknown", "1 - Unknown")
+                   .replace("02 - Unknown", "2 - Unknown"))
+    log = stage / "cyanrip-console.log"
+    log.write_text(log_track(1).replace("audio/01 -", "audio/1 -") +
+                   log_track(2).replace("audio/02 -", "audio/2 -") +
+                   "Ripping errors: 0\\n")
+    before = {p.name: p.read_bytes() for p in audio.iterdir()}
+    result = verification._verify(stage, JOB, runner=mock_flac)
+    assert result["status"] == "checks_passed"
+    assert result["cue"]["references_match"]
+    assert [track["file"] for track in result["tracks"]] == [
+        "audio/1 - Unknown track.flac", "audio/2 - Unknown track.flac"]
+    assert all(track["accuraterip_assessment"]["status"] == "both_versions_matched"
+               for track in result["tracks"])
+    assert before == {p.name: p.read_bytes() for p in audio.iterdir()}
+
+
+@pytest.mark.parametrize("bad", [
+    "audio/0 - Unknown track.flac", "audio/001 - Unknown track.flac",
+    "audio/1 - ../escape.flac", "audio/1 - bad\\\\name.flac",
+    "audio/subfolder/1 - Unknown track.flac", "../audio/1 - Unknown track.flac",
+])
+def test_unpadded_track_parser_still_rejects_unsafe_or_noncanonical_paths(bad):
+    assert verification._AUDIO_NAME.fullmatch(bad) is None
