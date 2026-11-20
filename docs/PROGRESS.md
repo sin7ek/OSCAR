@@ -17,6 +17,10 @@
 
 ---
 
+**Real-Unraid retained-original integrity acceptance (2026-11-20):** the operator used a read-only Python SHA-256 check of each FLAC against the original archived `manifest.json` under `/archive/.oscar-archive-versions/3908eef79f114450b0a7eb76bec44926/f670468afcbb4c168adfdffae1df69bd`. **All twelve originals passed (12/12 SHA-256 matches)**. Together with independently confirmed 12/12 migrated FLAC tags and 12/12 successful `flac -t` checks, this verifies the engine's promised retained original audio-file bytes against publication evidence. Still outstanding for full end-to-end Unraid acceptance: Collection SQLite archive path/catalog link and two proposal `applied` statuses, post-migration scanner, restart persistence and recovery from interrupted journal. A retained-manifest self-hash or non-FLAC CUE/evidence reread has not been separately established by this test.
+
+---
+
 ## Real-Unraid Carmen Gomes archive migration preview (2026-11-20)
 
 The operator demonstrated a working read-only migration preview on live Unraid for the 12-track Carmen Gomes Inc. *Desire*: 2 approved changes, catalog number `CGi2010`, correct proposed archive folder rename and original publication ID `3908eef79f114450b0a7eb76bec44926`. **No apply or archive mutation occurred**. Actual generation promotion, retained original, `flac -t`, Collection transaction and crash recovery still require separate acceptance with backups and free-space checks. No maturity percentage increase for a preview alone.
