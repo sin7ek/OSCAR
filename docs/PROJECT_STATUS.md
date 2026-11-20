@@ -1,3 +1,14 @@
+## Unraid acceptance — archive metadata decisions and history (2026-11-20)
+
+The operator provided five persisted decision events on real Unraid:
+- Carmen Gomes Inc. *Desire*, `CATALOGNUMBER=CGi2010`: accepted at 20:46:53 UTC.
+- Carmen Gomes Inc. *Desire*, `LABEL=CFMusic`: ignored at 20:49:27 UTC, reopened at 20:54:43 UTC, accepted at 20:55:13 UTC.
+- Anastacia *Freak of Nature*, `LABEL=Daylight; Epic`: accepted at 20:55:19 UTC.
+
+This confirms real-world **Ignore → Reopen → Accept audit history** and cross-album decisions, without any archive apply operation. Persistence across a **container restart** and same-proposal suppression on a repeated scan are still separate acceptance tests. The history UI displayed a misleading **Reopen decision** button next to the superseded historical `ignored` event (and each accepted event). A targeted UI/backend fix now exposes `current_status` and `latest_event`, allowing the action **only** on the latest event when it represents the actual current accepted/ignored state. All historical events remain visible. No metadata or filesystem writes. **Fix CI and Unraid validation pending**; archive revisions remain future work.
+
+---
+
 ## Reopen archive metadata decisions + catalog folder migration requirement (2026-11-20; PR pending)
 
 Operator test: Carmen Gomes Inc. *Desire* has two durable decisions: `accepted CATALOGNUMBER=CGi2010` at `2026-11-20T20:46:53.576873+00:00` and `ignored LABEL=CFMusic` at `2026-11-20T20:49:27.220609+00:00`. The second Ignore was accidental and must be reversible. Feature branch adds **Reopen decision** in Collection decision history with authenticated API, rechecks the published archive revision and latest MusicBrainz value, restores a pending proposal and appends a `reopened` event without erasing the original decision. The operator can then Accept the reopened CFMusic label proposal. No FLAC or archive operation is performed.

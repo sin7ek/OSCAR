@@ -1,3 +1,9 @@
+## Decision history UI: current versus historical actions (2026-11-20)
+
+Real Unraid review showed `ignored → reopened → accepted` for Carmen Gomes' CFMusic label, while the old `ignored` history row still offered **Reopen decision**. History must preserve every event, but only the **latest event for a proposal whose current SQLite status is accepted or ignored** should offer an action. Old ignored or accepted events are read-only historical evidence, never a new actionable state. The API supplies `current_status` and `latest_event` so the client can enforce this presentation rule; the server independently validates current state and external evidence. UI correction pending release/Unraid test. Archive remains untouched.
+
+---
+
 # Archive-first metadata lifecycle — design decision (2026-11-20)
 
 **Status:** design approved; read-only archive scan + durable decision ledger merged via PR #89 after passing GitHub Tests and Docker CI. Unraid acceptance pending. Archive update/migration remains unimplemented. Archive update/migration remains unimplemented. This design is not an authorization to rewrite existing archive files.

@@ -1697,7 +1697,8 @@ document.getElementById('archive-scan-history').onclick=async()=>{
    row.textContent=event.happened_at+' · '+event.decision+' · '+event.field+
     ' · '+event.archive_path;
    box.append(row);
-   if(event.decision==='ignored'||event.decision==='accepted'){
+   if(event.latest_event && event.current_status===event.decision &&
+       (event.decision==='ignored'||event.decision==='accepted')){
     const button=document.createElement('button');
     button.type='button';button.textContent='Reopen decision';
     row.append(button);
