@@ -953,7 +953,7 @@ def musicbrainz_discid_attach_link(job_id: str, request: Request,
                 or media[0].get("track_count") != last
                 or media[0].get("disc_id_attached")):
             raise ValueError("MusicBrainz CD medium is ambiguous, incompatible, or already has this Disc ID")
-        url = "https://musicbrainz.org/cdtoc/attach?" + urllib.parse.urlencode({"toc": toc})
+        url = "https://musicbrainz.org/cdtoc/attach?" + urllib.parse.urlencode({"toc": toc, "filter-release.query": release_id})
         return {
             "status": "human_submission_required",
             "job_id": job_id,
