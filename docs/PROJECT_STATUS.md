@@ -1,3 +1,45 @@
+## Proposed future feature — RipRepair (damaged-CD recovery)
+
+**Status: design idea only; NOT implemented, not enabled in Go!, and not yet hardware-tested.** Captured from the real-world Roxy Music trial on 2026-11-20. This is a separate future feature, not part of PR #71 (GUI) or PR #72 (unpadded filename compatibility).
+
+### Goal and trigger
+
+When a complete rip ends in `verification.review_required` because some tracks cannot be positively confirmed by AccurateRip, offer an **opt-in RipRepair** workflow. Never silently mark a damaged disc as verified. A completed rip with a decodable FLAC and matching saved SHA-256 can still contain incorrectly read audio.
+
+### Suggested acquisition strategies
+
+- **One available drive:** make **two or three independent complete extraction attempts** with the same calibrated drive, each in a new immutable staging job. Allow a third attempt after comparing the first two; impose a bounded attempt limit rather than retrying indefinitely.
+- **Multiple available drives:** preferentially rip **once with each distinct calibrated drive** (up to three for the initial design). Different transports can recover different damaged regions. If necessary, offer extra passes explicitly rather than automatic unlimited re-rips.
+- **Same-disc evidence:** check the disc TOC and exact per-track boundaries, sector counts, count/order, drive read offsets and sample alignment before comparing data across attempts. Matching album titles or MusicBrainz release IDs alone is not sufficient; do not cross-match different editions/pressings, pre-emphasis layouts, hidden audio, or incompatible read offsets.
+- **Never interfere with other running jobs:** coordinate available drive slots and avoid reripping a busy drive. Preserve each original FLAC, CUE, cyanrip log, verification report, hashes, and original Go! job record.
+
+### Track-by-track comparison and recovery decision
+
+1. Generate a **read-only comparison matrix** for all attempts: track number, TOC/sector boundaries, EAC CRC32, per-track AccurateRip v1/v2 status/confidence, cyanrip `Accurip 450` partial confirmation if present, SHA-256 and `flac -t`, drive and attempt provenance.
+2. **Prefer a fully AccurateRip-confirmed track** from an attempt with correct TOC, valid encoding and integrity checks. If multiple attempts have positive matches, preserve their sources and show consistency; do not conflate a confidence number with physical pressing identity.
+3. If there is **no full AccurateRip match**, report exact repeatability (matching checksums/audio after correct offset alignment) separately from independent database confirmation. Multiple identical reads — especially on the same drive — are supporting evidence, **not proof** of an error-free extraction.
+4. `Accurip 450` / partially accurately ripped means **partial evidence only**; it must not automatically upgrade a track to fully verified.
+5. Never silently manufacture audio by splicing mismatching sectors or recombining arbitrary partial reads. Any future sector-level repair requires a separately designed, audited and tested algorithm and strict sample alignment.
+6. If and only if every selected track individually satisfies the existing rigorous verification gates, an **explicitly approved new derived assembly** may be considered for archive review, with an immutable manifest mapping each track to its exact originating attempt, filename, hash, verification method and drive. No original staging data is rewritten.
+7. **If any track remains uncertain, the whole assembled album remains `review_required`**; the UI may show recovered/partially confirmed/unresolved track counts and offer manual follow-up, but cannot label the archive `published_verified` or invoke the current automatic publisher.
+
+### Real-world motivating evidence — Roxy Music
+
+- First Optiarc attempt `4d800edef9a24f16b50aff9085b82c5f`: **4/10** tracks fully AccurateRip-confirmed (1, 4, 5, 6); partial Accurip 450 reported for tracks 2, 7 and 9, but not full verification.
+- Second Optiarc attempt `0725bffd859d4208814526f2cbc7fed9`: **5/10** fully confirmed (1, 2, 4, 5, 6). Track 2 CRC changed from `9DE54BC6` to `3F94EC30` and now has full v1/v2 confirmation. Tracks 3, 7, 8, 9 and 10 remained unconfirmed; their EAC CRC32 values differed between attempts. Both attempts reported zero ripping errors and passed FLAC decoding and saved-file SHA-256 checks, which alone do not establish audio accuracy.
+- Thus the second attempt recovered at least **one additional fully verified track**, while the album must remain under review.
+
+### Product / UI considerations
+
+- In **Review**, offer an opt-in `RipRepair` action for eligible verification failures, with a clear explanation of what is and is not confirmed.
+- Under **Go!**, show selected drives, bounded attempt plan, current status and per-track comparison; **Settings** may offer conservative defaults for maximum attempts and allowed drives, but never bypass proof requirements.
+- Record all attempts and proposed selected tracks in persistent, restart-safe state. Require explicit approval before building any new derived copy and before publication; a restart must not silently launch extra ripping or publishing.
+- First implementation milestone: **read-only comparator + provenance report** for separately staged attempts, with strict TOC/offset checks and test fixtures. Second milestone: operator-controlled repair/selection only for independently confirmed whole tracks, with full integration tests. Only after hardware validation consider bounded automatic acquisition.
+
+**Non-goals:** declaring physical release identity based on Disc ID; turning partial AR evidence into full verification; altering the original FLACs/CUE/logs; overwriting an existing archive; enabling automatic publication of an ambiguous album.
+
+---
+
 ## Unpadded cyanrip FLAC filenames — staging verification compatibility
 
 Cyanrip 0.9.3 may output `audio/1 - Unknown track.flac` through
