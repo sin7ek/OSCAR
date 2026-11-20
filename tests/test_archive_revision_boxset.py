@@ -131,3 +131,18 @@ def test_boxset_preview_refuses_wrong_release_or_non_boxset(prepared):
         boxset.preview("423f636d", lookup=lookup)
     with pytest.raises(boxset.BoxsetReviewError, match="No indexed"):
         boxset.preview("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", lookup=lookup)
+
+
+def test_boxset_preview_api_requires_auth_and_ui_is_explicitly_read_only(prepared, monkeypatch):
+    from fastapi.testclient import TestClient
+    from oscar.api import app
+    monkeypatch.setenv("OSCAR_ENABLE_RIPPING", "1")
+    monkeypatch.delenv("OSCAR_TRUSTED_LOCAL_UI", raising=False)
+    client = TestClient(app)
+    html = client.get("/").text
+    assert "Preview coordinated multidisc labels (read-only)" in html
+    assert "archive-boxset-label-preview" in html
+    assert "boxset-preview" in html
+    no_auth = client.post("/api/collection/archive-revisions/boxset-preview",
+                          json={"release_id": RELEASE})
+    assert no_auth.status_code == 403
