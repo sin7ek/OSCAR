@@ -146,6 +146,14 @@ def _advance(entries):
     """Idempotent, no-overwrite promotion; invoked only under archive lock."""
     for entry in entries:
         source, backup, temp = (Path(entry[k]) for k in ("source", "backup", "temp"))
+        root = catalog.archive_root()
+        history = root / ".oscar-archive-versions"
+        if history.is_symlink() or (history.exists() and not history.is_dir()):
+            raise BoxsetApplyError("Unsafe retained-history parent")
+        if backup.parent.is_symlink() or (
+            backup.parent.exists() and not backup.parent.is_dir()
+        ):
+            raise BoxsetApplyError("Unsafe retained-history publication directory")
         if source.is_symlink() or backup.is_symlink() or temp.is_symlink():
             raise BoxsetApplyError("Unsafe symbolic link in group publication")
         if backup.exists():
@@ -325,3 +333,59 @@ def operations():
             "FROM boxset_revision_operations ORDER BY started_at DESC LIMIT 100"
         ).fetchall()
     return {"items": [dict(row) for row in rows]}
+
+
+def start(release_id, fingerprint, confirmation):
+    """Run potentially long FLAC verification without relying on proxy timeout."""
+    _enabled()
+    if confirmation != _CONFIRM:
+        raise BoxsetApplyError("Explicit group migration confirmation required")
+    # Verify a preview exists, including the exact currently indexed physical discs.
+    review = boxset.preview(release_id)
+    if review["fingerprint"] != fingerprint or not review["apply_supported"]:
+        raise BoxsetApplyError("Group plan changed or is not approved for Apply")
+    task_id = uuid.uuid4().hex
+    with _MUTEX:
+        if _RUNNING:
+            raise BoxsetApplyError("A coordinated boxset migration is already running")
+        _RUNNING.add(release_id)
+        _JOBS[task_id] = {
+            "task_id": task_id, "status": "running",
+            "release_id": release_id, "result": None, "error": None,
+        }
+
+    def work():
+        try:
+            result = apply(release_id, fingerprint, confirmation)
+            with _MUTEX:
+                _JOBS[task_id].update(status="completed", result=result)
+        except Exception as exc:
+            with _MUTEX:
+                _JOBS[task_id].update(
+                    status="failed", error=f"{type(exc).__name__}: {exc}"[:400]
+                )
+        finally:
+            with _MUTEX:
+                _RUNNING.discard(release_id)
+
+    try:
+        threading.Thread(target=work, daemon=True,
+                         name="oscar-boxset-"+task_id[:8]).start()
+    except Exception:
+        with _MUTEX:
+            _RUNNING.discard(release_id)
+            _JOBS.pop(task_id, None)
+        raise
+    return task_status(task_id)
+
+
+def task_status(task_id):
+    if not isinstance(task_id, str) or not _ID.fullmatch(task_id):
+        raise BoxsetApplyError("Invalid group task ID")
+    with _MUTEX:
+        item = _JOBS.get(task_id)
+        if item is None:
+            raise BoxsetApplyError(
+                "Worker unavailable after restart; inspect durable group operation journal"
+            )
+        return dict(item)
