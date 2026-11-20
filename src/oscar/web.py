@@ -106,7 +106,7 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 <select id="collection-sort">
 <option value="artist">Artist</option><option value="title">Album title</option>
 <option value="year">Year</option><option value="catalog_number">Catalog number</option>
-<option value="archive_status">Archive status</option><option value="label">Record label</option><option value="composer">Composer</option><option value="conductor">Conductor</option><option value="orchestra">Orchestra</option><option value="soloists">Soloists</option>
+<option value="archive_status">Archive status</option><option value="label">Label</option><option value="composer">Composer</option><option value="conductor">Conductor</option><option value="orchestra">Orchestra</option><option value="soloists">Soloists</option>
 </select>
 <button type="button" id="collection-ods">Export OpenDocument (.ods)</button>
 <button type="button" id="collection-xlsx">Export Excel-compatible (.xlsx)</button>
@@ -1595,7 +1595,7 @@ async function findArchivedTracks(){
   summary.textContent=data.total+' indexed track(s), showing '+data.tracks.length+'.';out.append(summary);
   for(const track of data.tracks){
    const info=reviewCard(track.track_number+'. '+(track.title||track.filename),
-    track.artist+' — '+track.album+' · '+(track.label||'Unknown record label'));
+    track.artist+' — '+track.album+' · '+(track.label||'Unknown label'));
    const credits=document.createElement('p');
    credits.textContent=track.credits.map(x=>x.person_name+' ('+x.credit_role+
       (x.role_detail?': '+x.role_detail:'')+')').join(' · ')||'No explicit performer relationships';
@@ -1923,7 +1923,7 @@ async function fetchLocalCollection(){
   if([...selected.options].some(option=>option.value===oldSelection))selected.value=oldSelection;
   const table=document.createElement('table');table.style.width='100%';
   const head=document.createElement('tr');
-  for(const label of ['Artist','Album','Year','Record label','Catalog','Composer','Conductor','Soloists','Disc','Tracks','Status']){
+  for(const label of ['Artist','Album','Year','Label','Catalog','Composer','Conductor','Soloists','Disc','Tracks','Status']){
     const th=document.createElement('th');th.textContent=label;head.append(th);
   }
   table.append(head);
