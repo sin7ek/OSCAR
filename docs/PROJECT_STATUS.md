@@ -1,10 +1,10 @@
-## Fresh MusicBrainz metadata comparison and independent restaging — 20 November 2026 (PR pending CI)
+## Fresh MusicBrainz metadata comparison and independent restaging — 20 November 2026 (PR #84 merged; Unraid acceptance pending)
 
 New isolated implementation on `feature/metadata-refresh-reprocess-preview` lets an operator reload current MusicBrainz data **for an already accepted Semi Automatic Go! release**, compare it against the previous integrity-checked tagged staging copy, then optionally create a **new independently identified metadata staging copy** with an explicit confirmation and a freshly rechecked preview fingerprint. The old staging files, old tagged copy, durable `ARCHIVE_PUBLISHED` ledger, existing archive directory and Collection SQLite are never rewritten by this flow. Its public API/GUI does not offer archive replacement.
 
 **Carmen Gomes Inc. — Desire:** user reports adding the physical catalog number to MusicBrainz after the old publication, which was previously named without catalog number. Whether MusicBrainz currently returns that number remains **unverified until real Unraid UI lookup**. User expects the new comparison to surface the exact number, if present. Read-back checks of both old tagged metadata copy and the optional newly created copy are essential. Never guess the physical catalog number from another edition; only print what current MusicBrainz returns, and request user confirmation against CD packaging.
 
-**Acceptance state:** source code, regression tests and [METADATA_REPROCESS.md](METADATA_REPROCESS.md) delivered on feature branch. Require passing GitHub CI + Docker build before main merge, followed by live Unraid comparison and optional staging-copy test. Do not mark reprocessing or physical pressing verification completed from simulated tests. Design of any archive replacement, rename, and catalog migration remains a separate future task.
+**Acceptance state:** source code, regression tests and [METADATA_REPROCESS.md](METADATA_REPROCESS.md) merged via PR #84 (commit `c5625a7`) after passing GitHub Tests and Docker build. Live Unraid comparison and optional staging-copy validation remain pending. Do not mark reprocessing or physical pressing verification completed from simulated tests. Design of any archive replacement, rename, and catalog migration remains a separate future task.
 
 ---
 
