@@ -1,3 +1,13 @@
+## Go Phase 3 — archive review and explicit publication handoff (PR #68, 2026-11-20)
+
+Go jobs at `METADATA_READY` can now request an authenticated read-only archive preview. OSCAR reads back the actual staging-copy FLAC tags and displays track-level classical composer/conductor/Work/Recording-ID evidence, metadata consistency flags, archive CUE proposal, destination and plan fingerprint in the Go UI. No automatic editorial claim is made; the operator must check against the physical CD. An inferred release remains `INFERRED_OPERATOR_ACCEPTED` (Semi Automatic) or `INFERRED_NOT_PHYSICALLY_VERIFIED` (Best Guess).
+
+The publication handoff is **explicitly operator-confirmed for BOTH Semi Automatic and Best Guess at this milestone**. The server derives the release/copy ID exclusively from the persistent Go workflow, re-inspects the tagged FLAC copy, checks the latest publisher plan fingerprint and destination, requires acknowledgement of metadata consistency warnings, and delegates to the existing opt-in, safe, non-destructive archive publisher. Cover art is disabled for Go handoff because inference does not prove that artwork matches the physical edition. Dedicated `OSCAR_ENABLE_ARCHIVE_PUBLISH=1` and `OSCAR_ARCHIVE_ROOT` configuration is still required. Secure cannot use inferred Go publication.
+
+**Deferred:** fully unattended Best Guess publication, post-publication automatic catalog indexing, persistent archive publication state reconciliation, and a completed physical-release evidence approval path for Secure. The existing publisher is asynchronous; a running job's state may need manual archive-manifest inspection after a service restart. Never infer a successful publication from a started thread. The local collection import remains an explicit separate action; it is not proof of physical pressing verification.
+
+Hardware acceptance case: Boulez rip job `8961e2d68ab3402797ceabb8aea9db92`, tagged copy `f148e307a5f44ef3b988f310a47033f1` — user confirmed `METADATA_READY` for PR #67. The actual classical tag contents and booklet match have **not yet** been independently inspected or verified. Use the new Go archive preview to inspect them; do not publish on the basis of the technical readiness status alone.
+
 # OSCAR — project status and handoff
 
 **Last reviewed:** 2026-11-19  
