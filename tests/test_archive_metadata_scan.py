@@ -196,3 +196,32 @@ def test_reopen_authentication_and_interface(archive):
     html = client.get("/").text
     assert "Reopen decision" in html
     assert "View decision history" in html
+
+
+def test_history_reopen_action_only_on_latest_current_decision(archive):
+    album, lookup = archive
+    label = next(p for p in scan.scan("additions", str(album), lookup=lookup)["pending"]
+                 if p["field"] == "LABEL")
+    fp = label["fingerprint"]
+    scan.decide(fp, "ignore", lookup=lookup)
+    ignored = scan.decision_history()["events"]
+    assert ignored[0]["latest_event"] == 1
+    assert ignored[0]["current_status"] == "ignored"
+    scan.reopen_decision(fp, lookup=lookup)
+    reopened = scan.decision_history()["events"]
+    assert reopened[0]["decision"] == "reopened"
+    assert reopened[0]["current_status"] == "pending"
+    assert reopened[0]["latest_event"] == 1
+    assert reopened[1]["decision"] == "ignored"
+    assert reopened[1]["latest_event"] == 0
+    assert reopened[1]["current_status"] == "pending"
+    scan.decide(fp, "accept", lookup=lookup)
+    events = scan.decision_history()["events"]
+    assert [(e["decision"], e["current_status"], e["latest_event"])
+            for e in events] == [
+        ("accepted", "accepted", 1),
+        ("reopened", "accepted", 0),
+        ("ignored", "accepted", 0),
+    ]
+    html = TestClient(app).get("/").text
+    assert "event.latest_event && event.current_status===event.decision" in html
