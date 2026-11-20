@@ -74,7 +74,7 @@ An explicitly operator-triggered maintenance layer is being added to Collection'
 
 ---
 
-## Read-only coordinated label preview for incomplete multidisc releases (2026-11-20; PR #108 pending)
+## Read-only coordinated label preview for incomplete multidisc releases (2026-11-20; PR #108 merged (GitHub Tests and Docker build green, real Unraid preview pending))
 
 The next implementation adds `src/oscar/archive_revision_boxset.py` plus an authenticated Collection **Preview coordinated multidisc labels (read-only)** action. The operator selects any archived disc of the release in the existing Advanced Collection album selector. OSCAR verifies **all indexed/published leaves** under the same physical MusicBrainz release ID, each live FLAC manifest SHA-256 and Disc ID/CD medium/recording identity, exact current MusicBrainz release labels, and corresponding accepted per-disc label decisions. One group summary reports available and missing disc numbers, target label, each disc's tag status and approval fingerprint. Specifically, the operator's *Boulez Conducts Stravinsky* 6CD can show discs **4 and 6 present**, discs **1, 2, 3 and 5 missing**, with approved **Deutsche Grammophon** proposals on available discs if current metadata still agrees.
 
