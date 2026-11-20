@@ -36,7 +36,7 @@ _AR = re.compile(
 
 
 _EVIDENCE_LINE = re.compile(
-    rb"(?i)^\s*(?:EAC CRC32:|Accurip(?::| v[12]:)|Metadata:|track:|File\(s\):|audio/[1-9]\d{0,2}\s*-|Ripping errors:)"
+    rb"(?i)^\s*(?:EAC CRC32:|Accurip(?::| v[12]:)|Metadata:|track:|File\(s\):|audio/(?:[1-9]\d{0,2}|0[1-9]\d?|00[1-9])\s*-|Ripping errors:)"
 )
 
 
