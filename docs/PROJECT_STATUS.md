@@ -1,3 +1,15 @@
+## MusicBrainz accepted-match refresh — 20 November 2026 (test branch)
+
+The next OSCAR change adds an authenticated, read-only **Refresh MusicBrainz match** button for explicitly accepted Semi Automatic Go! jobs. It reuses the original saved physical TOC, Disc ID, completed per-track verification and accepted release UUID to fetch fresh MusicBrainz medium information. A newly attached Disc ID is displayed as fresh external evidence; original `INFERRED_OPERATOR_ACCEPTED` history, tags, archive and audio remain untouched. No physical-edition verification is inferred from a database association.
+
+**Release acceptance case:** Carmen Gomes Inc. *Desire*, job `b68488f667cc492d8dd94f90717cdb28`, release `fa89edc1-32f9-4290-8788-bbac2e366a46`, original Disc ID `VxfLacbEsNFCv5Ua4bvIeBIQ3jQ-`. This must still be checked on real Unraid hardware after CI. Implementation, test cases and operator acceptance checklist: [MUSICBRAINZ_MATCH_REFRESH.md](MUSICBRAINZ_MATCH_REFRESH.md).
+
+**Outstanding next phases (not in this change):** locally generated factual MusicBrainz edit-note templates, MusicBrainz OAuth read-only collection access, local/Discogs/MusicBrainz collection comparison and separately approved sync. Keep `OSCAR_MUSICBRAINZ_ID` and `OSCAR_MUSICBRAINZ_CS` exclusively server-side.
+
+**Branding status correction:** PR #78 was merged into main as presentation-only integration; the operator's binary PNG files and a successful Unraid appearance test remain separate outstanding tasks. Its earlier draft-only note below is historical context, not current status.
+
+---
+
 ## GUI branding integration — 20 November 2026 (draft PR; assets pending)
 
 A dedicated `feature/oscar-branding-assets` branch adds a responsive OSCAR header, 16×16/32×32 favicons, mobile touch icon declarations, safe allowlisted image-serving route, source package-data declaration and branding regression tests. The existing Go! / Review / Collection / Settings navigation and all ripping, archive and collection workflows are unchanged.

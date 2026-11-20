@@ -1860,6 +1860,38 @@ async function goAdvance(){
   }
   if(state.identification_mode==='semi_automatic' &&
      state.accepted_release_id && state.release_match_status==='INFERRED_OPERATOR_ACCEPTED'){
+   const matchRefresh=document.createElement('button');
+   matchRefresh.type='button';
+   matchRefresh.textContent='Refresh MusicBrainz match (read-only)';
+   output.append(matchRefresh);
+   matchRefresh.onclick=async()=>{
+    const auth=requestAuthHeaders('Refresh accepted MusicBrainz match');
+    if(!auth)return;
+    matchRefresh.disabled=true;
+    try{
+     const response=await fetch('/api/go/jobs/'+id+'/musicbrainz/refresh-match',
+      {method:'POST',headers:auth});
+     const info=await response.json();
+     if(!response.ok)throw new Error(info.detail||'MusicBrainz refresh unavailable');
+     const message=document.createElement('p');
+     message.textContent='MusicBrainz: '+(
+       info.lookup_status==='disc_id_now_attached'
+       ? 'Saved Disc ID is now attached to the accepted release'
+       : info.lookup_status==='disc_id_not_attached'
+       ? 'Saved Disc ID is not attached to the accepted release'
+       : 'Ambiguous or incompatible MusicBrainz medium: manual review required')+
+       (info.matched_medium_position?' · medium '+info.matched_medium_position:'')+
+       '. Historical status: '+info.historical_release_match_status+
+       '. No metadata or archive changes.';
+     output.append(message);
+     const warning=document.createElement('p');warning.textContent=info.warning;
+     output.append(warning);
+    }catch(error){
+     const warning=document.createElement('p');
+     warning.textContent='MusicBrainz refresh stopped safely: '+error.message;
+     output.append(warning);
+    }finally{matchRefresh.disabled=false}
+   };
    const attach=document.createElement('button');attach.type='button';
    attach.textContent='Add missing Disc ID to MusicBrainz (manual review)';
    output.append(attach);

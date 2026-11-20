@@ -907,6 +907,22 @@ def go_archive_publish(job_id: str, body: GoArchivePublishApproval, request: Req
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
+@app.post("/api/go/jobs/{job_id}/musicbrainz/refresh-match")
+def musicbrainz_refresh_accepted_match(job_id: str, request: Request,
+                                      x_oscar_rip_token: str | None = Header(default=None)):
+    """Fresh read-only MusicBrainz lookup; never alter historical provenance."""
+    from oscar.match_refresh import refresh_accepted_match
+    from oscar.musicbrainz import MusicBrainzError
+    from oscar.ripping import RipError
+    from oscar.workflow_ledger import WorkflowError
+    _rip_auth(x_oscar_rip_token, request)
+    try:
+        return refresh_accepted_match(job_id)
+    except (MusicBrainzError, WorkflowError, RipError, ValueError,
+            OSError, KeyError, TypeError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
 @app.get("/api/go/jobs/{job_id}/musicbrainz/discid-attach")
 def musicbrainz_discid_attach_link(job_id: str, request: Request,
                                   x_oscar_rip_token: str | None = Header(default=None)):
