@@ -469,3 +469,29 @@ def test_real_flac_audio_identity_check_for_boxset_generations(tmp_path):
                    check=True)
     with pytest.raises(engine.BoxsetApplyError, match="Decoded-audio"):
         engine._verify_audio_pair(entry)
+
+
+def test_group_skips_already_correct_disc_and_versions_only_approved_leaf(prepared, monkeypatch):
+    paths, lookup, engine = _approved_group(prepared, monkeypatch)
+    original_flac = scan.FLAC
+
+    class MixedFlac(original_flac):
+        def items(self):
+            values = dict(super().items())
+            if self.n == 4:
+                values["LABEL"] = ["Deutsche Grammophon"]
+            return values.items()
+
+    monkeypatch.setattr(scan, "FLAC", MixedFlac)
+    before_disc4 = (paths[4] / "01 - Track.flac").read_bytes()
+    review = boxset.preview(RELEASE, lookup=lookup)
+    assert [x["label_status"] for x in review["disc_reviews"]] == [
+        "already_correct", "approved_for_review",
+    ]
+    assert review["apply_supported"] is True
+    done = engine.apply(RELEASE, review["fingerprint"],
+                        "APPLY_COORDINATED_BOXSET_REVISION", lookup=lookup)
+    assert done["discs"] == [6]
+    assert done["verified_unchanged_discs"] == [4]
+    assert (paths[4] / "01 - Track.flac").read_bytes() == before_disc4
+    assert (paths[6] / "01 - Track.flac").read_bytes().endswith(b" TAGGED")
