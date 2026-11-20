@@ -108,7 +108,7 @@ def _read_manifest(album: Path) -> dict | None:
     return document
 
 
-_ALBUM_DIR = re.compile(r"\[([^\]]+)\] (.+) \((\d{4})\) \[([a-f0-9]{8})\]")
+_ALBUM_DIR = re.compile(r"(?:\[([^\]]+)\] )?(.+) \((\d{4})\) \[([a-f0-9]{8})\]")
 _DISC_DIR = re.compile(r"Disc (0[1-9]|[1-9][0-9])")
 
 
@@ -141,7 +141,7 @@ def _metadata_from_path(album: Path, manifest: dict) -> dict:
     if not artist or not title:
         raise CatalogError("Invalid archive artist/album")
     return {"artist": artist, "title": title, "year": year,
-            "catalog_number": catalog, "musicbrainz_release_id": manifest["release_id"],
+            "catalog_number": catalog or "", "musicbrainz_release_id": manifest["release_id"],
             "archive_path": str(album), "track_count": len(manifest["files"]),
             "disc_number": disc_number, "disc_total": raw_total,
             "archive_status": manifest["status"]}
@@ -300,7 +300,14 @@ def import_published(*, only_path: Path | None = None) -> dict:
                    performers=CASE WHEN performers='' THEN :performers ELSE performers END,
                    works=CASE WHEN works='' THEN :works ELSE works END
                    WHERE archive_path=:archive_path""", fields)
-    return {"imported": inserted, "repaired": repaired,
+        # An importer may skip a manifest because its metadata is invalid.
+        # A completed run is NOT proof that a particular release was indexed.
+        indexed = None
+        if only_path is not None:
+            indexed = db.execute(
+                "SELECT 1 FROM archive_items WHERE archive_path=?",
+                (str(only_path),)).fetchone() is not None
+    return {"imported": inserted, "repaired": repaired, "indexed": indexed,
             "already_present_or_skipped": skipped,
             "note": "Local catalog only; source archives unchanged. No Discogs sync."}
 
