@@ -347,8 +347,8 @@ def reconcile_archive(job_id, *, publish_status=None, manifest_reader=None):
             try:
                 from oscar.collection_catalog import import_published
                 dest = archive_publish.archive_root() / state["archive_relative_directory"]
-                import_published(only_path=dest)
-                catalog_status = "indexed"
+                imported = import_published(only_path=dest)
+                catalog_status = "indexed" if imported["indexed"] else "index_required"
             except Exception:
                 catalog_status = "index_required"
         finished = workflow_ledger.complete_archive_publish(
