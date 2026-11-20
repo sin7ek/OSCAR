@@ -1,3 +1,13 @@
+## Unraid acceptance — independent MusicBrainz metadata restaging (2026-11-20)
+
+**Operator-observed result:** for the previously published Carmen Gomes Inc. *Desire* job `b68488f667cc492d8dd94f90717cdb28`, newly created staging copy `cd2959e6cc2b4c4ab6fafb590808b2db` reported **`tagged_copy_ready_for_review`**, followed by **`tags_match_preview`** for all **12 tracks** after actual FLAC tag/hash inspection. The application explicitly reported **no archive publication performed** and **historical archive remains untouched**.
+
+This completes the real Unraid test for the **new isolated staging copy and its integrity/read-back workflow**, following the previously verified read-only 14-change MusicBrainz catalog comparison (`CGi2010`, `CFMusic`, 12 proposed track CATALOGNUMBER tags). It does not prove an independent filesystem audit, physical pressing identity, successful catalog migration, or replacement of the already published archive. The old archive's durable publication ID remains `3908eef79f114450b0a7eb76bec44926`. Preserve both copies and the original rip.
+
+**Next development:** separate explicitly approved, audited archiving migration with preview of old/new paths, manifest and FLAC hash verification, rollback, and Collection SQLite reconciliation. No automatic deletion, overwrite or reset of the historical Go ledger.
+
+---
+
 ## Real Unraid test — MusicBrainz metadata refresh returns corrected catalog number (2026-11-20)
 
 **Observed operator GUI evidence for PR #84:** existing Carmen Gomes Inc. *Desire* (2010) job `b68488f667cc492d8dd94f90717cdb28` now reports **14 metadata changes** during the authenticated read-only comparison: album `catalog_numbers: [] → ["CGi2010"]`, release label `CFMusic` catalog-number `null → "CGi2010"`, plus `CATALOGNUMBER` added to the *proposed* tags of all twelve tracks. This confirms that MusicBrainz's updated catalog field has become available to OSCAR and that old/new metadata comparison behaves as designed.
