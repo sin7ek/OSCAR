@@ -219,3 +219,48 @@ def test_authenticated_revision_routes_and_gui(fixture):
     assert "Preview approved archive migration for selected album" in html
     assert "APPLY_VERIFIED_ARCHIVE_REVISION" in html
     assert "OSCAR_ENABLE_ARCHIVE_REVISIONS=1" in html
+
+
+def test_reconcile_after_promotion_but_before_sqlite_commit(fixture, monkeypatch):
+    root, old, original, _ = fixture
+    plan = _approve(fixture)
+    real_finalize = revision._finalize
+    def interrupted(db, row, **kw):
+        raise RuntimeError("simulated process loss before Collection transaction")
+    monkeypatch.setattr(revision, "_finalize", interrupted)
+    with pytest.raises(revision.RevisionError, match="not fully completed"):
+        revision.apply(str(old), plan["fingerprint"], "APPLY_VERIFIED_ARCHIVE_REVISION")
+    op = revision.operations()["items"][0]
+    assert op["status"] == "prepared"
+    assert Path(op["dest_path"]).is_dir()
+    assert Path(op["backup_path"]).is_dir()
+    assert catalog.list_items()["items"][0]["archive_path"] == str(old)
+    monkeypatch.setattr(revision, "_finalize", real_finalize)
+    recovered = revision.reconcile(op["operation_id"])
+    assert recovered["status"] == "completed"
+    assert catalog.list_items()["items"][0]["archive_path"] == op["dest_path"]
+    assert revision.operations()["items"][0]["status"] == "completed"
+    assert {name: (Path(op["backup_path"])/name).read_bytes()
+            for name in original} == original
+
+
+def test_rejects_tampered_original_cue_before_publishing(fixture):
+    _, old, original, _ = fixture
+    plan = _approve(fixture)
+    (old/"album.cue").write_text("modified cue")
+    with pytest.raises(revision.RevisionError, match="not fully completed"):
+        revision.apply(str(old), plan["fingerprint"], "APPLY_VERIFIED_ARCHIVE_REVISION")
+    assert old.is_dir()
+    assert {name: (old/name).read_bytes() for name in original} == original
+    assert not revision.operations()["items"]
+
+
+def test_second_revision_can_be_planned_from_new_archive_without_staging(fixture):
+    root, old, _, _ = fixture
+    plan = _approve(fixture)
+    result = revision.apply(str(old), plan["fingerprint"], "APPLY_VERIFIED_ARCHIVE_REVISION")
+    new_path = result["archive_path"]
+    # Future revisions must not be blocked merely because a revision already exists.
+    assert scanner._archive_snapshot(new_path)["release_id"] == RELEASE
+    # New source fields match MusicBrainz; no new proposal should be created.
+    assert scanner.scan("changes", new_path, lookup=fixture[3])["detected"] == 0
