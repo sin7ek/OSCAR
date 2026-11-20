@@ -76,8 +76,11 @@ def test_bulk_requires_index_and_has_explicit_bound(monkeypatch, tmp_path):
     parent = tmp_path / "config"
     parent.mkdir()
     monkeypatch.setenv("OSCAR_CATALOG_DB", str(parent / "catalog.sqlite3"))
+    root = tmp_path / "archive"
+    root.mkdir()
+    monkeypatch.setenv("OSCAR_ARCHIVE_ROOT", str(root))
     monkeypatch.setattr(bulk.scanner.musicbrainz, "lookup_enabled", lambda: True)
-    with pytest.raises(bulk.scanner.ScanError, match="Collection is empty"):
+    with pytest.raises(bulk.scanner.ScanError, match="No OSCAR archive manifest"):
         bulk.start("additions")
     monkeypatch.setattr(bulk, "_leaves", lambda: (_ for _ in ()).throw(
         bulk.scanner.ScanError("safety limit")))
@@ -99,3 +102,19 @@ def test_bulk_auth_and_primary_collection_buttons(monkeypatch):
     assert "Legacy Collection label enrichment (advanced)" in html
     assert "OSCAR_DISCOGS_PAT" in html
     assert "OSCAR_DISCOGS_PAK" not in html
+
+
+def test_full_archive_discovers_unindexed_manifest_and_ignores_hidden_versions(tmp_path, monkeypatch):
+    root = tmp_path / "archive"
+    album = root / "Carmen Gomes Inc" / "Desire (2010) [fa89edc1]"
+    album.mkdir(parents=True)
+    (album / "manifest.json").write_text('{"status":"published_verified"}')
+    other = root / ".oscar-archive-versions" / "historical" / "old"
+    other.mkdir(parents=True)
+    (other / "manifest.json").write_text('{"status":"published_verified"}')
+    missing = root / "Some Artist" / "Not an OSCAR album"
+    missing.mkdir(parents=True)
+    (missing / "manifest.json").write_text("{}")
+    monkeypatch.setenv("OSCAR_ARCHIVE_ROOT", str(root))
+    # There is intentionally no Collection database or staging directory.
+    assert bulk._leaves() == [str(album)]

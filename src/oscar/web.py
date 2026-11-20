@@ -126,6 +126,11 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 <button type="button" id="archive-scan-review">Review pending metadata proposals</button>
 <button type="button" id="archive-scan-history">View decision history</button>
 <div id="archive-scan-result" aria-live="polite"></div>
+<h3>Archive Metadata Migration (explicitly approved)</h3>
+<p>Preview approved metadata proposals for an archived single-CD album. Actual migration is disabled unless OSCAR_ENABLE_ARCHIVE_REVISIONS=1. When enabled, OSCAR preserves the original published generation in retained archive history, verifies a new FLAC/tag/manifest generation, and updates Collection. A catalog-number change also updates the album folder name. Boxsets require a separate coordinated migration.</p>
+<button type="button" id="archive-revision-preview">Preview approved archive migration for selected album</button>
+<button type="button" id="archive-revision-operations">View archive revision history and recovery status</button>
+<div id="archive-revision-output" aria-live="polite"></div>
 <h3>Track-level catalog (classical &amp; other music)</h3>
 <p>Search each archived FLAC's recorded track title, MusicBrainz Work, composer, conductor, performer or explicitly credited soloist. No missing credits are inferred.</p>
 <button type="button" id="collection-index-tracks">Index verified published tracks</button>
@@ -1685,6 +1690,108 @@ async function runArchiveScan(mode){
   box.prepend(info);
  }catch(error){box.textContent='Archive scan safely stopped: '+error.message}
 }
+async function showArchiveRevisionOperations(){
+ const out=document.getElementById('archive-revision-output');
+ const headers=requestAuthHeaders('Read archive revision journal');if(!headers)return;
+ try{
+  const response=await fetch('/api/collection/archive-revisions/operations',{headers});
+  const data=await response.json();
+  if(!response.ok)throw new Error(data.detail||'Revision journal unavailable');
+  out.replaceChildren();
+  const p=document.createElement('p');
+  p.textContent=data.items.length+' recorded archive revision operation(s).';out.append(p);
+  for(const entry of data.items){
+   const item=document.createElement('p');
+   item.textContent=entry.status+' · '+entry.source_path+' → '+entry.dest_path+
+    ' · original retained: '+entry.backup_path;
+   out.append(item);
+   if(entry.status==='prepared'){
+    const button=document.createElement('button');
+    button.type='button';button.textContent='Reconcile interrupted revision';
+    item.append(button);
+    button.onclick=async()=>{
+     if(!window.confirm('Reconcile this interrupted journal operation? OSCAR verifies both archive versions and never deletes the original.'))return;
+     const auth=requestAuthHeaders('Reconcile archive revision');if(!auth)return;
+     button.disabled=true;
+     try{
+      const response=await fetch('/api/collection/archive-revisions/reconcile',{
+       method:'POST',headers:{'Content-Type':'application/json',...auth},
+       body:JSON.stringify({operation_id:entry.operation_id})
+      });
+      const result=await response.json();
+      if(!response.ok)throw new Error(result.detail||'Could not reconcile');
+      await showArchiveRevisionOperations();
+     }catch(error){button.disabled=false;const warning=document.createElement('span');
+      warning.textContent=' · '+error.message;item.append(warning)}
+    };
+   }
+  }
+ }catch(error){out.textContent='Revision journal: '+error.message}
+}
+document.getElementById('archive-revision-operations').onclick=showArchiveRevisionOperations;
+document.getElementById('archive-revision-preview').onclick=async()=>{
+ const out=document.getElementById('archive-revision-output');
+ const source=document.getElementById('archive-scan-album').value;
+ if(!source){
+  out.textContent='Select an album in Advanced · scan only one archive album, then preview its approved migration.';return;
+ }
+ const headers=requestAuthHeaders('Preview approved archive migration');if(!headers)return;
+ out.textContent='Verifying archive integrity and approved current MusicBrainz metadata…';
+ try{
+  const response=await fetch('/api/collection/archive-revisions/preview',{
+   method:'POST',headers:{'Content-Type':'application/json',...headers},
+   body:JSON.stringify({archive_path:source})
+  });
+  const plan=await response.json();if(!response.ok)throw new Error(plan.detail||'Migration preview unavailable');
+  out.replaceChildren();
+  const title=document.createElement('h4');title.textContent='Verified archive migration preview';out.append(title);
+  for(const line of [
+   'Original: '+plan.source_path,'New archive: '+plan.dest_path,
+   'Catalog number: '+(plan.catalog_number||'(none)'),
+   'Reviewed change(s): '+plan.accepted_changes.length,
+   'Tracks: '+plan.track_count,
+   'Original publication: '+plan.original_publish_id,
+   plan.note]){
+   const p=document.createElement('p');p.textContent=line;out.append(p);
+  }
+  const button=document.createElement('button');
+  button.type='button';button.textContent='Apply approved archive revision (opt-in required)';
+  out.append(button);
+  button.onclick=async()=>{
+   const message='Apply '+plan.accepted_changes.length+' previously approved changes to NEW VERIFIED FLAC copies? Original generation will be retained in archive history. The archive folder/Collection reference may change. No staging is required. Requires OSCAR_ENABLE_ARCHIVE_REVISIONS=1.';
+   if(!window.confirm(message))return;
+   const auth=requestAuthHeaders('Apply approved archive revision');if(!auth)return;
+   button.disabled=true;
+   try{
+    const response=await fetch('/api/collection/archive-revisions/apply',{
+     method:'POST',headers:{'Content-Type':'application/json',...auth},
+     body:JSON.stringify({archive_path:source,fingerprint:plan.fingerprint,
+      confirmation:'APPLY_VERIFIED_ARCHIVE_REVISION'})
+    });
+    const task=await response.json();
+    if(!response.ok)throw new Error(task.detail||'Archive revision refused');
+    const row=document.createElement('p');out.append(row);
+    async function poll(){
+     const response=await fetch('/api/collection/archive-revisions/workers/'+task.task_id,{headers:auth});
+     const status=await response.json();
+     if(!response.ok)throw new Error(status.detail||'Revision status unavailable');
+     row.textContent='Archive revision: '+status.status+
+      (status.error?' · '+status.error:'')+
+      (status.result?' · '+status.result.archive_path+' · original retained at '+status.result.original_retained_at:'');
+     if(status.status==='running'){
+      window.setTimeout(()=>poll().catch(error=>{row.textContent='Check durable revision journal: '+error.message}),2000);
+     }else if(status.status==='completed'){
+      await fetchLocalCollection();
+      await showArchiveRevisionOperations();
+     }else button.disabled=false;
+    }
+    await poll();
+   }catch(error){button.disabled=false;const p=document.createElement('p');
+    p.textContent='Revision stopped safely: '+error.message+'; inspect archive revision journal.';out.append(p)}
+  };
+ }catch(error){out.textContent='Migration preview blocked: '+error.message}
+};
+
 let archiveBulkPoll=null;
 async function updateArchiveBulkProgress(scanId, headers){
  const box=document.getElementById('archive-scan-result');
