@@ -104,6 +104,13 @@ def _verify_locked(operation_id):
             or [item["filename"] for item in old_files] !=
             [item["filename"] for item in new_files]):
         raise ArchiveVerifyError("Original and revised track manifest mismatch")
+    # Refuse unlisted audio files in either generation: they would otherwise
+    # become duplicate media library tracks without manifest integrity proof.
+    for directory, entries in ((old, old_files), (new, new_files)):
+        declared = {item["filename"] for item in entries}
+        actual = {path.name for path in directory.iterdir() if path.suffix.lower() == ".flac"}
+        if declared != actual:
+            raise ArchiveVerifyError("Unlisted or missing FLAC in archived publication")
     revision._verify_preserved_evidence(old, original)
     revision._verify_preserved_evidence(new, current)
     if _non_flac_digest_map(old) != _non_flac_digest_map(new):
@@ -122,11 +129,14 @@ def _verify_locked(operation_id):
                     json.loads(proposal["after_json"])):
                 raise ArchiveVerifyError("Archived FLAC differs from reviewed metadata")
         for path in (old / before["filename"], new / after["filename"]):
-            response = subprocess.run(
-                ["flac", "-t", "--silent", str(path)],
-                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
-                timeout=180, check=False,
-            )
+            try:
+                response = subprocess.run(
+                    ["flac", "-t", "--silent", str(path)],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                    timeout=180, check=False,
+                )
+            except (subprocess.TimeoutExpired, FileNotFoundError) as exc:
+                raise ArchiveVerifyError("FLAC decoder unavailable or timed out") from exc
             if response.returncode:
                 raise ArchiveVerifyError("Original or revised FLAC failed decoding")
         checked += 1
