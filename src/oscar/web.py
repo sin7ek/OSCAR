@@ -330,9 +330,9 @@ oscarNav.addEventListener('keydown',event=>{
  history.replaceState(null,'','#'+names[index]);
 });
 window.addEventListener('hashchange',()=>showOscarTab(location.hash.slice(1)));
+let settings;
 showOscarTab(location.hash.slice(1));
 
-let settings;
 let trustedLocalUI=false;
 fetch('/api/ui/access').then(r=>r.ok?r.json():{}).then(data=>{
  trustedLocalUI=!!data.trusted_local_ui;
