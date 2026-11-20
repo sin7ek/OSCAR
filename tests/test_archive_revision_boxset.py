@@ -333,3 +333,26 @@ def test_group_rejects_stale_fingerprint_without_mutation(prepared, monkeypatch)
     assert not engine.operations()["items"]
     for leaf in paths.values():
         assert (leaf / "01 - Track.flac").is_file()
+
+
+def test_coordinated_boxset_api_requires_auth_and_explicit_opt_in(prepared, monkeypatch):
+    from fastapi.testclient import TestClient
+    from oscar.api import app
+    monkeypatch.setenv("OSCAR_ENABLE_RIPPING", "1")
+    monkeypatch.delenv("OSCAR_TRUSTED_LOCAL_UI", raising=False)
+    monkeypatch.delenv("OSCAR_ENABLE_BOXSET_ARCHIVE_REVISIONS", raising=False)
+    client = TestClient(app)
+    payload = {
+        "release_id": RELEASE, "fingerprint": "0" * 64,
+        "confirmation": "APPLY_COORDINATED_BOXSET_REVISION",
+    }
+    assert client.post("/api/collection/archive-revisions/boxset-apply", json=payload).status_code == 403
+    headers = {"X-OSCAR-RIP-TOKEN": "0123456789abcdef0123456789abcdef"}
+    result = client.post("/api/collection/archive-revisions/boxset-apply",
+                         json=payload, headers=headers)
+    assert result.status_code == 409 and "disabled" in result.json()["detail"]
+    assert client.get("/api/collection/archive-revisions/boxset-operations").status_code == 403
+    assert client.get("/api/collection/archive-revisions/boxset-operations",
+                      headers=headers).status_code == 200
+    assert client.post("/api/collection/archive-revisions/boxset-reconcile",
+                       json={"operation_id": "a" * 32}).status_code == 403
