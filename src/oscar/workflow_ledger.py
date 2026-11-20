@@ -33,7 +33,13 @@ CREATE TABLE IF NOT EXISTS workflow_jobs (
   release_approved_at TEXT NOT NULL DEFAULT '',
   metadata_copy_id TEXT NOT NULL DEFAULT '',
   metadata_fingerprint TEXT NOT NULL DEFAULT '',
-  metadata_release_id TEXT NOT NULL DEFAULT ''
+  metadata_release_id TEXT NOT NULL DEFAULT '',
+  archive_publish_id TEXT NOT NULL DEFAULT '',
+  archive_fingerprint TEXT NOT NULL DEFAULT '',
+  archive_relative_directory TEXT NOT NULL DEFAULT '',
+  archive_release_id TEXT NOT NULL DEFAULT '',
+  archive_automatic INTEGER NOT NULL DEFAULT 0,
+  archive_catalog_status TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS workflow_events (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -68,9 +74,15 @@ def _db():
     existing = {row[1] for row in db.execute("PRAGMA table_info(workflow_jobs)")}
     for name in ("proposed_release_id", "release_evidence", "candidate_options",
                  "accepted_release_id", "release_approved_at", "metadata_copy_id",
-                 "metadata_fingerprint", "metadata_release_id"):
+                 "metadata_fingerprint", "metadata_release_id",
+                 "archive_publish_id", "archive_fingerprint",
+                 "archive_relative_directory", "archive_release_id",
+                 "archive_catalog_status", "archive_automatic"):
         if name not in existing:
-            db.execute("ALTER TABLE workflow_jobs ADD COLUMN " + name + " TEXT NOT NULL DEFAULT ''")
+            if name == "archive_automatic":
+                db.execute("ALTER TABLE workflow_jobs ADD COLUMN archive_automatic INTEGER NOT NULL DEFAULT 0")
+            else:
+                db.execute("ALTER TABLE workflow_jobs ADD COLUMN " + name + " TEXT NOT NULL DEFAULT ''")
     return db
 
 
@@ -121,7 +133,10 @@ def _view(db, job_id):
     result["events"] = [dict(x) for x in db.execute(
         "SELECT phase_before,phase_after,reason,happened_at FROM workflow_events "
         "WHERE job_id=? ORDER BY id", (job_id,))]
-    result["automated_actions_enabled"] = False
+    result["automated_actions_enabled"] = (
+        result["identification_mode"] == "best_guess"
+        and os.environ.get("OSCAR_ENABLE_BEST_GUESS_AUTO_PUBLISH") == "1"
+        and os.environ.get("OSCAR_ENABLE_ARCHIVE_PUBLISH") == "1")
     result["release_physically_verified"] = False
     result["candidate_options"] = json.loads(result.get("candidate_options") or "[]")
     result["release_match_status"] = (
@@ -138,6 +153,9 @@ def _view(db, job_id):
         "METADATA_COPY_RUNNING": "Isolated tagged copy is being generated and verified",
         "METADATA_READY": "Tagged staging copy is verified; review before separate archive publication",
         "METADATA_REVIEW_REQUIRED": "Metadata handoff failed or was interrupted; source remains untouched",
+        "ARCHIVE_PUBLISH_RUNNING": "Archive publication reserved. Await verification and manifest; no automatic retry",
+        "ARCHIVE_PUBLISHED": "Verified archive publication recorded; original staging preserved",
+        "ARCHIVE_REVIEW_REQUIRED": "Archive publication interrupted, invalid or failed; inspect archive and staging",
         "DEFERRED_REVIEW": "Resume review when the physical edition has been resolved",
     }.get(result["phase"], "Manual review required")
     return result
@@ -407,6 +425,83 @@ def complete_metadata_copy(job_id, copy_id, *, checked, reason):
         return _view(db, job_id)
 
 
+
+def reserve_archive_publish(job_id, copy_id, release_id, fingerprint,
+                            relative_directory, *, automatic=False):
+    """Single durable publication reservation, committed before any archive worker.
+
+    A reserved publication is never started again after a restart. The only
+    recovery route is validating the exact archive manifest or manual review.
+    """
+    import uuid
+    if not _JOB_ID.fullmatch(job_id) or not _JOB_ID.fullmatch(copy_id):
+        raise WorkflowError("Invalid job/copy ID")
+    if not re.fullmatch(r"[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}", release_id):
+        raise WorkflowError("Invalid release UUID")
+    if not re.fullmatch(r"[a-f0-9]{64}", fingerprint):
+        raise WorkflowError("Invalid publication fingerprint")
+    if (not isinstance(relative_directory, str) or not relative_directory
+            or len(relative_directory) > 1000 or relative_directory.startswith("/")
+            or any(part in {"", ".", ".."} for part in relative_directory.split("/"))):
+        raise WorkflowError("Invalid archive relative directory")
+    with _db() as db:
+        db.execute("BEGIN IMMEDIATE")
+        row = db.execute("SELECT * FROM workflow_jobs WHERE job_id=?", (job_id,)).fetchone()
+        if not row:
+            raise WorkflowError("Workflow not registered")
+        if row["archive_publish_id"]:
+            raise WorkflowError("Publication already reserved; never start a second worker")
+        if row["phase"] != "METADATA_READY" or row["metadata_copy_id"] != copy_id or row["metadata_release_id"] != release_id:
+            raise WorkflowError("Exact verified metadata copy required before archive reservation")
+        if row["identification_mode"] == "secure":
+            raise WorkflowError("Secure cannot publish inferred metadata")
+        if row["identification_mode"] == "semi_automatic":
+            if automatic or row["accepted_release_id"] != release_id:
+                raise WorkflowError("Semi Automatic requires explicit review and release acceptance")
+        elif row["identification_mode"] == "best_guess":
+            if row["proposed_release_id"] != release_id:
+                raise WorkflowError("Best Guess candidate changed")
+            if automatic and (row["release_evidence"] != "inferred_disc_id_unique"
+                    or os.environ.get("OSCAR_ENABLE_BEST_GUESS_AUTO_PUBLISH") != "1"
+                    or os.environ.get("OSCAR_ENABLE_ARCHIVE_PUBLISH") != "1"):
+                raise WorkflowError("Unambiguous, explicitly enabled Best Guess required")
+        else:
+            raise WorkflowError("Unsupported archive publication mode")
+        publish_id = uuid.uuid4().hex
+        stamp = _now()
+        db.execute("""UPDATE workflow_jobs SET
+            archive_publish_id=?,archive_fingerprint=?,archive_relative_directory=?,
+            archive_release_id=?,archive_automatic=?,updated_at=? WHERE job_id=?""",
+            (publish_id, fingerprint, relative_directory, release_id, int(automatic), stamp, job_id))
+        _transition(db, job_id, "METADATA_READY", "ARCHIVE_PUBLISH_RUNNING",
+                    "automatic_archive_reserved" if automatic else "operator_archive_reserved")
+        return _view(db, job_id)
+
+
+def complete_archive_publish(job_id, publish_id, *, published, catalog_status="", reason=""):
+    if not _JOB_ID.fullmatch(job_id) or not _JOB_ID.fullmatch(publish_id):
+        raise WorkflowError("Invalid archive publication ID")
+    if reason not in {"manifest_reconciled", "publisher_result_verified",
+                      "publisher_failed_or_interrupted"}:
+        raise WorkflowError("Invalid archive completion reason")
+    if catalog_status not in {"", "indexed", "index_required"}:
+        raise WorkflowError("Invalid catalog status")
+    after = "ARCHIVE_PUBLISHED" if published else "ARCHIVE_REVIEW_REQUIRED"
+    with _db() as db:
+        db.execute("BEGIN IMMEDIATE")
+        row = db.execute("SELECT * FROM workflow_jobs WHERE job_id=?", (job_id,)).fetchone()
+        if not row or row["archive_publish_id"] != publish_id:
+            raise WorkflowError("Publication reservation identity changed")
+        if row["phase"] == after:
+            return _view(db, job_id)
+        if row["phase"] != "ARCHIVE_PUBLISH_RUNNING":
+            raise WorkflowError("Publication already finalized; review required")
+        db.execute("UPDATE workflow_jobs SET archive_catalog_status=? WHERE job_id=?",
+                   (catalog_status, job_id))
+        _transition(db, job_id, "ARCHIVE_PUBLISH_RUNNING", after, reason)
+        return _view(db, job_id)
+
+
 def review_action(job_id, action):
     """The only manual transitions in v1: defer/resume edition review."""
     if action not in {"defer", "resume"}:
@@ -432,4 +527,4 @@ def list_jobs(limit=100):
             "SELECT job_id,disc_id,phase,identification_mode,secure_review_level,updated_at "
             "FROM workflow_jobs ORDER BY updated_at DESC LIMIT ?", (limit,))]
     return {"jobs":rows, "engine_running":False,
-            "notice":"Persistent ledger only; automatic rip-to-archive orchestration not implemented."}
+            "notice":"Persistent Go archive reservations and safe reconciliation; no automatic retry after interruption."}
