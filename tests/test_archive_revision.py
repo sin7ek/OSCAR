@@ -541,3 +541,17 @@ def test_clean_refuses_corrupted_original_and_preserves_it(fixture, monkeypatch)
                       external_backup_confirmed=True)
     assert backup.exists()
     assert cleanup.cleanup_status(done["operation_id"]) is None
+
+
+def test_explicit_reconciliation_preserves_unknown_nonempty_label_provenance(fixture):
+    from oscar.collection_labels import reconcile_applied_archive_labels
+    _, old, _, _ = fixture
+    plan = _approve(fixture)
+    done = revision.apply(str(old), plan["fingerprint"], "APPLY_VERIFIED_ARCHIVE_REVISION")
+    with catalog._connect() as db:
+        db.execute("UPDATE archive_items SET label=?,label_provenance=? WHERE archive_path=?",
+                   ("Legacy manually curated value", "", done["archive_path"]))
+    report = reconcile_applied_archive_labels()
+    assert report["labels_updated"] == 0
+    assert report["manual_values_preserved"] == 1
+    assert catalog.list_items()["items"][0]["label"] == "Legacy manually curated value"
