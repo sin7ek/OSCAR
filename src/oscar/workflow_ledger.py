@@ -30,7 +30,10 @@ CREATE TABLE IF NOT EXISTS workflow_jobs (
   release_evidence TEXT NOT NULL DEFAULT '',
   candidate_options TEXT NOT NULL DEFAULT '[]',
   accepted_release_id TEXT NOT NULL DEFAULT '',
-  release_approved_at TEXT NOT NULL DEFAULT ''
+  release_approved_at TEXT NOT NULL DEFAULT '',
+  metadata_copy_id TEXT NOT NULL DEFAULT '',
+  metadata_fingerprint TEXT NOT NULL DEFAULT '',
+  metadata_release_id TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS workflow_events (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -64,7 +67,8 @@ def _db():
     db.executescript(_SCHEMA)
     existing = {row[1] for row in db.execute("PRAGMA table_info(workflow_jobs)")}
     for name in ("proposed_release_id", "release_evidence", "candidate_options",
-                 "accepted_release_id", "release_approved_at"):
+                 "accepted_release_id", "release_approved_at", "metadata_copy_id",
+                 "metadata_fingerprint", "metadata_release_id"):
         if name not in existing:
             db.execute("ALTER TABLE workflow_jobs ADD COLUMN " + name + " TEXT NOT NULL DEFAULT ''")
     return db
@@ -130,7 +134,10 @@ def _view(db, job_id):
         "RIP_INTERRUPTED": "Service restarted during extraction; inspect staging; no automatic rerip",
         "VERIFICATION_PENDING": "Run staging verification; original files remain untouched",
         "RELEASE_REVIEW_PENDING": "Review release evidence; no release approved automatically",
-        "RELEASE_ACCEPTED": "Operator accepted an inferred release; tagging and archive publication remain manual and disabled in Go",
+        "RELEASE_ACCEPTED": "Operator accepted inferred release; Go can prepare a separate tagged staging copy",
+        "METADATA_COPY_RUNNING": "Isolated tagged copy is being generated and verified",
+        "METADATA_READY": "Tagged staging copy is verified; review before separate archive publication",
+        "METADATA_REVIEW_REQUIRED": "Metadata handoff failed or was interrupted; source remains untouched",
         "DEFERRED_REVIEW": "Resume review when the physical edition has been resolved",
     }.get(result["phase"], "Manual review required")
     return result
@@ -322,6 +329,81 @@ def accept_semi_release(job_id, release_id, confirmation):
             raise WorkflowError("Concurrent release review changed; refresh")
         _transition(db, job_id, "RELEASE_REVIEW_PENDING", "RELEASE_ACCEPTED",
                     "operator_accepted_inferred_release")
+        return _view(db, job_id)
+
+
+
+def reserve_metadata_copy(job_id, release_id, fingerprint):
+    """Reserve exactly one copy ID durably before launching any metadata worker.
+
+    Best Guess may use its snapshotted inferred candidate; Semi Automatic
+    must already have an explicitly accepted release. Secure cannot use
+    inference-only Go handoff. No second copy is scheduled on repeat polls.
+    """
+    import uuid
+    if not _JOB_ID.fullmatch(job_id):
+        raise WorkflowError("Invalid job ID")
+    if not re.fullmatch(r"[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}", release_id):
+        raise WorkflowError("Invalid release ID")
+    if not re.fullmatch(r"[a-f0-9]{64}", fingerprint):
+        raise WorkflowError("Invalid metadata fingerprint")
+    # Re-evaluate source verification before using the operator's approved ID.
+    observed = refresh(job_id)
+    if observed["phase"] not in {"RELEASE_REVIEW_PENDING", "RELEASE_ACCEPTED",
+                                  "METADATA_COPY_RUNNING", "METADATA_READY",
+                                  "METADATA_REVIEW_REQUIRED"}:
+        raise WorkflowError("Verified source required before metadata handoff")
+    with _db() as db:
+        db.execute("BEGIN IMMEDIATE")
+        item = db.execute("SELECT * FROM workflow_jobs WHERE job_id=?", (job_id,)).fetchone()
+        if not item:
+            raise WorkflowError("Workflow job not registered")
+        if item["identification_mode"] == "best_guess":
+            expected = item["proposed_release_id"]
+            valid_phase = "RELEASE_REVIEW_PENDING"
+        elif item["identification_mode"] == "semi_automatic":
+            expected = item["accepted_release_id"]
+            valid_phase = "RELEASE_ACCEPTED"
+        else:
+            raise WorkflowError("Secure Go metadata handoff requires physical edition verification")
+        if expected != release_id or not expected:
+            raise WorkflowError("Release differs from snapshotted inference or operator approval")
+        if item["metadata_copy_id"]:
+            if item["metadata_release_id"] != release_id:
+                raise WorkflowError("A different release copy has already been reserved")
+            return _view(db, job_id)
+        if item["phase"] != valid_phase:
+            raise WorkflowError("Current workflow phase cannot initiate metadata handoff")
+        copy_id = uuid.uuid4().hex
+        stamp = _now()
+        result = db.execute("""UPDATE workflow_jobs SET metadata_copy_id=?,
+            metadata_fingerprint=?,metadata_release_id=?,updated_at=?
+            WHERE job_id=? AND metadata_copy_id='' AND phase=?""",
+            (copy_id, fingerprint, release_id, stamp, job_id, valid_phase))
+        if result.rowcount != 1:
+            raise WorkflowError("Concurrent metadata reservation; reload")
+        _transition(db, job_id, valid_phase, "METADATA_COPY_RUNNING",
+                    "metadata_copy_reserved_before_worker")
+        return _view(db, job_id)
+
+
+def complete_metadata_copy(job_id, copy_id, *, checked, reason):
+    """Record read-back result against one durable reserved copy."""
+    if not _JOB_ID.fullmatch(job_id) or not _JOB_ID.fullmatch(copy_id):
+        raise WorkflowError("Invalid job/copy ID")
+    if reason not in {"tagged_copy_inspected", "tagged_copy_invalid_or_interrupted"}:
+        raise WorkflowError("Invalid metadata status reason")
+    next_phase = "METADATA_READY" if checked else "METADATA_REVIEW_REQUIRED"
+    with _db() as db:
+        db.execute("BEGIN IMMEDIATE")
+        item = db.execute("SELECT * FROM workflow_jobs WHERE job_id=?", (job_id,)).fetchone()
+        if not item or item["metadata_copy_id"] != copy_id:
+            raise WorkflowError("Unknown or changed metadata copy reservation")
+        if item["phase"] == next_phase:
+            return _view(db, job_id)
+        if item["phase"] != "METADATA_COPY_RUNNING":
+            raise WorkflowError("Cannot change finalized metadata copy result")
+        _transition(db, job_id, item["phase"], next_phase, reason)
         return _view(db, job_id)
 
 
