@@ -831,6 +831,33 @@ def archive_revision_verify(body: ArchiveRevisionVerifyRequest, request: Request
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
+class ArchiveRevisionCleanRequest(BaseModel):
+    operation_id: str = Field(pattern=r"^[a-f0-9]{32}$")
+    verification_fingerprint: str = Field(pattern=r"^[a-f0-9]{64}$")
+    confirmation: str
+    external_backup_confirmed: bool = False
+
+
+@app.post("/api/collection/archive-revisions/clean")
+def archive_revision_clean(body: ArchiveRevisionCleanRequest, request: Request,
+                           x_oscar_rip_token: str | None = Header(default=None)):
+    """Irreversible per-operation cleanup, separately opted in and reverified."""
+    from oscar.archive_revision_cleanup import ArchiveCleanupError, clean
+    from oscar.archive_revision_verify import ArchiveVerifyError
+    from oscar.archive_revision import RevisionError
+    from oscar.archive_metadata_scan import ScanError
+    from oscar.collection_catalog import CatalogError
+    _rip_auth(x_oscar_rip_token, request)
+    try:
+        return clean(
+            body.operation_id, body.verification_fingerprint, body.confirmation,
+            external_backup_confirmed=body.external_backup_confirmed,
+        )
+    except (ArchiveCleanupError, ArchiveVerifyError, RevisionError, ScanError,
+            CatalogError, ValueError, OSError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
 class ArchiveRevisionReconcileRequest(BaseModel):
     operation_id: str = Field(pattern=r"^[a-f0-9]{32}$")
 
