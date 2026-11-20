@@ -258,6 +258,80 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 <div id="multi-output" aria-live="polite"></div></section>
 <button id="save">Save settings</button><p id="status" aria-live="polite"></p>
 <script>
+// Progressive enhancement: retain every existing form, endpoint and event
+// handler; move the legacy specialist surfaces into a collapsible Review area.
+const oscarTabNames=[
+ ['go','Go!'],['review','Review'],['collection','Collection'],['settings','Settings']
+];
+const oscarNav=document.getElementById('oscar-tabs');
+const oscarPanels=document.getElementById('oscar-panels');
+const oscarTabButtons=new Map();
+const oscarPanelsByName=new Map();
+for(const [name,label] of oscarTabNames){
+ const button=document.createElement('button');
+ button.type='button';button.id='tab-'+name;button.className='oscar-tab';
+ button.textContent=label;button.setAttribute('role','tab');
+ button.setAttribute('aria-controls','panel-'+name);
+ button.setAttribute('aria-selected','false');
+ const panel=document.createElement('main');
+ panel.id='panel-'+name;panel.className='oscar-panel';
+ panel.setAttribute('role','tabpanel');panel.setAttribute('aria-labelledby',button.id);
+ panel.hidden=true;
+ button.onclick=()=>{showOscarTab(name);history.replaceState(null,'','#'+name)};
+ oscarNav.append(button);oscarPanels.append(panel);
+ oscarTabButtons.set(name,button);oscarPanelsByName.set(name,panel);
+}
+const oscarAdvanced=document.createElement('details');
+oscarAdvanced.className='oscar-advanced';
+const advancedTitle=document.createElement('summary');
+advancedTitle.textContent='Advanced tools · verification, tagging, physical release checks and manual publishing';
+oscarAdvanced.append(advancedTitle);
+const mainReview=oscarPanelsByName.get('review');
+const reviewIntro=document.createElement('section');
+reviewIntro.innerHTML='<h2>Jobs requiring review</h2><p>Find blocked, uncertain or historical jobs here. Only explicit actions change metadata or publish an archive.</p><div id="review-jobs"></div><button type="button" id="review-refresh">Refresh review queue</button>';
+mainReview.append(reviewIntro,oscarAdvanced);
+const mainGo=oscarPanelsByName.get('go');
+const goIntro=document.createElement('p');
+goIntro.textContent='Per-drive ripping and persistent Go! workflows. No unsafe automatic retry.';
+mainGo.append(goIntro);
+const settingsSectionTitles=new Set(['Ripping profile','Release identification & automation policy',
+ 'Language & names','Optical drives']);
+for(const section of [...document.body.querySelectorAll(':scope > section')]){
+ const title=section.querySelector('h2')?.textContent.trim()||'';
+ if(title.startsWith('Go! ·'))mainGo.append(section);
+ else if(title.startsWith('Collection Library'))oscarPanelsByName.get('collection').append(section);
+ else if(settingsSectionTitles.has(title))oscarPanelsByName.get('settings').append(section);
+ else oscarAdvanced.append(section);
+}
+const saveButton=document.getElementById('save');
+const saveStatus=document.getElementById('status');
+oscarPanelsByName.get('settings').append(saveButton,saveStatus);
+function showOscarTab(name){
+ if(!oscarPanelsByName.has(name))name='go';
+ for(const [key,panel] of oscarPanelsByName){
+  const active=key===name;panel.hidden=!active;
+  oscarTabButtons.get(key).setAttribute('aria-selected',String(active));
+  oscarTabButtons.get(key).tabIndex=active?0:-1;
+ }
+ if(name==='go')refreshGoCards(false);
+ if(name==='review')refreshReviewQueue(false);
+}
+oscarNav.addEventListener('keydown',event=>{
+ if(!['ArrowRight','ArrowLeft','Home','End'].includes(event.key))return;
+ event.preventDefault();
+ const current=[...oscarTabButtons.keys()].find(k=>oscarTabButtons.get(k).getAttribute('aria-selected')==='true')||'go';
+ const names=[...oscarTabButtons.keys()];
+ let index=names.indexOf(current);
+ if(event.key==='ArrowRight')index=(index+1)%names.length;
+ if(event.key==='ArrowLeft')index=(index-1+names.length)%names.length;
+ if(event.key==='Home')index=0;
+ if(event.key==='End')index=names.length-1;
+ showOscarTab(names[index]);oscarTabButtons.get(names[index]).focus();
+ history.replaceState(null,'','#'+names[index]);
+});
+window.addEventListener('hashchange',()=>showOscarTab(location.hash.slice(1)));
+showOscarTab(location.hash.slice(1));
+
 let settings;
 let trustedLocalUI=false;
 fetch('/api/ui/access').then(r=>r.ok?r.json():{}).then(data=>{
