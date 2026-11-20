@@ -1,3 +1,13 @@
+## Archive-first metadata maintenance — agreed design (2026-11-20; not implemented)
+
+The operator established a non-negotiable lifecycle requirement: **staging files will eventually be removed, so archive metadata maintenance MUST work independently of staging.** Add two future Collection controls: **Scan archive for metadata additions** and **Scan archive for metadata changes**, returning human-reviewed proposals for metadata found or changed in sources such as MusicBrainz. Operators must be able to **Accept** or **Ignore** each concrete semantic change. Persistent source-aware, per-field decision fingerprints suppress repeated identical suggestions; a subsequently changed external value or materially different archive revision must be eligible for review again. Keep decision history and recoverable archive-version lineage.
+
+This is **only a design commitment**. No scan endpoints, decision ledger, retention/cleanup action, or archive mutation has been implemented in this PR. Archive-backed revision publication must be an independently tested, non-destructive, explicitly approved operation preserving original extraction/TOC/CUE evidence and historical FLAC hash provenance; changing FLAC tags legitimately changes file SHA-256 and requires fresh verification, not silent manifest edits. The full architecture, implementation sequence and staging-absent acceptance tests are specified in [ARCHIVE_METADATA_LIFECYCLE.md](ARCHIVE_METADATA_LIFECYCLE.md).
+
+The previously verified Carmen Gomes corrected catalog metadata and staging-only restaging remain intact. Do not infer a complete archive migration or readiness for staging cleanup until archive-first maintenance is operational and tested on real Unraid.
+
+---
+
 ## Unraid acceptance — independent MusicBrainz metadata restaging (2026-11-20)
 
 **Operator-observed result:** for the previously published Carmen Gomes Inc. *Desire* job `b68488f667cc492d8dd94f90717cdb28`, newly created staging copy `cd2959e6cc2b4c4ab6fafb590808b2db` reported **`tagged_copy_ready_for_review`**, followed by **`tags_match_preview`** for all **12 tracks** after actual FLAC tag/hash inspection. The application explicitly reported **no archive publication performed** and **historical archive remains untouched**.
