@@ -832,6 +832,50 @@ def archive_revision_boxset_preview(body: ArchiveBoxsetPreviewRequest, request: 
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
+class ArchiveBoxsetApplyRequest(ArchiveBoxsetPreviewRequest):
+    fingerprint: str = Field(pattern=r"^[a-f0-9]{64}$")
+    confirmation: str
+
+
+@app.post("/api/collection/archive-revisions/boxset-apply")
+def archive_revision_boxset_apply(body: ArchiveBoxsetApplyRequest, request: Request,
+                                  x_oscar_rip_token: str | None = Header(default=None)):
+    from oscar.archive_revision_boxset_apply import BoxsetApplyError, apply
+    from oscar.archive_revision_boxset import BoxsetReviewError
+    from oscar.archive_metadata_scan import ScanError
+    from oscar.collection_catalog import CatalogError
+    from oscar.musicbrainz import MusicBrainzError
+    _rip_auth(x_oscar_rip_token, request)
+    try:
+        return apply(body.release_id, body.fingerprint, body.confirmation)
+    except (BoxsetApplyError, BoxsetReviewError, ScanError, CatalogError,
+            MusicBrainzError, ValueError, OSError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+class ArchiveBoxsetReconcileRequest(BaseModel):
+    operation_id: str = Field(pattern=r"^[a-f0-9]{32}$")
+
+
+@app.post("/api/collection/archive-revisions/boxset-reconcile")
+def archive_revision_boxset_reconcile(body: ArchiveBoxsetReconcileRequest, request: Request,
+                                      x_oscar_rip_token: str | None = Header(default=None)):
+    from oscar.archive_revision_boxset_apply import BoxsetApplyError, reconcile
+    _rip_auth(x_oscar_rip_token, request)
+    try:
+        return reconcile(body.operation_id)
+    except (BoxsetApplyError, ValueError, OSError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.get("/api/collection/archive-revisions/boxset-operations")
+def archive_revision_boxset_operations(request: Request,
+                                        x_oscar_rip_token: str | None = Header(default=None)):
+    from oscar.archive_revision_boxset_apply import operations
+    _rip_auth(x_oscar_rip_token, request)
+    return operations()
+
+
 class ArchiveRevisionVerifyRequest(BaseModel):
     operation_id: str = Field(pattern=r"^[a-f0-9]{32}$")
 
