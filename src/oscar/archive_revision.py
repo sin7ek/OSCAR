@@ -15,6 +15,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import threading
 import uuid
 from datetime import datetime, timezone
 
@@ -27,6 +28,9 @@ from oscar.metadata_staging import _streaminfo_md5_hex
 
 _ALLOWED_FIELDS = {"CATALOGNUMBER", "LABEL", "BARCODE", "TITLE", "ARTIST"}
 _CONFIRM = "APPLY_VERIFIED_ARCHIVE_REVISION"
+_WORKER_LOCK = threading.Lock()
+_RUNNING = set()
+_WORKERS = {}
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS archive_revision_operations (
   operation_id TEXT PRIMARY KEY,
@@ -75,6 +79,8 @@ def _plan(archive_path, *, lookup=None):
     album_path = Path(snapshot["path"])
     if len(album_path.relative_to(root).parts) != 2:
         raise RevisionError("v1 archive migration supports single-CD album leaves only; multidisc requires a coordinated boxset migration")
+    if scanner._digest(album_path / "manifest.json") != snapshot["manifest_sha256"]:
+        raise RevisionError("Archive manifest changed during migration preview")
     source_manifest = json.loads((album_path / "manifest.json").read_text(encoding="utf-8"))
     if source_manifest.get("disc_total", 1) != 1:
         raise RevisionError("v1 migration cannot split or partially migrate a boxset")
@@ -462,6 +468,57 @@ def reconcile(operation_id):
                 )
             return {"operation_id": operation_id, "status": "rolled_back"}
         raise RevisionError("Ambiguous archive filesystem state; do not rename or delete manually")
+
+
+def start(archive_path, fingerprint, confirmation):
+    """Start one reviewed migration in a background worker; no proxy timeout."""
+    _assert_opt_in()
+    if confirmation != _CONFIRM:
+        raise RevisionError("Explicit archive revision confirmation required")
+    plan = _plan(archive_path)
+    if plan["fingerprint"] != fingerprint:
+        raise RevisionError("Archive metadata preview has changed; review again")
+    key = plan["source_path"]
+    task_id = uuid.uuid4().hex
+    with _WORKER_LOCK:
+        if _RUNNING:
+            raise RevisionError("Another metadata archive revision is currently running")
+        _RUNNING.add(key)
+        _WORKERS[task_id] = {
+            "task_id": task_id, "archive_path": key, "status": "running",
+            "result": None, "error": None,
+        }
+    def work():
+        try:
+            result = apply(key, fingerprint, confirmation)
+            with _WORKER_LOCK:
+                _WORKERS[task_id].update(status="completed", result=result)
+        except Exception as exc:
+            with _WORKER_LOCK:
+                _WORKERS[task_id].update(
+                    status="failed", error=f"{type(exc).__name__}: {exc}"[:350])
+        finally:
+            with _WORKER_LOCK:
+                _RUNNING.discard(key)
+    try:
+        threading.Thread(target=work, daemon=True,
+                         name="oscar-archive-revision-"+task_id[:8]).start()
+    except Exception:
+        with _WORKER_LOCK:
+            _RUNNING.discard(key)
+            _WORKERS.pop(task_id, None)
+        raise
+    return task_status(task_id)
+
+
+def task_status(task_id):
+    if not isinstance(task_id, str) or not re.fullmatch(r"[a-f0-9]{32}", task_id):
+        raise RevisionError("Invalid archive revision worker ID")
+    with _WORKER_LOCK:
+        item = _WORKERS.get(task_id)
+        if item is None:
+            raise RevisionError("Worker status unavailable after restart; inspect durable revision operations")
+        return dict(item)
 
 
 def operations():
