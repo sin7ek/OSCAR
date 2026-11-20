@@ -1705,7 +1705,8 @@ async function showArchiveRevisionOperations(){
   for(const entry of data.items){
    const item=document.createElement('p');
    item.textContent=entry.status+' · '+entry.source_path+' → '+entry.dest_path+
-    ' · original retained: '+entry.backup_path;
+    (entry.cleanup_status==='completed'?' · original generation permanently cleaned':
+     ' · original retained: '+entry.backup_path);
    out.append(item);
    if(entry.cleanup_status){
     const state=document.createElement('span');
