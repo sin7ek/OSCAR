@@ -650,8 +650,9 @@ def test_new_oscar_navigation_preserves_advanced_tools_and_auth_endpoints():
     """PR71 changes layout only: all original safe review APIs remain reachable."""
     html = TestClient(app).get("/").text
     for name in ("go", "review", "collection", "settings"):
-        assert f"panel-{name}" in html
-        assert f"tab-{name}" in html
+        assert f"['{name}'," in html
+    assert "panel-'+name" in html
+    assert "tab-'+name" in html
     for marker in (
         "go-drive-cards", "go-workflows", "go-refresh-drives",
         "review-jobs", "review-refresh", "oscar-advanced",
