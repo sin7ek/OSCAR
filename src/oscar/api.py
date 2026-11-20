@@ -490,6 +490,50 @@ def preview_rip_metadata(job_id: str, request: MetadataPreviewRequest,
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
+class MetadataReprocessRequest(BaseModel):
+    fingerprint: str = Field(min_length=64, max_length=64, pattern=r"^[a-f0-9]{64}$")
+    confirmation: str
+
+
+@app.post("/api/go/jobs/{job_id}/musicbrainz/metadata-refresh")
+def musicbrainz_metadata_refresh(job_id: str, request: Request,
+                                x_oscar_rip_token: str | None = Header(default=None)):
+    """Compare new MusicBrainz metadata with an existing verified tagged copy."""
+    from oscar.metadata_reprocess import ReprocessError, refresh_preview
+    from oscar.metadata_staging import MetadataError
+    from oscar.musicbrainz import MusicBrainzError, lookup_enabled
+    from oscar.ripping import RipError
+    from oscar.workflow_ledger import WorkflowError
+    _rip_auth(x_oscar_rip_token, request)
+    if not lookup_enabled():
+        raise HTTPException(status_code=403, detail="MusicBrainz lookup disabled")
+    try:
+        return refresh_preview(job_id)
+    except (ReprocessError, MetadataError, MusicBrainzError, RipError,
+            WorkflowError, ValueError, OSError, KeyError, TypeError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/go/jobs/{job_id}/musicbrainz/reprocess-copy")
+def musicbrainz_reprocess_copy(job_id: str, body: MetadataReprocessRequest,
+                              request: Request,
+                              x_oscar_rip_token: str | None = Header(default=None)):
+    """Explicitly start a separate tagged staging copy; never archive or replace."""
+    from oscar.metadata_reprocess import ReprocessError, create_new_staging_copy
+    from oscar.metadata_staging import MetadataError
+    from oscar.musicbrainz import MusicBrainzError, lookup_enabled
+    from oscar.ripping import RipError
+    from oscar.workflow_ledger import WorkflowError
+    _rip_auth(x_oscar_rip_token, request)
+    if not lookup_enabled():
+        raise HTTPException(status_code=403, detail="MusicBrainz lookup disabled")
+    try:
+        return create_new_staging_copy(job_id, body.fingerprint, body.confirmation)
+    except (ReprocessError, MetadataError, MusicBrainzError, RipError,
+            WorkflowError, ValueError, OSError, KeyError, TypeError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
 @app.post("/api/rip/jobs/{job_id}/metadata/copy")
 def create_tagged_staging_copy(job_id: str, request: MetadataCopyRequest,
                                http_request: Request, x_oscar_rip_token: str | None = Header(default=None)):

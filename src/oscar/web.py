@@ -1860,6 +1860,88 @@ async function goAdvance(){
   }
   if(state.identification_mode==='semi_automatic' &&
      state.accepted_release_id && state.release_match_status==='INFERRED_OPERATOR_ACCEPTED'){
+   const metaRefresh=document.createElement('button');
+   metaRefresh.type='button';
+   metaRefresh.textContent='Refresh metadata from MusicBrainz (compare, no writes)';
+   output.append(metaRefresh);
+   metaRefresh.onclick=async()=>{
+    const auth=requestAuthHeaders('Compare fresh MusicBrainz metadata');
+    if(!auth)return;
+    metaRefresh.disabled=true;
+    try{
+     const response=await fetch('/api/go/jobs/'+id+'/musicbrainz/metadata-refresh',
+      {method:'POST',headers:auth});
+     const info=await response.json();
+     if(!response.ok)throw new Error(info.detail||'Metadata refresh unavailable');
+     const panel=document.createElement('section');
+     const title=document.createElement('h3');
+     title.textContent='MusicBrainz metadata changes · '+info.change_count;
+     panel.append(title);
+     const catalogs=document.createElement('p');
+     catalogs.textContent='Old catalog: '+(info.old_catalog_numbers.join(', ')||'(missing)')+
+       ' · MusicBrainz now: '+(info.new_catalog_numbers.join(', ')||'(missing)');
+     panel.append(catalogs);
+     for(const item of info.changes){
+      const row=document.createElement('p');
+      row.textContent=(item.scope==='track'?'Track '+item.track+' · ':'Album · ')+
+        item.field+': '+JSON.stringify(item.before??null)+' → '+JSON.stringify(item.after??null);
+      panel.append(row);
+     }
+     const note=document.createElement('p');note.textContent=info.warning;panel.append(note);
+     if(info.new_copy_allowed){
+      const stage=document.createElement('button');
+      stage.type='button';stage.textContent='Create new reviewed staging copy (no archive replacement)';
+      panel.append(stage);
+      stage.onclick=async()=>{
+       if(!window.confirm('Create a SECOND tagged staging copy using the refreshed MusicBrainz metadata? The original rip, previous copy, archive and workflow will remain unchanged. No automatic publication.'))return;
+       const approval=requestAuthHeaders('Create separate metadata staging copy');
+       if(!approval)return;
+       stage.disabled=true;
+       try{
+        const response=await fetch('/api/go/jobs/'+id+'/musicbrainz/reprocess-copy',{
+         method:'POST',headers:{'Content-Type':'application/json',...approval},
+         body:JSON.stringify({fingerprint:info.fingerprint,
+           confirmation:'REPROCESS_TO_NEW_STAGING_COPY'})
+        });
+        const started=await response.json();
+        if(!response.ok)throw new Error(started.detail||'Staging copy could not start');
+        const copyNote=document.createElement('p');
+        copyNote.textContent='New staging copy '+started.copy_id+' started. '+started.note;
+        panel.append(copyNote);
+        const check=document.createElement('button');
+        check.type='button';check.textContent='Check new staging copy';
+        panel.append(check);
+        check.onclick=async()=>{
+         const headers=requestAuthHeaders('Check separate tagged staging copy');if(!headers)return;
+         try{
+          const statusResponse=await fetch('/api/rip/jobs/'+id+'/metadata/copies/'+started.copy_id,{headers});
+          const status=await statusResponse.json();
+          if(!statusResponse.ok)throw new Error(status.detail||'Status not available');
+          const result=document.createElement('p');
+          result.textContent='Copy '+started.copy_id+' · '+status.status+
+           ' · no archive publication performed.';
+          panel.append(result);
+          if(status.status==='tagged_copy_ready_for_review'){
+           const inspectResponse=await fetch('/api/rip/jobs/'+id+'/metadata/copies/'+started.copy_id+'/inspect',{headers});
+           const inspected=await inspectResponse.json();
+           if(!inspectResponse.ok)throw new Error(inspected.detail||'Copy inspection unavailable');
+           const inspectedNote=document.createElement('p');
+           inspectedNote.textContent='Actual FLAC tags and hashes: '+inspected.status+
+             ' · '+inspected.track_count+' tracks. Historical archive remains untouched.';
+           panel.append(inspectedNote);
+          }
+         }catch(error){const warning=document.createElement('p');
+          warning.textContent='Copy status: '+error.message;panel.append(warning)}
+        };
+       }catch(error){stage.disabled=false;const warning=document.createElement('p');
+        warning.textContent='Separate reprocessing stopped: '+error.message;panel.append(warning)}
+      };
+     }
+     output.append(panel);
+    }catch(error){const warning=document.createElement('p');
+     warning.textContent='Metadata comparison stopped safely: '+error.message;output.append(warning)}
+    finally{metaRefresh.disabled=false}
+   };
    const matchRefresh=document.createElement('button');
    matchRefresh.type='button';
    matchRefresh.textContent='Refresh MusicBrainz match (read-only)';
