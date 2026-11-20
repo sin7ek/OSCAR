@@ -108,7 +108,7 @@ def _read_manifest(album: Path) -> dict | None:
     return document
 
 
-_ALBUM_DIR = re.compile(r"\\[([^\\]]+)\\] (.+) \\((\\d{4})\\) \\[([a-f0-9]{8})\\]")
+_ALBUM_DIR = re.compile(r"\[([^\]]+)\] (.+) \((\d{4})\) \[([a-f0-9]{8})\]")
 _DISC_DIR = re.compile(r"Disc (0[1-9]|[1-9][0-9])")
 
 
