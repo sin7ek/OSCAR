@@ -21,7 +21,7 @@ from oscar import archive_revision_boxset as boxset
 from oscar import collection_catalog as catalog
 
 _CONFIRM = "APPLY_COORDINATED_BOXSET_REVISION"
-_ID = re.compile(r"[0-9a-f]{32}\\Z")
+_ID = re.compile(r"[0-9a-f]{32}\Z")
 _JOBS = {}
 _RUNNING = set()
 _MUTEX = threading.Lock()
