@@ -98,8 +98,8 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 <button type="button" id="discogs-check">Check Discogs account and folders</button>
 <div id="discogs-result" aria-live="polite"></div>
 </section>
-<section><h2>Go! · tracked CD ripping (phase 1)</h2>
-<p>Start a new rip and persist your saved Best Guess, Semi Automatic or Secure policy before extraction. Verification automatically starts after ripping. The controller checks MusicBrainz candidates only after verified audio. <strong>Automatic tagging, physical edition approval and archive publication are not enabled yet.</strong></p>
+<section><h2>Go! · verified rip and metadata handoff (phase 2)</h2>
+<p>Start a new rip and persist your saved Best Guess, Semi Automatic or Secure policy before extraction. Verification automatically starts after ripping. The controller checks MusicBrainz candidates only after verified audio, then can create a <strong>separate, integrity-checked tagged staging copy</strong> for an accepted Semi Automatic release or Best Guess inference. The original FLAC rip remains unchanged. <strong>Physical edition verification and archive publication are not automatic.</strong></p>
 <label for="go-drive">Enabled optical drive</label><select id="go-drive"></select>
 <button type="button" id="go-start">Go! — rip to verified staging</button>
 <label for="go-job">Go job ID</label>
@@ -1616,8 +1616,13 @@ async function goAdvance(){
   explanation.textContent=data.message||state.next_action||'Review needed';output.append(explanation);
   if(data.release_id){
    const selected=document.createElement('p');
-   selected.textContent=(data.action==='semi_release_accepted'?'Operator accepted release ':'Proposed MusicBrainz release ')+data.release_id+
-    ' · '+(data.release_match_status||'INFERRED, NOT physically verified');output.append(selected);
+   selected.textContent=(data.action==='semi_release_accepted'?'Operator accepted release ':'MusicBrainz release ')+data.release_id+
+    ' · '+(data.release_match_status||state.release_match_status||'INFERRED, NOT physically verified');output.append(selected);
+  }
+  if(data.copy_id){
+   const copy=document.createElement('p');
+   copy.textContent='Isolated staging metadata copy ID: '+data.copy_id+' · no archive publication';
+   output.append(copy);
   }
   for(const item of data.candidates||[]){
    const link=document.createElement('a');
@@ -1676,7 +1681,7 @@ async function goAdvance(){
    };
    output.append(defer);
   }
-  if(['ripping','verifying'].includes(data.action)){
+  if(['ripping','verifying','metadata_copy_running','best_guess_proposed'].includes(data.action)){
    if(goPoll)clearTimeout(goPoll);
    goPoll=setTimeout(goAdvance,4000);
   }else{

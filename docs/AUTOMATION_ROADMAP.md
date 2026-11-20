@@ -25,6 +25,16 @@ Audio checks remain equally strict in **all three** modes: cyanrip extraction in
 
 **Real acceptance example:** Essential Dance Traxx absent from MusicBrainz can legitimately produce an inferred *Ibiza Party* Disc ID candidate. Best Guess may accept that risk under its configured automation policy. Semi Automatic must **show the candidate for approval before use**. Secure pauses until physical edition evidence is sufficient. Never invent a missing release or claim the other album is the owned physical pressing.
 
+## Go Phase 2 — verified metadata copy handoff (PR #67, 2026-11-20)
+
+**Implemented in the PR (pending CI / Unraid hardware acceptance):** Go advances an operator-accepted Semi Automatic release or a snapshotted Best Guess inferred release through a verified **metadata preview → durable single-copy reservation → isolated tagged FLAC staging copy → read-back Vorbis tag, SHA-256 and audio-MD5 inspection**. `METADATA_COPY_RUNNING`, `METADATA_READY` and `METADATA_REVIEW_REQUIRED` statuses are journaled; all outputs identify the saved release UUID and copy ID. No automatic tagging for Secure based only on Disc ID.
+
+Reuses `metadata_staging.preview`, `start_copy` and `inspect_copy`, which require exact Disc ID plus medium/track-count match and existing verified FLAC sources; if metadata is incomplete/ambiguous, Go preserves the verified rip and requires review without inventing Work IDs. The existing metadata tagger copies from original FLACs into a new `metadata-copy-<id>`, verifies source SHA-256 and FLAC decoding, never edits original rip/CUE/log and does not publish to `/archive`. The metadata-copy manifest preserves inferred identity provenance (`INFERRED_NOT_PHYSICALLY_VERIFIED` or `INFERRED_OPERATOR_ACCEPTED`); no claim of physical pressing verification.
+
+**Important failure/recovery contract:** Reserve one immutable copy UUID and fingerprint in persistent `workflow.sqlite3` before asynchronous tagging. Repeated polls and browser refreshes do not create duplicate copies. On ambiguous tags, validation failure or interrupted worker after container restart, do **not** automatically rerun against incomplete files: mark `METADATA_REVIEW_REQUIRED`, retain all evidence for operator inspection. Metadata provider errors before reservation can be retried by re-advancing. This is still browser/API-driven workflow progression, not a permanent autonomous server scheduler.
+
+**Still not implemented:** unattended final archive publication, human-approved archive preview/publish for Semi Automatic, fully automatic Best Guess publishing, post-publication catalog indexing, secure physical-edition approval, persistent restart-safe worker continuation or automatic manual recovery of partial metadata copies. Release acceptance does not approve final publication.
+
 ## Go Semi Automatic — phase-one release approval (PR #66, 2026-11-19)
 
 - Separate top-level `identification_mode=semi_automatic` is now selectable and persisted, without modifying existing `best_guess` or `secure` settings/jobs.

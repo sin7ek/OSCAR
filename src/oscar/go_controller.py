@@ -9,7 +9,7 @@ import json
 import re
 from pathlib import Path
 
-from oscar import ripping, verification, workflow_ledger, musicbrainz
+from oscar import ripping, verification, workflow_ledger, musicbrainz, metadata_staging
 
 
 class GoError(RuntimeError):
@@ -61,11 +61,102 @@ def _ranked(releases):
     return sorted(unique.values(),key=lambda x:(-_candidate_score(x),x["id"]))
 
 
-def advance(job_id, *, lookup=None, verify_start=None):
+def _metadata_handoff(job_id, workflow, *, preview=None, copy_start=None,
+                      copy_status=None, copy_inspect=None):
+    """One durable, isolated tag-copy handoff. Never writes an archive.
+
+    Go uses the release recorded in the workflow, not a newly ranked
+    candidate or client-controlled release UUID. A restart with a reserved
+    but unfinished worker is preserved for manual inspection, not rerun.
+    """
+    phase = workflow["phase"]
+    release_id = (workflow.get("accepted_release_id") if
+                  workflow["identification_mode"] == "semi_automatic" else
+                  workflow.get("proposed_release_id"))
+    if not release_id:
+        return {"workflow": workflow, "action": "review_required",
+                "message": "No persistent approved/inferred release identity."}
+    if phase in {"METADATA_READY", "METADATA_REVIEW_REQUIRED"}:
+        return {"workflow": workflow,
+                "action": "metadata_ready" if phase == "METADATA_READY" else "metadata_review_required",
+                "release_id": release_id, "copy_id": workflow["metadata_copy_id"],
+                "message": ("Tagged copy passed saved manifest and FLAC tag/hash checks. "
+                            "Archive publishing remains separate and disabled in Go."
+                            if phase == "METADATA_READY" else
+                            "Tagged-copy creation or inspection requires manual review; no automatic retry.")}
+    if not workflow["metadata_copy_id"]:
+        from oscar.metadata_staging import MetadataError
+        reader = preview or metadata_staging.preview
+        try:
+            plan = reader(job_id, release_id)
+        except (MetadataError, musicbrainz.MusicBrainzError, OSError, ValueError) as exc:
+            return {"workflow": workflow, "action": "metadata_review_required",
+                    "release_id": release_id,
+                    "message": "Exact-disc metadata preview not available: " + str(exc)[:200]}
+        if plan.get("job_id") != job_id or plan.get("release_id") != release_id or not plan.get("fingerprint"):
+            raise GoError("Metadata preview differs from snapshotted release identity")
+        workflow = workflow_ledger.reserve_metadata_copy(
+            job_id, release_id, plan["fingerprint"])
+        starter = copy_start or metadata_staging.start_copy
+        try:
+            starter(job_id, release_id, workflow["metadata_fingerprint"],
+                    "COPY_TAGGED_TO_STAGING",
+                    reserved_copy_id=workflow["metadata_copy_id"],
+                    identification_status=workflow["release_match_status"])
+        except (MetadataError, OSError, ValueError) as exc:
+            workflow = workflow_ledger.complete_metadata_copy(
+                job_id, workflow["metadata_copy_id"], checked=False,
+                reason="tagged_copy_invalid_or_interrupted")
+            return {"workflow": workflow, "action": "metadata_review_required",
+                    "release_id": release_id, "copy_id": workflow["metadata_copy_id"],
+                    "message": "Metadata worker could not start; original staging preserved: " + str(exc)[:200]}
+        return {"workflow": workflow, "action": "metadata_copy_running",
+                "release_id": release_id, "copy_id": workflow["metadata_copy_id"],
+                "message": "Generating isolated tagged FLAC copy. Source rip remains unchanged."}
+    status_reader = copy_status or metadata_staging.copy_status
+    try:
+        status = status_reader(job_id, workflow["metadata_copy_id"])
+    except (metadata_staging.MetadataError, OSError, ValueError) as exc:
+        # On restart, no in-memory worker and no completed manifest: no rerip or
+        # duplicate tagged-copy scheduling. Incomplete staging is preserved.
+        workflow = workflow_ledger.complete_metadata_copy(
+            job_id, workflow["metadata_copy_id"], checked=False,
+            reason="tagged_copy_invalid_or_interrupted")
+        return {"workflow": workflow, "action": "metadata_review_required",
+                "release_id": release_id, "copy_id": workflow["metadata_copy_id"],
+                "message": "Tagged copy interrupted or missing: " + str(exc)[:200]}
+    if status.get("status") == "running":
+        return {"workflow": workflow, "action": "metadata_copy_running",
+                "release_id": release_id, "copy_id": workflow["metadata_copy_id"],
+                "message": "Tagged copy processing and FLAC integrity checks in progress."}
+    if status.get("status") == "tagged_copy_ready_for_review":
+        inspector = copy_inspect or metadata_staging.inspect_copy
+        try:
+            inspected = inspector(job_id, workflow["metadata_copy_id"])
+            good = (inspected.get("status") == "tags_match_preview"
+                    and inspected.get("release_id") == release_id)
+        except (metadata_staging.MetadataError, OSError, ValueError):
+            good = False
+    else:
+        good = False
+    workflow = workflow_ledger.complete_metadata_copy(
+        job_id, workflow["metadata_copy_id"], checked=good,
+        reason="tagged_copy_inspected" if good else "tagged_copy_invalid_or_interrupted")
+    return {"workflow": workflow, "action": "metadata_ready" if good else "metadata_review_required",
+            "release_id": release_id, "copy_id": workflow["metadata_copy_id"],
+            "message": ("Tagged staging copy passed read-back tags, hashes and audio MD5. "
+                        "Publication remains a separate review step." if good else
+                        "Tagged copy failed or verification is ambiguous. No automatic retry.")}
+
+
+def advance(job_id, *, lookup=None, verify_start=None,
+            metadata_preview=None, metadata_copy_start=None,
+            metadata_copy_status=None, metadata_copy_inspect=None):
     """Refresh saved evidence and make the next safe decision.
 
-    GET-free: the opt-in endpoint POST may start verification or make a
-    read-only MusicBrainz lookup, but never changes source audio or archives.
+    The authenticated POST may start verification and an isolated metadata
+    copy only after the persisted identification-policy gate passes.
+    Original FLACs and archive destinations are never written.
     """
     rip = ripping.status(job_id)
     if rip.get("status") == "interrupted":
@@ -91,12 +182,19 @@ def advance(job_id, *, lookup=None, verify_start=None):
         return {"workflow":workflow, "action":"verification_review",
                 "verification_status":report.get("status"),
                 "message":"Failed or ambiguous verification. Stop and review."}
+    if phase in {"METADATA_COPY_RUNNING", "METADATA_READY", "METADATA_REVIEW_REQUIRED"}:
+        return _metadata_handoff(job_id, workflow,
+            preview=metadata_preview, copy_start=metadata_copy_start,
+            copy_status=metadata_copy_status, copy_inspect=metadata_copy_inspect)
     if phase == "RELEASE_ACCEPTED" and workflow["identification_mode"] == "semi_automatic":
-        return {"workflow": workflow, "action": "semi_release_accepted",
-                "release_id": workflow["accepted_release_id"],
-                "release_match_status": "INFERRED_OPERATOR_ACCEPTED",
-                "message": ("Release accepted by operator as inferred, not physically verified. "
-                            "Go tagging/preview/publication are not yet enabled.")}
+        return _metadata_handoff(job_id, workflow,
+            preview=metadata_preview, copy_start=metadata_copy_start,
+            copy_status=metadata_copy_status, copy_inspect=metadata_copy_inspect)
+    if (phase == "RELEASE_REVIEW_PENDING" and workflow["identification_mode"] == "best_guess"
+            and workflow["proposed_release_id"]):
+        return _metadata_handoff(job_id, workflow,
+            preview=metadata_preview, copy_start=metadata_copy_start,
+            copy_status=metadata_copy_status, copy_inspect=metadata_copy_inspect)
     if phase != "RELEASE_REVIEW_PENDING":
         return {"workflow":workflow, "action":"review_required"}
     if workflow["identification_mode"] == "semi_automatic" and workflow["proposed_release_id"]:

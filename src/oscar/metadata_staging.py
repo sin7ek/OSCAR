@@ -196,7 +196,7 @@ def preview(job_id, release_id, *, lookup=lookup_release_medium):
 
 
 def _tagged_copy(job_id, release_id, fingerprint, copy_id, *, lookup=lookup_release_medium,
-                 flac_factory=None, runner=subprocess.run):
+                 flac_factory=None, runner=subprocess.run, identification_status=None):
     if flac_factory is None:
         from mutagen.flac import FLAC
         flac_factory = FLAC
@@ -244,6 +244,7 @@ def _tagged_copy(job_id, release_id, fingerprint, copy_id, *, lookup=lookup_rele
     output = {
         "job_id": job_id, "copy_id": copy_id, "release_id": release_id,
         "preview_fingerprint": fingerprint, "status": "tagged_copy_ready_for_review",
+        "identification_status": identification_status or "UNSPECIFIED_REVIEW_REQUIRED",
         "files": manifest, "count": len(manifest),
         "note": "Staging copies only. No archive publication or cleanup; original files remain untouched.",
     }
@@ -256,7 +257,8 @@ def _tagged_copy(job_id, release_id, fingerprint, copy_id, *, lookup=lookup_rele
     return output
 
 
-def start_copy(job_id, release_id, fingerprint, confirmation):
+def start_copy(job_id, release_id, fingerprint, confirmation, *,
+               reserved_copy_id=None, identification_status=None):
     if confirmation != "COPY_TAGGED_TO_STAGING":
         raise MetadataError("Explicit tagged-copy confirmation required")
     if not re.fullmatch(r"[0-9a-f]{64}", fingerprint):
@@ -264,15 +266,25 @@ def start_copy(job_id, release_id, fingerprint, confirmation):
     _source(job_id)
     if not RELEASE_ID.fullmatch(release_id):
         raise MetadataError("Invalid release ID")
-    copy_id = uuid.uuid4().hex
+    if reserved_copy_id is not None and not _COPY_ID.fullmatch(reserved_copy_id):
+        raise MetadataError("Invalid reserved metadata copy ID")
+    if identification_status not in {None, "INFERRED_NOT_PHYSICALLY_VERIFIED",
+                                     "INFERRED_OPERATOR_ACCEPTED"}:
+        raise MetadataError("Invalid inference provenance")
+    copy_id = reserved_copy_id or uuid.uuid4().hex
     with _LOCK:
-        if job_id in _RUNNING:
+        if job_id in _RUNNING or copy_id in _JOBS:
             raise MetadataError("A tagged-copy job for this rip is already running")
+        # A reserved ID must never overwrite an earlier copy or partial write.
+        candidate = verification._safe_job(job_id) / ("metadata-copy-" + copy_id)
+        if candidate.exists() or candidate.is_symlink():
+            raise MetadataError("Reserved tagged-copy path already exists")
         _RUNNING.add(job_id)
         _JOBS[copy_id] = {"job_id": job_id, "copy_id": copy_id, "status": "running"}
     def work():
         try:
-            result = _tagged_copy(job_id, release_id, fingerprint, copy_id)
+            result = _tagged_copy(job_id, release_id, fingerprint, copy_id,
+                                  identification_status=identification_status)
         except Exception as exc:
             result = {"job_id": job_id, "copy_id": copy_id, "status": "failed",
                       "error": f"{type(exc).__name__}: {exc}"[:350],
