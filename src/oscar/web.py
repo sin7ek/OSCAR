@@ -132,6 +132,7 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 <p>Preview approved metadata proposals for an archived single-CD album. Actual migration is disabled unless OSCAR_ENABLE_ARCHIVE_REVISIONS=1. When enabled, OSCAR preserves the original published generation in retained archive history, verifies a new FLAC/tag/manifest generation, and updates Collection. A catalog-number change also updates the album folder name. Boxsets require a separate coordinated migration.</p>
 <button type="button" id="archive-revision-preview">Preview approved archive migration for selected album</button>
 <button type="button" id="archive-revision-operations">View archive revision history and recovery status</button>
+<p>Verify checks new and original FLACs, manifests, CUE/source evidence and Collection. Clean permanently removes only the verified retained original of one operation, destroys OSCAR's internal rollback, and requires OSCAR_ENABLE_ARCHIVE_HISTORY_CLEANUP=1 plus an independent backup and double confirmation. Prefer excluding hidden archive history from media-server scans. Never Clean if you need the original archive for recovery.</p>
 <div id="archive-revision-output" aria-live="polite"></div>
 <h3>Track-level catalog (classical &amp; other music)</h3>
 <p>Search each archived FLAC's recorded track title, MusicBrainz Work, composer, conductor, performer or explicitly credited soloist. No missing credits are inferred.</p>
@@ -1705,8 +1706,95 @@ async function showArchiveRevisionOperations(){
   for(const entry of data.items){
    const item=document.createElement('p');
    item.textContent=entry.status+' · '+entry.source_path+' → '+entry.dest_path+
-    ' · original retained: '+entry.backup_path;
+    (entry.cleanup_status==='completed'?' · original generation permanently cleaned':
+     ' · original retained: '+entry.backup_path);
    out.append(item);
+   if(entry.cleanup_status){
+    const state=document.createElement('span');
+    state.textContent=' · retained history cleanup: '+entry.cleanup_status+
+     (entry.cleaned_at?' ('+entry.cleaned_at+')':'');
+    item.append(state);
+   }
+   if(entry.status==='completed'&&!entry.cleanup_status){
+    const verification=document.createElement('p');out.append(verification);
+    const verifyButton=document.createElement('button');
+    verifyButton.type='button';verifyButton.textContent='Verify';
+    const cleanButton=document.createElement('button');
+    cleanButton.type='button';cleanButton.textContent='Clean (verified only)';
+    const bothButton=document.createElement('button');
+    bothButton.type='button';bothButton.textContent='Verify & Clean';
+    item.append(verifyButton,cleanButton,bothButton);
+    let verifiedReceipt=null;
+    cleanButton.disabled=true;
+    async function runVerify(){
+     const auth=requestAuthHeaders('Independently verify both archive generations');if(!auth)return null;
+     verifyButton.disabled=true;bothButton.disabled=true;cleanButton.disabled=true;
+     verifiedReceipt=null;
+     verification.textContent='Verifying both generations: all FLAC tags, SHA-256, audio, CUE/evidence, Collection…';
+     try{
+      const response=await fetch('/api/collection/archive-revisions/verify',{
+       method:'POST',headers:{'Content-Type':'application/json',...auth},
+       body:JSON.stringify({operation_id:entry.operation_id})
+      });
+      const result=await response.json();
+      if(!response.ok)throw Error(result.detail||'Archive verification failed');
+      verifiedReceipt=result.verification_fingerprint;
+      verification.textContent='VERIFIED: '+result.revised_flacs_verified+' new FLACs + '+
+       result.original_flacs_verified+' originals, '+result.approved_fields_verified+
+       ' approved change(s); CUE/evidence and Collection OK. No archive bytes changed.';
+      cleanButton.disabled=false;
+      return verifiedReceipt;
+     }catch(error){
+      verification.textContent='VERIFY FAILED: '+error.message+
+       '. Nothing has been deleted.';
+      return null;
+     }finally{verifyButton.disabled=false;bothButton.disabled=false}
+    }
+    async function runClean(receipt){
+     if(!receipt){verification.textContent='First run Verify successfully.';return}
+     if(!window.confirm(
+      'PERMANENT deletion of ONE retained original archive generation? '+
+      'This removes the original CUE, FLACs and provenance; OSCAR cannot restore it. '+
+      'Make an external backup first. This cannot be undone.'
+     ))return;
+     const typed=window.prompt('Type DELETE ORIGINAL to confirm permanent loss of this archived version.');
+     if(typed!=='DELETE ORIGINAL')return;
+     if(!window.confirm(
+      'Confirm you have a RESTORABLE EXTERNAL BACKUP of this original version, '+
+      'outside the OSCAR archive and media-server library. Without that backup, Cancel.'
+     ))return;
+     const auth=requestAuthHeaders('Permanently clean a verified original archive version');
+     if(!auth)return;
+     verifyButton.disabled=true;cleanButton.disabled=true;bothButton.disabled=true;
+     verification.textContent='Re-verifying the COMPLETE original and new publications under lock before cleanup…';
+     try{
+      const response=await fetch('/api/collection/archive-revisions/clean',{
+       method:'POST',headers:{'Content-Type':'application/json',...auth},
+       body:JSON.stringify({
+        operation_id:entry.operation_id,
+        verification_fingerprint:receipt,
+        confirmation:'PERMANENTLY_DELETE_VERIFIED_ORIGINAL_VERSION',
+        external_backup_confirmed:true
+       })
+      });
+      const result=await response.json();
+      if(!response.ok)throw Error(result.detail||'Cleanup refused');
+      verification.textContent='Cleaned verified retained original: '+result.original_version_removed+
+       '. Current album was not modified. External backup is the only recovery source.';
+      await showArchiveRevisionOperations();
+     }catch(error){
+      verification.textContent='CLEAN NOT CONFIRMED: '+error.message+
+       '. Inspect revision/cleanup journal before any further attempt.';
+      verifyButton.disabled=false;bothButton.disabled=false;
+     }
+    }
+    verifyButton.onclick=()=>runVerify();
+    cleanButton.onclick=()=>runClean(verifiedReceipt);
+    bothButton.onclick=async()=>{
+     const receipt=await runVerify();
+     if(receipt)await runClean(receipt);
+    };
+   }
    if(entry.status==='prepared'){
     const button=document.createElement('button');
     button.type='button';button.textContent='Reconcile interrupted revision';

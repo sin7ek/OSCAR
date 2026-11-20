@@ -443,3 +443,146 @@ def test_explicit_reconciliation_preserves_manually_curated_label(fixture, monke
     assert result["labels_updated"] == 0
     assert result["manual_values_preserved"] == 1
     assert catalog.list_items()["items"][0]["label"] == "My curated edition note"
+
+
+def test_completed_archive_revision_verify_is_read_only_and_checks_both_generations(fixture, monkeypatch):
+    from oscar import archive_revision_verify as maintenance
+    monkeypatch.setattr(maintenance, "FLAC", FakeFlac)
+    _, old, _, _ = fixture
+    plan = _approve(fixture)
+    done = revision.apply(str(old), plan["fingerprint"], "APPLY_VERIFIED_ARCHIVE_REVISION")
+    before_original = {p.name: p.read_bytes() for p in Path(done["original_retained_at"]).glob("*.flac")}
+    before_new = {p.name: p.read_bytes() for p in Path(done["archive_path"]).glob("*.flac")}
+    report = maintenance.verify(done["operation_id"])
+    assert report["status"] == "verified"
+    assert report["original_flacs_verified"] == 2
+    assert report["revised_flacs_verified"] == 2
+    assert report["approved_fields_verified"] == 2
+    assert report["collection_verified"] and report["manifest_and_evidence_verified"]
+    assert {p.name: p.read_bytes() for p in Path(done["archive_path"]).glob("*.flac")} == before_new
+    assert {p.name: p.read_bytes() for p in Path(done["original_retained_at"]).glob("*.flac")} == before_original
+
+
+def test_verify_rejects_changed_new_flac_and_missing_original_evidence(fixture, monkeypatch):
+    from oscar import archive_revision_verify as maintenance
+    monkeypatch.setattr(maintenance, "FLAC", FakeFlac)
+    _, old, _, _ = fixture
+    plan = _approve(fixture)
+    done = revision.apply(str(old), plan["fingerprint"], "APPLY_VERIFIED_ARCHIVE_REVISION")
+    modified = Path(done["archive_path"]) / "01 - Song.flac"
+    modified.write_bytes(b"tampered after publication")
+    with pytest.raises((maintenance.ArchiveVerifyError, scanner.ScanError), match="SHA-256"):
+        maintenance.verify(done["operation_id"])
+
+
+def test_verify_rejects_stale_sourced_collection_label(fixture, monkeypatch):
+    from oscar import archive_revision_verify as maintenance
+    monkeypatch.setattr(maintenance, "FLAC", FakeFlac)
+    _, old, _, _ = fixture
+    plan = _approve(fixture)
+    done = revision.apply(str(old), plan["fingerprint"], "APPLY_VERIFIED_ARCHIVE_REVISION")
+    with catalog._connect() as db:
+        db.execute("UPDATE archive_items SET label=?,label_provenance=? WHERE archive_path=?",
+                   ("Old label", "musicbrainz_exact_release_catalog_match", done["archive_path"]))
+    with pytest.raises(maintenance.ArchiveVerifyError, match="Label is stale"):
+        maintenance.verify(done["operation_id"])
+
+
+def test_clean_is_opt_in_per_operation_and_requires_fresh_verification(fixture, monkeypatch):
+    from oscar import archive_revision_verify as verify_engine
+    from oscar import archive_revision_cleanup as cleanup
+    monkeypatch.setattr(verify_engine, "FLAC", FakeFlac)
+    _, old, _, _ = fixture
+    plan = _approve(fixture)
+    done = revision.apply(str(old), plan["fingerprint"], "APPLY_VERIFIED_ARCHIVE_REVISION")
+    receipt = verify_engine.verify(done["operation_id"])["verification_fingerprint"]
+    historical = Path(done["original_retained_at"])
+    active = Path(done["archive_path"])
+    new_bytes = {p.name: p.read_bytes() for p in active.glob("*.flac")}
+    monkeypatch.delenv("OSCAR_ENABLE_ARCHIVE_HISTORY_CLEANUP", raising=False)
+    with pytest.raises(cleanup.ArchiveCleanupError, match="disabled"):
+        cleanup.clean(done["operation_id"], receipt, cleanup.CONFIRM,
+                      external_backup_confirmed=True)
+    assert historical.is_dir()
+    monkeypatch.setenv("OSCAR_ENABLE_ARCHIVE_HISTORY_CLEANUP", "1")
+    with pytest.raises(cleanup.ArchiveCleanupError, match="confirmation"):
+        cleanup.clean(done["operation_id"], receipt, cleanup.CONFIRM,
+                      external_backup_confirmed=False)
+    with pytest.raises(cleanup.ArchiveCleanupError, match="stale"):
+        cleanup.clean(done["operation_id"], "0" * 64, cleanup.CONFIRM,
+                      external_backup_confirmed=True)
+    assert historical.is_dir()
+    cleaned = cleanup.clean(done["operation_id"], receipt, cleanup.CONFIRM,
+                            external_backup_confirmed=True)
+    assert cleaned["status"] == "cleaned"
+    assert not historical.exists()
+    assert active.is_dir()
+    assert {p.name: p.read_bytes() for p in active.glob("*.flac")} == new_bytes
+    assert cleanup.cleanup_status(done["operation_id"])["status"] == "completed"
+    assert revision.operations()["items"][0]["cleanup_status"] == "completed"
+    with pytest.raises(cleanup.ArchiveCleanupError, match="already recorded"):
+        cleanup.clean(done["operation_id"], receipt, cleanup.CONFIRM,
+                      external_backup_confirmed=True)
+
+
+def test_clean_refuses_corrupted_original_and_preserves_it(fixture, monkeypatch):
+    from oscar import archive_revision_verify as verify_engine
+    from oscar import archive_revision_cleanup as cleanup
+    monkeypatch.setattr(verify_engine, "FLAC", FakeFlac)
+    _, old, _, _ = fixture
+    plan = _approve(fixture)
+    done = revision.apply(str(old), plan["fingerprint"], "APPLY_VERIFIED_ARCHIVE_REVISION")
+    receipt = verify_engine.verify(done["operation_id"])["verification_fingerprint"]
+    monkeypatch.setenv("OSCAR_ENABLE_ARCHIVE_HISTORY_CLEANUP", "1")
+    backup = Path(done["original_retained_at"])
+    (backup / "01 - Song.flac").write_bytes(b"damaged")
+    with pytest.raises((cleanup.ArchiveCleanupError, verify_engine.ArchiveVerifyError), match="SHA-256"):
+        cleanup.clean(done["operation_id"], receipt, cleanup.CONFIRM,
+                      external_backup_confirmed=True)
+    assert backup.exists()
+    assert cleanup.cleanup_status(done["operation_id"]) is None
+
+
+def test_explicit_reconciliation_preserves_unknown_nonempty_label_provenance(fixture):
+    from oscar.collection_labels import reconcile_applied_archive_labels
+    _, old, _, _ = fixture
+    plan = _approve(fixture)
+    done = revision.apply(str(old), plan["fingerprint"], "APPLY_VERIFIED_ARCHIVE_REVISION")
+    with catalog._connect() as db:
+        db.execute("UPDATE archive_items SET label=?,label_provenance=? WHERE archive_path=?",
+                   ("Legacy manually curated value", "", done["archive_path"]))
+    report = reconcile_applied_archive_labels()
+    assert report["labels_updated"] == 0
+    assert report["manual_values_preserved"] == 1
+    assert catalog.list_items()["items"][0]["label"] == "Legacy manually curated value"
+
+
+def test_verify_and_clean_api_require_auth_and_opt_in(fixture, monkeypatch):
+    from oscar import archive_revision_verify as verify_engine
+    from oscar import archive_revision_cleanup as cleanup
+    monkeypatch.setattr(verify_engine, "FLAC", FakeFlac)
+    monkeypatch.setenv("OSCAR_ENABLE_RIPPING", "1")
+    _, old, _, _ = fixture
+    plan = _approve(fixture)
+    done = revision.apply(str(old), plan["fingerprint"], "APPLY_VERIFIED_ARCHIVE_REVISION")
+    client = TestClient(app)
+    payload = {"operation_id": done["operation_id"]}
+    assert client.post("/api/collection/archive-revisions/verify", json=payload).status_code == 403
+    headers = {"X-OSCAR-RIP-TOKEN": TOKEN}
+    result = client.post("/api/collection/archive-revisions/verify",
+                         json=payload, headers=headers)
+    assert result.status_code == 200
+    assert result.json()["status"] == "verified"
+    clean_request = {
+        **payload,
+        "verification_fingerprint": result.json()["verification_fingerprint"],
+        "confirmation": cleanup.CONFIRM,
+        "external_backup_confirmed": True,
+    }
+    assert client.post("/api/collection/archive-revisions/clean",
+                       json=clean_request).status_code == 403
+    monkeypatch.delenv("OSCAR_ENABLE_ARCHIVE_HISTORY_CLEANUP", raising=False)
+    response = client.post("/api/collection/archive-revisions/clean",
+                           json=clean_request, headers=headers)
+    assert response.status_code == 409
+    assert Path(done["original_retained_at"]).exists()

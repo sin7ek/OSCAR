@@ -51,6 +51,14 @@ CREATE TABLE IF NOT EXISTS archive_revision_operations (
   error TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_archive_revision_source ON archive_revision_operations(source_path,status);
+CREATE TABLE IF NOT EXISTS archive_revision_cleanups (
+  operation_id TEXT PRIMARY KEY,
+  original_backup_path TEXT NOT NULL,
+  verification_fingerprint TEXT NOT NULL,
+  status TEXT NOT NULL,
+  started_at TEXT NOT NULL,
+  completed_at TEXT NOT NULL DEFAULT ''
+);
 """
 
 
@@ -551,7 +559,11 @@ def task_status(task_id):
 def operations():
     with _db() as db:
         rows = db.execute(
-            "SELECT operation_id,source_path,dest_path,backup_path,status,started_at,finished_at "
-            "FROM archive_revision_operations ORDER BY started_at DESC LIMIT 100"
+            "SELECT r.operation_id,r.source_path,r.dest_path,r.backup_path,r.status,"
+            "r.started_at,r.finished_at,c.status AS cleanup_status,"
+            "c.completed_at AS cleaned_at "
+            "FROM archive_revision_operations AS r "
+            "LEFT JOIN archive_revision_cleanups AS c ON c.operation_id=r.operation_id "
+            "ORDER BY r.started_at DESC LIMIT 100"
         ).fetchall()
     return {"items": [dict(row) for row in rows]}

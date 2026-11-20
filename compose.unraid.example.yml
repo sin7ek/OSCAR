@@ -50,6 +50,12 @@ services:
       # instructions, and backed up the archive and Collection database.
       OSCAR_ENABLE_ARCHIVE_REVISIONS: "0"
 
+      # DANGEROUS: permits permanent removal of VERIFIED retained original
+      # archive generations. OFF by default. Requires external backups,
+      # separate Verify, user confirmation and one exact operation ID.
+      # Prefer excluding hidden history from music-server library scans.
+      OSCAR_ENABLE_ARCHIVE_HISTORY_CLEANUP: "0"
+
       # OSCAR has no built-in user login; local trusted mode does not
       # replace authentication. Enable only on an isolated LAN or behind
       # an authenticated reverse proxy, after reviewing the risk.

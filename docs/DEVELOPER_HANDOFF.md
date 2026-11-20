@@ -22,6 +22,12 @@ The operator's archive revision history shows **two `completed` operations**. Ne
 
 User's next requested development: Verify button for previous manual tests; Clean and combined Verify & Clean (must have strict independent verification, explicit irreversible-loss confirmation/opt-in, safe per-operation-only scope, audit/recovery and no silent destructive archive mutations); coordinated multidisc migration for Boulez (available discs 4 and 6 of 6). Do not apply single-CD engine to partial boxset or remove hidden archive versions merely to appease Plex/Navidrome. An immediate safe workaround is excluding `.oscar-archive-versions` in media-server library paths, though hidden folders are not necessarily ignored by all servers.
 
+### Archive revision maintenance implementation — current engineering work
+
+The next feature branch adds **Verify**, **Clean** and **Verify & Clean** actions on journal-completed archive revisions. Verify independently checks original+new FLAC SHA, all `flac -t`, STREAMINFO audio MD5, approved tags, CUE/source extraction evidence, other non-audio files, lineage, revision state and Collection. Clean requires the separate default-off `OSCAR_ENABLE_ARCHIVE_HISTORY_CLEANUP=1` flag, operator-typed permanent-deletion acknowledgement, an external-backup assertion, matching Verify fingerprint and a fresh Verify under filesystem lock; only the single exact retained-original operation directory can be removed. A prepared/completed cleanup audit is retained; interruptions need human inspection. The `Clean` option sacrifices internal archival lineage and rollback and must **never run automatically**. For media scanner duplication, exclusions for `.oscar-archive-versions` or separate library mounts are safer first.
+
+**Unraid acceptance not yet complete:** independent Verify on Carmen Gomes and Anastacia, then a sacrificial test-archive Clean with external backup and failure recovery before offering cleanup of real retained versions. Multi-disc Boulez workflow remains a separate, safety-gated milestone. Consult `docs/ARCHIVE_METADATA_LIFECYCLE.md` for the contract.
+
 ## 1. Fast context for the next assistant
 
 - OSCAR repository: **https://github.com/sin7ek/OSCAR**. Open-source CD ripping, physical edition review, lossless FLAC verification and long-lived archive maintenance; Python/FastAPI + server-rendered/vanilla-JS UI; Docker/Unraid/Portainer.
