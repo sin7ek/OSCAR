@@ -132,6 +132,7 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 <p>Preview approved metadata proposals for an archived single-CD album. Actual migration is disabled unless OSCAR_ENABLE_ARCHIVE_REVISIONS=1. When enabled, OSCAR preserves the original published generation in retained archive history, verifies a new FLAC/tag/manifest generation, and updates Collection. A catalog-number change also updates the album folder name. Boxsets require a separate coordinated migration.</p>
 <button type="button" id="archive-revision-preview">Preview approved archive migration for selected album</button>
 <button type="button" id="archive-revision-operations">View archive revision history and recovery status</button>
+<p>Verify checks new and original FLACs, manifests, CUE/source evidence and Collection. Clean permanently removes only the verified retained original of one operation, destroys OSCAR's internal rollback, and requires OSCAR_ENABLE_ARCHIVE_HISTORY_CLEANUP=1 plus an independent backup and double confirmation. Prefer excluding hidden archive history from media-server scans. Never Clean if you need the original archive for recovery.</p>
 <div id="archive-revision-output" aria-live="polite"></div>
 <h3>Track-level catalog (classical &amp; other music)</h3>
 <p>Search each archived FLAC's recorded track title, MusicBrainz Work, composer, conductor, performer or explicitly credited soloist. No missing credits are inferred.</p>
