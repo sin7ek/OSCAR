@@ -486,3 +486,58 @@ def test_verify_rejects_stale_sourced_collection_label(fixture, monkeypatch):
                    ("Old label", "musicbrainz_exact_release_catalog_match", done["archive_path"]))
     with pytest.raises(maintenance.ArchiveVerifyError, match="Label is stale"):
         maintenance.verify(done["operation_id"])
+
+
+def test_clean_is_opt_in_per_operation_and_requires_fresh_verification(fixture, monkeypatch):
+    from oscar import archive_revision_verify as verify_engine
+    from oscar import archive_revision_cleanup as cleanup
+    monkeypatch.setattr(verify_engine, "FLAC", FakeFlac)
+    _, old, _, _ = fixture
+    plan = _approve(fixture)
+    done = revision.apply(str(old), plan["fingerprint"], "APPLY_VERIFIED_ARCHIVE_REVISION")
+    receipt = verify_engine.verify(done["operation_id"])["verification_fingerprint"]
+    historical = Path(done["original_retained_at"])
+    active = Path(done["archive_path"])
+    new_bytes = {p.name: p.read_bytes() for p in active.glob("*.flac")}
+    monkeypatch.delenv("OSCAR_ENABLE_ARCHIVE_HISTORY_CLEANUP", raising=False)
+    with pytest.raises(cleanup.ArchiveCleanupError, match="disabled"):
+        cleanup.clean(done["operation_id"], receipt, cleanup.CONFIRM,
+                      external_backup_confirmed=True)
+    assert historical.is_dir()
+    monkeypatch.setenv("OSCAR_ENABLE_ARCHIVE_HISTORY_CLEANUP", "1")
+    with pytest.raises(cleanup.ArchiveCleanupError, match="confirmation"):
+        cleanup.clean(done["operation_id"], receipt, cleanup.CONFIRM,
+                      external_backup_confirmed=False)
+    with pytest.raises(cleanup.ArchiveCleanupError, match="stale"):
+        cleanup.clean(done["operation_id"], "0" * 64, cleanup.CONFIRM,
+                      external_backup_confirmed=True)
+    assert historical.is_dir()
+    cleaned = cleanup.clean(done["operation_id"], receipt, cleanup.CONFIRM,
+                            external_backup_confirmed=True)
+    assert cleaned["status"] == "cleaned"
+    assert not historical.exists()
+    assert active.is_dir()
+    assert {p.name: p.read_bytes() for p in active.glob("*.flac")} == new_bytes
+    assert cleanup.cleanup_status(done["operation_id"])["status"] == "completed"
+    assert revision.operations()["items"][0]["cleanup_status"] == "completed"
+    with pytest.raises(cleanup.ArchiveCleanupError, match="already recorded"):
+        cleanup.clean(done["operation_id"], receipt, cleanup.CONFIRM,
+                      external_backup_confirmed=True)
+
+
+def test_clean_refuses_corrupted_original_and_preserves_it(fixture, monkeypatch):
+    from oscar import archive_revision_verify as verify_engine
+    from oscar import archive_revision_cleanup as cleanup
+    monkeypatch.setattr(verify_engine, "FLAC", FakeFlac)
+    _, old, _, _ = fixture
+    plan = _approve(fixture)
+    done = revision.apply(str(old), plan["fingerprint"], "APPLY_VERIFIED_ARCHIVE_REVISION")
+    receipt = verify_engine.verify(done["operation_id"])["verification_fingerprint"]
+    monkeypatch.setenv("OSCAR_ENABLE_ARCHIVE_HISTORY_CLEANUP", "1")
+    backup = Path(done["original_retained_at"])
+    (backup / "01 - Song.flac").write_bytes(b"damaged")
+    with pytest.raises((cleanup.ArchiveCleanupError, verify_engine.ArchiveVerifyError), match="SHA-256"):
+        cleanup.clean(done["operation_id"], receipt, cleanup.CONFIRM,
+                      external_backup_confirmed=True)
+    assert backup.exists()
+    assert cleanup.cleanup_status(done["operation_id"]) is None
