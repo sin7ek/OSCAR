@@ -47,7 +47,9 @@ Never mutate, re-encode, rename or delete original Unraid archive audio without 
 - UI: preview presents Apply only for all-present-disc-approved groups when explicitly enabled, and has separate history/recovery controls.
 - The group DB transaction is atomic. The cross-directory filesystem rename sequence **is not atomic**; interrupted groups are reported as `prepared` and must be reconciled. It may temporarily expose mixed publication generations.
 - Candidate copies are verified before any original move. All retained originals remain intact after a successful operation. Reconciliation must verify original+new and audio STREAMINFO MD5 identity before committing Collection.
-- Initial limitation: only exactly one accepted release-scope `LABEL` proposal on **every** present archived disc. No other metadata fields, no mixed already-correct discs, no album rename, no automated rollback or cleanup. These restrictions intentionally fail closed.
+- Initial limitation: only accepted release-scope `LABEL` changes are migrated. Every present disc is checked; already-correct discs remain byte-identical and unversioned, while each changed disc needs exactly one accepted label proposal. No other metadata fields, no album rename, no automated rollback or cleanup. These restrictions intentionally fail closed.
 - Worker progress state is in-memory; the durable group journal survives restarts. If worker status is lost, inspect group history.
 - Tests presently include synthetic fake-FLAC journal transitions for partial failures and stale plans. They are **not a substitute for real-FLAC end-to-end tests**.
 - **Next gates before merge:** Python+Docker CI green at final head, real FLAC tests with interruption injection, careful Unraid/FUSE validation on sacrificial albums, then operator-reviewed Boulez preview and explicit Apply. Archive originals must never be deleted automatically.
+
+- A newly ripped CD already containing the exact reviewed `LABEL` is included in the group fingerprint but is not rewritten, moved or backed up by this metadata-only migration.
