@@ -19,7 +19,7 @@ from zipfile import ZipFile, ZIP_DEFLATED, ZIP_STORED
 
 _COLUMNS = ("artist", "title", "year", "label", "catalog_number", "musicbrainz_release_id",
             "composer", "conductor", "orchestra", "soloists", "performers", "works",
-            "archive_path", "track_count", "archive_status", "identification_status",
+            "archive_path", "track_count", "disc_number", "disc_total", "archive_status", "identification_status",
             "media_condition", "sleeve_condition", "folder", "notes", "label_provenance")
 _ENRICHED = ("label", "composer", "conductor", "orchestra", "soloists", "performers", "works")
 _SORT = frozenset(_COLUMNS)
@@ -34,6 +34,8 @@ CREATE TABLE IF NOT EXISTS archive_items (
   catalog_number TEXT NOT NULL DEFAULT '',
   musicbrainz_release_id TEXT NOT NULL,
   track_count INTEGER NOT NULL,
+  disc_number INTEGER NOT NULL DEFAULT 1,
+  disc_total INTEGER NOT NULL DEFAULT 1,
   archive_status TEXT NOT NULL,
   identification_status TEXT NOT NULL DEFAULT 'HUMAN_REVIEWED',
   media_condition TEXT NOT NULL DEFAULT '',
@@ -81,9 +83,12 @@ def _connect() -> sqlite3.Connection:
     db.row_factory = sqlite3.Row
     db.executescript(_SCHEMA)
     existing = {row[1] for row in db.execute("PRAGMA table_info(archive_items)")}
-    for name in (*_ENRICHED, "label_provenance"):
+    for name in (*_ENRICHED, "label_provenance", "disc_number", "disc_total"):
         if name not in existing:
-            db.execute(f"ALTER TABLE archive_items ADD COLUMN {name} TEXT NOT NULL DEFAULT ''")
+            if name in {"disc_number", "disc_total"}:
+                db.execute(f"ALTER TABLE archive_items ADD COLUMN {name} INTEGER NOT NULL DEFAULT 1")
+            else:
+                db.execute(f"ALTER TABLE archive_items ADD COLUMN {name} TEXT NOT NULL DEFAULT ''")
     return db
 
 
@@ -103,23 +108,60 @@ def _read_manifest(album: Path) -> dict | None:
     return document
 
 
+_ALBUM_DIR = re.compile(r"\\[([^\\]]+)\\] (.+) \\((\\d{4})\\) \\[([a-f0-9]{8})\\]")
+_DISC_DIR = re.compile(r"Disc (0[1-9]|[1-9][0-9])")
+
+
 def _metadata_from_path(album: Path, manifest: dict) -> dict:
-    # Naming convention: /archive/artist/[catalog] album (year) [release-short]
-    leaf = album.name
-    artist = album.parent.name
-    matched = re.fullmatch(r"\[([^\]]+)\] (.+) \((\d{4})\) \[([a-f0-9]{8})\]", leaf)
-    if matched:
-        catalog, title, year, release_short = matched.groups()
-        if not manifest["release_id"].lower().startswith(release_short):
-            raise CatalogError("Archive path release ID differs from manifest")
+    """Recognize only /artist/album[/Disc NN]; never guess from arbitrary depth."""
+    relative = album.relative_to(archive_root())
+    parts = relative.parts
+    if len(parts) == 3 and _DISC_DIR.fullmatch(parts[-1]):
+        artist, album_dir, _ = parts
+        disc_number = int(_DISC_DIR.fullmatch(parts[-1]).group(1))
+    elif len(parts) == 2:
+        artist, album_dir = parts
+        disc_number = 1
     else:
-        catalog, title, year = "", leaf, ""
-    if not artist or album == archive_root():
-        raise CatalogError("Invalid archive folder structure")
+        raise CatalogError("Unsupported archive folder structure")
+    matched = _ALBUM_DIR.fullmatch(album_dir)
+    if not matched:
+        raise CatalogError("Archive album folder does not match OSCAR naming convention")
+    catalog, title, year, release_short = matched.groups()
+    if not manifest["release_id"].lower().startswith(release_short):
+        raise CatalogError("Archive path release ID differs from manifest")
+    raw_disc = manifest.get("disc_number", disc_number)
+    raw_total = manifest.get("disc_total", 1)
+    if type(raw_disc) is not int or type(raw_total) is not int or not 1 <= raw_disc <= raw_total <= 99:
+        raise CatalogError("Invalid archive disc metadata")
+    if raw_disc != disc_number or (len(parts) == 3 and raw_total == 1):
+        raise CatalogError("Archive folder disc number differs from manifest")
+    if len(parts) == 2 and raw_total > 1 and raw_disc != 1:
+        raise CatalogError("Missing multidisc directory")
+    if not artist or not title:
+        raise CatalogError("Invalid archive artist/album")
     return {"artist": artist, "title": title, "year": year,
             "catalog_number": catalog, "musicbrainz_release_id": manifest["release_id"],
             "archive_path": str(album), "track_count": len(manifest["files"]),
+            "disc_number": disc_number, "disc_total": raw_total,
             "archive_status": manifest["status"]}
+
+
+def _identification_status(manifest):
+    """Edition provenance is distinct from integrity-checked publication."""
+    accepted = {"INFERRED_OPERATOR_ACCEPTED", "INFERRED_NOT_PHYSICALLY_VERIFIED",
+                "PHYSICAL_EDITION_VERIFIED", "EDITION_NOT_VERIFIED"}
+    value = manifest.get("release_match_status")
+    return value if value in accepted else "EDITION_NOT_VERIFIED"
+
+
+def _legacy_bad_multidisc_row(row, album: Path) -> bool:
+    """Repair only the exact old path-parser output, never edited values."""
+    return (row["artist"] == album.parent.name
+            and row["title"] == album.name
+            and row["year"] == "" and row["catalog_number"] == ""
+            and row["identification_status"] == "HUMAN_REVIEWED")
+
 
 
 def _archive_tag_metadata(album: Path, manifest: dict) -> dict:
@@ -180,13 +222,24 @@ def _archive_tag_metadata(album: Path, manifest: dict) -> dict:
     return result
 
 
-def import_published() -> dict:
-    """Explicit operator-triggered, insert-only import; never rewrite local edits."""
+def import_published(*, only_path: Path | None = None) -> dict:
+    """Idempotently import verified manifests and safely repair legacy multidisc rows.
+
+    only_path allows the publisher to index exactly the newly promoted leaf.
+    No external archive, FLAC or user-editable catalog field is overwritten.
+    """
     root = archive_root()
     inserted = 0
     skipped = 0
     with _connect() as db:
-        for manifest_file in sorted(root.rglob("manifest.json")):
+        manifests = ([only_path / "manifest.json"] if only_path is not None
+                     else sorted(root.rglob("manifest.json")))
+        if only_path is not None and (only_path.is_symlink()
+                or not only_path.is_relative_to(root) or
+                not only_path.is_dir()):
+            raise CatalogError("Unsafe specific archive import path")
+        repaired = 0
+        for manifest_file in manifests:
             album = manifest_file.parent
             relative = album.relative_to(root)
             if any(part in {"ExtractionEvidence", "Verification", "FailedAttempts"}
@@ -203,23 +256,39 @@ def import_published() -> dict:
                           **_archive_tag_metadata(album, data)}
                 fields["label_provenance"] = ("archive_manifest_label_info" if data.get("label_info") and fields["label"] else
                                                "archived_flac_label_tag" if fields["label"] else "")
+                fields["identification_status"] = _identification_status(data)
             except (OSError, ValueError, json.JSONDecodeError, CatalogError):
                 skipped += 1
                 continue
             before = db.total_changes
             db.execute("""INSERT OR IGNORE INTO archive_items
               (archive_path, artist, title, year, catalog_number, musicbrainz_release_id,
-               track_count, archive_status, imported_at, label, composer, conductor,
+               track_count, disc_number, disc_total, archive_status, imported_at, label, composer, conductor,
                orchestra, soloists, performers, works, label_provenance, identification_status,
                media_condition, sleeve_condition, folder, notes)
               VALUES (:archive_path,:artist,:title,:year,:catalog_number,:musicbrainz_release_id,
-                      :track_count,:archive_status,:imported_at,:label,:composer,:conductor,
-                      :orchestra,:soloists,:performers,:works,:label_provenance,'HUMAN_REVIEWED','','','','')""",
+                      :track_count,:disc_number,:disc_total,:archive_status,:imported_at,:label,:composer,:conductor,
+                      :orchestra,:soloists,:performers,:works,:label_provenance,:identification_status,'','','','')""",
                        {**fields, "imported_at": datetime.now(timezone.utc).isoformat()})
             inserted += db.total_changes - before
             # Older catalog rows can gain *missing* sourced metadata from
             # actual archive tags, but never overwrite operator-entered values.
             if db.total_changes == before:
+                previous = db.execute(
+                    "SELECT artist,title,year,catalog_number,identification_status "
+                    "FROM archive_items WHERE archive_path=?", (fields["archive_path"],)
+                ).fetchone()
+                # The old importer misread /artist/album/Disc 06 as
+                # artist=album-folder and title=Disc 06. Migrate exactly
+                # that signature, leave all other curated fields alone.
+                if (previous is not None and album.name.startswith("Disc ")
+                        and _legacy_bad_multidisc_row(previous, album)):
+                    db.execute("""UPDATE archive_items SET
+                        artist=:artist,title=:title,year=:year,catalog_number=:catalog_number,
+                        disc_number=:disc_number,disc_total=:disc_total,
+                        identification_status=:identification_status
+                        WHERE archive_path=:archive_path""", fields)
+                    repaired += 1
                 db.execute("""UPDATE archive_items SET
                    label=CASE WHEN label='' THEN :label ELSE label END,
                    label_provenance=CASE WHEN label_provenance='' THEN :label_provenance ELSE label_provenance END,
@@ -231,8 +300,9 @@ def import_published() -> dict:
                    performers=CASE WHEN performers='' THEN :performers ELSE performers END,
                    works=CASE WHEN works='' THEN :works ELSE works END
                    WHERE archive_path=:archive_path""", fields)
-    return {"imported": inserted, "already_present_or_skipped": skipped,
-            "note": "Only local database rows added; archives unchanged. No Discogs sync."}
+    return {"imported": inserted, "repaired": repaired,
+            "already_present_or_skipped": skipped,
+            "note": "Local catalog only; source archives unchanged. No Discogs sync."}
 
 
 def list_items(*, search: str = "", sort_by: str = "artist", descending: bool = False,
