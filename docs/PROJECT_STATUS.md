@@ -1,4 +1,4 @@
-## MusicBrainz accepted-match refresh — 20 November 2026 (test branch)
+## MusicBrainz accepted-match refresh — 20 November 2026 (PR #79 merged, Unraid test pending)
 
 The next OSCAR change adds an authenticated, read-only **Refresh MusicBrainz match** button for explicitly accepted Semi Automatic Go! jobs. It reuses the original saved physical TOC, Disc ID, completed per-track verification and accepted release UUID to fetch fresh MusicBrainz medium information. A newly attached Disc ID is displayed as fresh external evidence; original `INFERRED_OPERATOR_ACCEPTED` history, tags, archive and audio remain untouched. No physical-edition verification is inferred from a database association.
 
