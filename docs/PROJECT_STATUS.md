@@ -1,3 +1,13 @@
+## GUI branding integration — 20 November 2026 (draft PR; assets pending)
+
+A dedicated `feature/oscar-branding-assets` branch adds a responsive OSCAR header, 16×16/32×32 favicons, mobile touch icon declarations, safe allowlisted image-serving route, source package-data declaration and branding regression tests. The existing Go! / Review / Collection / Settings navigation and all ripping, archive and collection workflows are unchanged.
+
+**Not complete or deployed:** the original operator-supplied binary artwork cannot yet be committed through this text-only GitHub changeset. The exact original header and derived favicon exports are available in the separate `OSCAR-branding-assets.zip` handoff. Keep the PR as **draft**, copy the PNG files to `src/oscar/assets/`, run CI and desktop/mobile Unraid smoke tests, and only then approve merge. Missing artwork falls back to the old OSCAR text heading; no existing archive data changes.
+
+See [BRANDING.md](BRANDING.md).
+
+---
+
 ## Status reconciliation — 2026-11-20: hardware, Disc ID, Collection, OAuth next phase
 
 **Verified user reports (not just CI):** OSCAR Collection shows three `published_verified` disc records: Anastacia *Freak of Nature* (12 tracks), and *Boulez Conducts Stravinsky* CDs **4/6** (7 tracks) and **6/6** (32 tracks). The latter were confirmed in Unraid file manager as separate `Disc 04` and `Disc 06` folders inside the **same** `[6CD 477 8730 GB6] Boulez Conducts Stravinsky (2010) [423f636d]` boxset directory. This proves distinct boxset discs were published and indexed without overwriting one another; it does not prove the entire 6-CD set is archived or pressing identity.

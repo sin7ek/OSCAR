@@ -3,7 +3,10 @@ import os
 import threading
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from pathlib import Path
+
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse
 
 from oscar.settings import OscarSettings, discover_settings, inspect_drives, save_settings
 from oscar.web import settings_page
@@ -43,6 +46,21 @@ def health() -> dict[str, str]:
 @app.get("/", include_in_schema=False)
 def home():
     return settings_page()
+
+
+# Branding is a presentation-only endpoint. Missing artwork must never prevent startup.
+_BRAND_ASSETS = frozenset({"OSCAR-header.png", "favicon-16.png", "favicon-32.png",
+                          "apple-touch-icon.png"})
+
+
+@app.get("/brand/{filename}", include_in_schema=False)
+def brand_asset(filename: str):
+    if filename not in _BRAND_ASSETS:
+        raise HTTPException(status_code=404, detail="Brand asset not found")
+    asset = Path(__file__).resolve().parent / "assets" / filename
+    if not asset.is_file():
+        raise HTTPException(status_code=404, detail="Brand asset not found")
+    return FileResponse(asset, media_type="image/png", headers={"Cache-Control": "public, max-age=3600"})
 
 
 @app.get("/api/settings", response_model=OscarSettings)

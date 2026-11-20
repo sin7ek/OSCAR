@@ -3,13 +3,21 @@ from fastapi.responses import HTMLResponse
 
 PAGE = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>OSCAR · Go!</title><style>
+<title>OSCAR · Go!</title>
+<link rel="icon" type="image/png" sizes="32x32" href="/brand/favicon-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/brand/favicon-16.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/brand/apple-touch-icon.png">
+<style>
 :root{color-scheme:dark}body{font-family:system-ui,-apple-system,sans-serif;background:#10151d;color:#eef2f6;max-width:1160px;margin:20px auto;padding:0 20px}
 h1{letter-spacing:.14em}p,small{color:#a9b6c4}section{background:#19222e;border:1px solid #324253;border-radius:14px;padding:20px;margin:16px 0}
 .drive{border-top:1px solid #324253;padding:16px 0;display:grid;gap:8px}
 label{display:block;margin:8px 0}[hidden]{display:none!important}input,select{background:#0c131b;color:white;border:1px solid #516376;border-radius:8px;padding:9px;font:inherit}
 input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;border-radius:9px;padding:11px 18px;cursor:pointer;font-weight:700}
 .note{padding:12px;background:#283342;border-radius:9px}#status{min-height:1.5em}
+.oscar-brand{margin:0 0 16px;max-width:100%;min-width:0}
+.oscar-brand-image{display:block;width:100%;max-width:1160px;height:auto;object-fit:contain;object-position:left center}
+.oscar-brand-fallback h1{margin:0}.oscar-brand-fallback p{margin:6px 0 0}
+@media(max-width:750px){.oscar-brand{margin-bottom:12px}}
 .oscar-tabs{display:flex;gap:8px;flex-wrap:wrap;margin:22px 0 16px;border-bottom:1px solid #324253;padding-bottom:12px}
 .oscar-tab{background:#19222e;color:#e5efff;border:1px solid #415269;border-radius:10px;padding:11px 17px}
 .oscar-tab[aria-selected="true"]{background:#bfd5ff;color:#091b35}
@@ -52,7 +60,10 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
  .oscar-review-cover{max-width:180px}
 }
 </style></head><body>
-<h1>OSCAR</h1><p>Open Source CD Archiving &amp; Ripping</p>
+<header class="oscar-brand" aria-label="OSCAR — Open Source CD Archiving and Ripping">
+<img class="oscar-brand-image" src="/brand/OSCAR-header.png" alt="OSCAR — Open Source CD Archiving &amp; Ripping. Preserve every note." onerror="this.hidden=true;document.getElementById('oscar-brand-fallback').hidden=false">
+<div class="oscar-brand-fallback" id="oscar-brand-fallback" hidden><h1>OSCAR</h1><p>Open Source CD Archiving &amp; Ripping</p></div>
+</header>
 <div class="note">Verified CD archiving · Original ripping files are preserved. Release inference is not proof of the physical pressing. Keep OSCAR on a trusted network or behind authentication.</div>
 <nav id="oscar-tabs" class="oscar-tabs" role="tablist" aria-label="OSCAR sections"></nav>
 <div id="oscar-panels"></div>
