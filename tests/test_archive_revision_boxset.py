@@ -495,3 +495,76 @@ def test_group_skips_already_correct_disc_and_versions_only_approved_leaf(prepar
     assert done["verified_unchanged_discs"] == [4]
     assert (paths[4] / "01 - Track.flac").read_bytes() == before_disc4
     assert (paths[6] / "01 - Track.flac").read_bytes().endswith(b" TAGGED")
+
+
+def test_real_flac_two_disc_group_apply_preserves_audio_and_cue(prepared, monkeypatch, tmp_path):
+    """End-to-end CD leaves with genuine FLAC streams, original CUE and manifest hashes."""
+    import array
+    import shutil
+    import subprocess
+    import wave
+    from mutagen.flac import FLAC as ActualFLAC
+    from oscar import archive_revision_boxset_apply as engine
+
+    encoder = shutil.which("flac")
+    if not encoder:
+        pytest.skip("flac CLI not available")
+    paths, _, lookup = prepared
+    wav = tmp_path / "input.wav"
+    with wave.open(str(wav), "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(44100)
+        handle.writeframes(array.array("h", [900, -900] * 4410).tobytes())
+    old_audio_md5 = {}
+    original_cues = {}
+    for disc, leaf in paths.items():
+        audio = leaf / "01 - Track.flac"
+        subprocess.run([encoder, "-f", "--silent", "-o", str(audio), str(wav)],
+                       check=True)
+        tags = ActualFLAC(str(audio))
+        tags["MUSICBRAINZ_ALBUMID"] = [RELEASE]
+        tags["MUSICBRAINZ_DISCID"] = [DISCS[disc]]
+        tags["MUSICBRAINZ_TRACKID"] = [f"record-{disc}"]
+        tags["TITLE"] = ["Track"]
+        tags["ARTIST"] = ["Stravinsky; Pierre Boulez"]
+        tags["CATALOGNUMBER"] = ["6CD 477 8730 GB6"]
+        tags.save()
+        old_audio_md5[disc] = format(ActualFLAC(str(audio)).info.md5_signature, "032x")
+        cue = leaf / "album.cue"
+        cue.write_text(
+            'FILE "01 - Track.flac" WAVE\\n  TRACK 01 AUDIO\\n    INDEX 01 00:00:00\\n'
+        )
+        original_cues[disc] = cue.read_bytes()
+        manifest_path = leaf / "manifest.json"
+        data = json.loads(manifest_path.read_text())
+        data["files"][0]["sha256"] = hashlib.sha256(audio.read_bytes()).hexdigest()
+        data["files"][0]["streaminfo_audio_md5"] = old_audio_md5[disc]
+        data["cue"] = {
+            "filename": cue.name,
+            "sha256": hashlib.sha256(cue.read_bytes()).hexdigest(),
+        }
+        data["source_evidence"] = []
+        manifest_path.write_text(json.dumps(data))
+    monkeypatch.setattr(scan, "FLAC", ActualFLAC)
+    for leaf in paths.values():
+        pending = scan.scan("additions", str(leaf), lookup=lookup)["pending"]
+        assert len(pending) == 1 and pending[0]["field"] == "LABEL"
+        scan.decide(pending[0]["fingerprint"], "accept", lookup=lookup)
+    monkeypatch.setenv("OSCAR_ENABLE_BOXSET_ARCHIVE_REVISIONS", "1")
+    preview = boxset.preview(RELEASE, lookup=lookup)
+    assert preview["all_present_discs_reviewed"]
+    result = engine.apply(RELEASE, preview["fingerprint"],
+                          "APPLY_COORDINATED_BOXSET_REVISION", lookup=lookup)
+    assert result["status"] == "completed"
+    for disc, leaf in paths.items():
+        tracks = list(leaf.glob("*.flac"))
+        assert len(tracks) == 1
+        tags = ActualFLAC(str(tracks[0]))
+        assert tags["LABEL"] == ["Deutsche Grammophon"]
+        assert format(tags.info.md5_signature, "032x") == old_audio_md5[disc]
+        assert (leaf / "album.cue").read_bytes() == original_cues[disc]
+    for original in result["originals_retained"]:
+        old = Path(original)
+        assert old.is_dir()
+        assert "LABEL" not in ActualFLAC(str(old / "01 - Track.flac"))
