@@ -686,3 +686,14 @@ def test_oscar_inline_javascript_syntax_if_node_available():
                                 input=script, capture_output=True, text=True,
                                 timeout=15, check=False)
         assert result.returncode == 0, result.stderr
+
+
+def test_review_reverify_uses_existing_auth_protected_verification_api():
+    """Review reuses the existing explicit verification API, never starts another rip."""
+    html = TestClient(app).get("/").text
+    assert "Reverify saved rip" in html
+    assert "verifyExistingJob(job.job_id,status)" in html
+    assert "if(job.phase==='VERIFICATION_PENDING')" in html
+    assert "The prior verification report is backed up" in html
+    assert "/api/rip/jobs/'+job+'/verification" in html
+    assert "window.confirm('Reverify this saved rip" in html
