@@ -1,3 +1,16 @@
+## Carmen Gomes single-CD archive migration — live Unraid primary happy-path ACCEPTED (2026-11-20)
+
+Operator supplied independent **read-only** SQLite queries against the running OSCAR container *after* the migration finished. Results:
+
+- Exactly **one** `archive_items` row for MusicBrainz release `fa89edc1-32f9-4290-8788-bbac2e366a46`, with `archive_path=/archive/Carmen Gomes Inc/[CGi2010] Desire (2010) [fa89edc1]`, `catalog_number=CGi2010`, `label=CFMusic`, and `track_count=12`.
+- Exactly two matched `metadata_proposals` rows: `CATALOGNUMBER` and `LABEL`, both **`status=applied`**, originating from `before_json=[]`, targeting `["CGi2010"]` and `["CFMusic"]`.
+- Corresponding `archive_revision_operations` reports **`completed`**, the correct old/new paths and original retained generation `/archive/.oscar-archive-versions/3908eef79f114450b0a7eb76bec44926/f670468afcbb4c168adfdffae1df69bd`.
+- From previous independent Unraid checks: all **12/12 new FLACs** contain the approved catalog/label and correct MusicBrainz release ID (Mutagen), **12/12 new FLACs** pass `flac -t`, and **12/12 retained original FLAC SHA-256s** match their original publication manifest.
+
+**Acceptance judgment:** the normal **single-CD archive-revision apply, version retention, metadata write, audio decode, proposal state transition, and Collection SQLite rebind** are now validated on real Unraid. This is **not** proof of complete crash/restart resilience. Still pending: post-apply repeat whole-archive scan (no duplicate or stale proposals), container restart and persistence, interrupted-journal recovery under controlled failure, full non-FLAC CUE/evidence hash verification, and a separate boxset-safe migration (not implemented). No additional archive mutation is authorized or necessary for these read-only checks.
+
+---
+
 **Real-Unraid retained-original integrity acceptance (2026-11-20):** the operator used a read-only Python SHA-256 check of each FLAC against the original archived `manifest.json` under `/archive/.oscar-archive-versions/3908eef79f114450b0a7eb76bec44926/f670468afcbb4c168adfdffae1df69bd`. **All twelve originals passed (12/12 SHA-256 matches)**. Together with independently confirmed 12/12 migrated FLAC tags and 12/12 successful `flac -t` checks, this verifies the engine's promised retained original audio-file bytes against publication evidence. Still outstanding for full end-to-end Unraid acceptance: Collection SQLite archive path/catalog link and two proposal `applied` statuses, post-migration scanner, restart persistence and recovery from interrupted journal. A retained-manifest self-hash or non-FLAC CUE/evidence reread has not been separately established by this test.
 
 ---
