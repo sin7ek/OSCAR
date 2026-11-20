@@ -21,12 +21,12 @@ _MAX_EVIDENCE = 2_000_000
 _MAX_TRACKS = 150
 _RUNNING = set()
 _LOCK = threading.Lock()
-_AUDIO_NAME = re.compile(r"^audio/([1-9]\d{0,2}) - [^/\\]+\.flac$")
+_AUDIO_NAME = re.compile(r"^audio/((?:[1-9]\d{0,2}|0[1-9]\d?|00[1-9])) - [^/\\]+\.flac$")
 _LOG_RECORD = re.compile(
     r"(?ims)^\s*EAC CRC32:\s*([0-9a-f]{8})\s*$"
     r".*?^\s*Accurip:\s*([^\n]*)\n"
     r"(.*?)^\s*Metadata:\s*\n"
-    r"(.*?)^\s*File\(s\):\s*\n\s*audio/([1-9]\d{0,2})\s*-\s*[^\n]+\.flac\s*$"
+    r"(.*?)^\s*File\(s\):\s*\n\s*audio/((?:[1-9]\d{0,2}|0[1-9]\d?|00[1-9]))\s*-\s*[^\n]+\.flac\s*$"
 )
 _AR = re.compile(
     r"(?im)^\s*Accurip v([12]):\s*([0-9A-F]{8})\s*"
