@@ -124,8 +124,8 @@ def _verify_locked(operation_id):
             raise ArchiveVerifyError("Retained original FLAC SHA-256 mismatch")
         source = FLAC(str(original_file))
         target = FLAC(str(new / after["filename"]))
-        if (source.get("MUSICBRAINZ_ALBUMID", []) != [new_snapshot["release_id"]]
-                or source.get("MUSICBRAINZ_DISCID", []) != [new_snapshot["disc_id"]]):
+        if ((source.get("MUSICBRAINZ_ALBUMID") or []) != [new_snapshot["release_id"]]
+                or (source.get("MUSICBRAINZ_DISCID") or []) != [new_snapshot["disc_id"]]):
             raise ArchiveVerifyError("Original/new MusicBrainz CD identity differs")
         if (_streaminfo_md5_hex(source.info.md5_signature)
                 != _streaminfo_md5_hex(target.info.md5_signature)):
@@ -133,7 +133,7 @@ def _verify_locked(operation_id):
         for proposal in proposals:
             if proposal["scope"] == "track" and proposal["track"] != index:
                 continue
-            if scan._canonical(target.get(proposal["field"], [])) != scan._canonical(
+            if scan._canonical((target.get(proposal["field"]) or [])) != scan._canonical(
                     json.loads(proposal["after_json"])):
                 raise ArchiveVerifyError("Archived FLAC differs from reviewed metadata")
         for path in (old / before["filename"], new / after["filename"]):
