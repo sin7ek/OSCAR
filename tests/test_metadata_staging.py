@@ -77,6 +77,7 @@ def test_preview_exact_medium_and_classical_roles(setup):
     first=plan["tracks"][0]["tags"]
     assert first["TITLE"]=="Water Music, movement 1"
     assert first["MUSICBRAINZ_ALBUMID"]==RELEASE
+    assert first["LABEL"] == ["Astrée Auvidis"]
     assert first["RIPPED_WITH"] == "Ripped with OSCAR - Preserve Every Note."
     assert first["RIPPER_URL"] == "https://github.com/sin7ek/OSCAR"
     assert first["COMPOSER"]==["George Frideric Handel"]
@@ -315,3 +316,17 @@ def test_real_flac_mutagen_streaminfo_md5_roundtrip(tmp_path):
     assert metadata._streaminfo_md5_hex(reread.info.md5_signature) == original_md5
     assert hashlib.sha256(path.read_bytes()).hexdigest() != original_sha
     subprocess.run(["flac", "-t", "--silent", str(path)], check=True)
+
+
+def test_preview_keeps_multiple_musicbrainz_release_labels(setup):
+    def multilabel(release, disc, count):
+        result = medium_payload()
+        result["label_info"] = [
+            {"name":"Deutsche Grammophon","catalog_number":"477 8730"},
+            {"name":"Philips","catalog_number":"477 8730"},
+            {"name":"Deutsche Grammophon","catalog_number":"477 8730"},
+        ]
+        return result
+    plan = metadata.preview(JOB, RELEASE, lookup=multilabel)
+    for track in plan["tracks"]:
+        assert track["tags"]["LABEL"] == ["Deutsche Grammophon", "Philips"]
