@@ -840,17 +840,28 @@ class ArchiveBoxsetApplyRequest(ArchiveBoxsetPreviewRequest):
 @app.post("/api/collection/archive-revisions/boxset-apply")
 def archive_revision_boxset_apply(body: ArchiveBoxsetApplyRequest, request: Request,
                                   x_oscar_rip_token: str | None = Header(default=None)):
-    from oscar.archive_revision_boxset_apply import BoxsetApplyError, apply
+    from oscar.archive_revision_boxset_apply import BoxsetApplyError, start
     from oscar.archive_revision_boxset import BoxsetReviewError
     from oscar.archive_metadata_scan import ScanError
     from oscar.collection_catalog import CatalogError
     from oscar.musicbrainz import MusicBrainzError
     _rip_auth(x_oscar_rip_token, request)
     try:
-        return apply(body.release_id, body.fingerprint, body.confirmation)
+        return start(body.release_id, body.fingerprint, body.confirmation)
     except (BoxsetApplyError, BoxsetReviewError, ScanError, CatalogError,
             MusicBrainzError, ValueError, OSError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.get("/api/collection/archive-revisions/boxset-workers/{task_id}")
+def archive_revision_boxset_worker(task_id: str, request: Request,
+                                   x_oscar_rip_token: str | None = Header(default=None)):
+    from oscar.archive_revision_boxset_apply import BoxsetApplyError, task_status
+    _rip_auth(x_oscar_rip_token, request)
+    try:
+        return task_status(task_id)
+    except BoxsetApplyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 class ArchiveBoxsetReconcileRequest(BaseModel):
