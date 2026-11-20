@@ -1,3 +1,30 @@
+## Initial approved archive migration implementation (2026-11-20 — PR under validation)
+
+An opt-in, **staging-independent** Archive Metadata Migration v1 is now implemented for **one single-CD archive leaf per operation**. The Collection UI provides **Preview approved archive migration for selected album** (read-only) and **Apply approved archive revision** with explicit confirmation. Actual writes are disabled unless the operator sets `OSCAR_ENABLE_ARCHIVE_REVISIONS=1` in the Portainer environment. No automatic migration is triggered by Accept, scan or container startup.
+
+### Migration contract
+
+1. Read the currently indexed published original archive, validate all FLAC SHA-256 hashes and their archived MusicBrainz release/Disc ID/recording identities, the published original CUE hash and ExtractionEvidence hashes. Do not load staging.
+2. Collect only decisions still at `accepted` for that exact original archive revision, and re-check each approved field against current exact MusicBrainz CD medium data before creating a stable review fingerprint.
+3. Preview source/target directory and every accepted metadata field. `CATALOGNUMBER` changes **must** update the album folder naming, e.g. `/archive/Carmen Gomes Inc/Desire (2010) [fa89edc1]` → `/archive/Carmen Gomes Inc/[CGi2010] Desire (2010) [fa89edc1]`.
+4. On explicit operator confirmation, duplicate the original entire album into an isolated temporary sibling directory. Modify **only approved FLAC Vorbis fields** (`CATALOGNUMBER`, `LABEL`, `BARCODE`, `TITLE`, `ARTIST` in v1), preserve audio STREAMINFO MD5, verify decoded audio with `flac -t`, read the actual tags back and recompute each whole-file SHA-256. Re-validate source CUE/extraction evidence and preserve every other original file.
+5. Create a new `published_verified` manifest with a **new** publish ID, the new FLAC hashes, an explicit parent publish ID/parent manifest SHA-256 and list of approved proposal fingerprints. The original publication manifest is never edited.
+6. Under the existing exclusive cross-process archive publication lock, write a durable SQLite migration journal, move the original album **without changing its contents** into `/archive/.oscar-archive-versions/<old-publish-id>/<operation-id>`, and atomically promote the fully verified new album to the reviewed destination. Never overwrite a pre-existing destination.
+7. In a transactional SQLite update, rebind the existing Collection archive row to the new path, set reviewed catalog number, preserve nonblank manually curated Collection labels, mark only those exact approved proposals as `applied` and append immutable `applied` decision events. Subsequent Collection imports exclude `.oscar-archive-versions` and must not recreate retired historical paths. Retained original versions are never deleted.
+8. If promotion fails before publication, attempt no-overwrite restoration of the original directory. If promotion succeeds but the DB transaction is interrupted, the durable journal remains `prepared`. The operator can inspect **View archive revision history and recovery status** and invoke **Reconcile interrupted revision** to verify both generations and complete the journal/database transition safely. No in-place retagging or blind cleanup.
+
+### Initial v1 limits and Unraid acceptance gate
+
+- **No boxset/multi-disc migrations yet.** A release folder shared by multiple discs must be revised as a coordinated unit; v1 explicitly refuses partial boxset migration.
+- Album track filenames and CUE references remain as originally reviewed; title tag changes do not silently rename track files.
+- Source version history consumes extra disk space; keep archive root backup and sufficient free capacity. Temporary crash artifacts are retained for review instead of being silently deleted.
+- The worker's in-memory live progress does not survive container restarts, but the durable SQLite journal does; recovery is explicitly operator-initiated.
+- This opt-in code is **not** accepted on real Unraid until a dry-run preview on Carmen Gomes and Anastacia, an explicit reviewed application, verification of new path, collection index, intact original history, rescanning with zero repeated proposals and a recovery/rollback inspection. Do not set the opt-in flag on production before reviewing the preview and destination paths.
+- Priorities before expanding scope: transactional crash-recovery stress testing on Unraid shfs, broader multivalue tags, works/recordings, boxset-wide coordinated migration, safe retention policies.
+- Passing offline Python tests with controlled fake FLAC objects and a Docker build is necessary but **not sufficient** evidence for real audio-integrity/recovery behavior.
+
+---
+
 ## Whole-archive scan implementation (2026-11-20; PR pending validation)
 
 The Collection UI now defaults to scanning **all indexed published archive leaves**, with one-album troubleshooting under Advanced. The server starts a bounded (10,000-leaf maximum) single background scanner job and exposes progress, source/verification failures, already-decided proposals and completion. Each leaf uses the existing exact release/Disc ID and SHA-256 checks. A failed album does not abort the rest. Progress is ephemeral to the worker process; individual proposal decisions persist in SQLite. Import published archive records before scanning if Collection is empty. **No change is automatically applied to archived FLACs.**
