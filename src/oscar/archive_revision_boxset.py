@@ -109,7 +109,7 @@ def preview(release_id, *, lookup=None):
     # published leaf of the release, not just the currently indexed subset.
     indexed_paths = {Path(row["archive_path"]) for row in albums}
     for sibling in parent.iterdir():
-        if not re.fullmatch(r"Disc \\d{2}", sibling.name):
+        if not re.fullmatch(r"Disc \d{2}", sibling.name):
             continue
         if sibling.is_symlink():
             raise BoxsetReviewError("Unsafe linked physical disc directory in boxset")
