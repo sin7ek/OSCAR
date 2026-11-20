@@ -62,9 +62,14 @@ def _entries(review, operation_id):
     root = catalog.archive_root()
     entries = []
     for disc in review["disc_reviews"]:
+        if disc["label_status"] == "already_correct":
+            # This CD still contributes its exact physical identity and hashes
+            # to the plan fingerprint, but its already-correct archive generation
+            # must not be copied/retagged or versioned unnecessarily.
+            continue
         if disc["label_status"] != "approved_for_review" or not disc["accepted_fingerprint"]:
             raise BoxsetApplyError(
-                "Every present disc must have one current accepted LABEL change"
+                "Every present disc must be already correct or explicitly approved"
             )
         source = Path(disc["archive_path"])
         if source.is_symlink() or not source.is_dir():
@@ -98,6 +103,8 @@ def _entries(review, operation_id):
             "before": json.loads(proposal["before_json"]),
             "after": json.loads(proposal["after_json"]),
         })
+    if not entries:
+        raise BoxsetApplyError("No approved disc needs migration")
     return entries
 
 
@@ -328,6 +335,10 @@ def apply(release_id, fingerprint, confirmation, *, lookup=None):
             ) from exc
         return {"operation_id": operation_id, "status": "completed",
                 "discs": [e["disc"] for e in entries],
+                "verified_unchanged_discs": [
+                    d["disc"] for d in review["disc_reviews"]
+                    if d["label_status"] == "already_correct"
+                ],
                 "originals_retained": [e["backup"] for e in entries]}
 
 
