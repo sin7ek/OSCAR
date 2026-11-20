@@ -29,6 +29,36 @@ When a complete rip ends in `verification.review_required` because some tracks c
 - Second Optiarc attempt `0725bffd859d4208814526f2cbc7fed9`: **5/10** fully confirmed (1, 2, 4, 5, 6). Track 2 CRC changed from `9DE54BC6` to `3F94EC30` and now has full v1/v2 confirmation. Tracks 3, 7, 8, 9 and 10 remained unconfirmed; their EAC CRC32 values differed between attempts. Both attempts reported zero ripping errors and passed FLAC decoding and saved-file SHA-256 checks, which alone do not establish audio accuracy.
 - Thus the second attempt recovered at least **one additional fully verified track**, while the album must remain under review.
 
+### RipRepair provenance and experimental opt-in — inspired by The Ruffneck Anthology
+
+**Status: design agreement, not implemented.** Treat audio verification and source provenance as **two independent dimensions** throughout the UI, review decisions, archival manifests and Collection. A collection can have every track positively verified, while still being an explicitly **HYBRID / REPAIRED CD RIP** rather than a pristine all-original physical CD extraction. Never silently rewrite this distinction after AR or CTDB verification.
+
+**Reference case — The Ruffneck Anthology, part VI:** a physically damaged original CD rip contained a problematic track 16. An externally obtained Soulseek track was used as the verified replacement, the original failed FLAC retained under `Verification/FailedAttempts/`, CUETools validation log retained, and `SOURCES.txt` updated with original and replacement SHA-256 hashes and precise track provenance. The final assembled result reportedly passed AccurateRip **17/17** and CTDB **17/17**, yet remained a **hybrid/repaired CD rip**. The other 16 tracks were left untouched. It is crucial not to represent the replacement as audio actually extracted from the owner's original physical disc. This provenance case is an operator-provided prior workflow; it does not confer physical-edition proof on unrelated downloads.
+
+**Mandatory origin labels, independently of verification state:**
+
+- `PHYSICAL_CD_RIP` — every selected audio track originates from the user's own physical CD extraction; repeated attempts/multiple drives must still be recorded.
+- `DIGITAL_ACQUISITION` — a digitally obtained album/track without a claim of physical extraction by OSCAR. Never invent a source EAC/CUE log or claim a known ripper/pressing if it is not established.
+- `HYBRID_REPAIRED_CD_RIP` — a selected album assembled from a physical rip and one or more replacement tracks, whether from another local rip, other drives, backup or external sources. Show the **hybrid/repaired** status even if every selected track has independently passed AR/CTDB verification.
+
+**Suggested archived manifest and human-readable provenance (design):**
+
+- Immutable album-level `SOURCE_TYPE`, `REPAIR_STATUS`, `REPAIR_METHODS`, `REPAIR_AUDIT_ID`, `SOURCE_JOB_IDS` and a visible review banner in **Go!**, **Review**, **Collection** and export reports.
+- Per-track record: original disc job/drive/offset, candidate and attempt ID, physical or external origin, original path, selected path, cryptographic hashes before/after, relevant EAC CRC and independently obtained AR/CTDB proof, whether selected or excluded, time and explicit operator approval. A replacement track must never inherit the original rip's EAC log or pretend it was ripped by that drive.
+- Retain original defective FLAC under its immutable staging job (optionally surface an archival `Verification/FailedAttempts/` reference copy), store all relevant validation logs and emit a transparent, human-readable `SOURCES.txt` or `REPAIR_REPORT.md` alongside a machine-readable provenance manifest.
+- A repaired album must remain searchable/filterable as repaired/hybrid. `published_verified` describes the audio verification decision **only**; it does **not** overwrite the origin label or mean that every track comes from the owner's CD. Do not automatically create a fabricated single-drive CUE/EAC extraction log for a derived hybrid assembly.
+
+**Experimental Zone (external-download adapters only):**
+
+1. Default **OFF**; expose behind an unmistakable **Experimental / External Sources** section under Settings and a corresponding gated action in Review → RipRepair. Keep multi-pass physical ripping and local backup verification available outside this opt-in.
+2. Require affirmative, persisted operator opt-in acknowledging technical, metadata/pressing, privacy/security and copyright/licensing risks; an explanation alone or unchecked box must not grant permission. Enable via a dedicated server-side setting/flag, not a client-side visual toggle alone. Disabling it immediately blocks *new* searches/transfers, while retaining audit history and existing candidate files for review.
+3. Independently gate **search**, **download/import**, and **use in a repair assembly**. An opted-in search is not a blanket authorization for future downloading, merging or publishing. Each retrieval and each repair assembly requires an explicit selected candidate and operator confirmation; archive publication remains a separate approval.
+4. Limit connectors to operator-configured, authenticated instances and lawful/authorized sources. Use server-side secrets, least-privilege permissions, request timeouts, bounded result/transfer limits, quarantine staging and no direct access to the final archive. Log only safe, necessary provenance; do not expose connection tokens, private peer details or raw download URLs in public reports.
+5. Display an unambiguous warning that remote FLAC metadata, file hashes, alleged AccurateRip/CTDB logs and source filenames do not prove physical pressing identity or accurate audio. Only a separate independently confirmed whole-track result can satisfy existing verification gates, and no opt-in can turn an unverified candidate into `published_verified`.
+6. In the UI, use a permanent **HYBRID / REPAIRED** provenance indicator for the resulting album plus a per-track sources comparison, without relying on a single decorative label. These must survive restarts, catalog indexing, export and archive restore.
+
+**Acceptance tests to add before implementing:** opt-in default OFF; server rejects searches without opt-in; search vs transfer vs assembly approvals are independent; opt-out disables subsequent remote actions; unverified remote FLAC cannot pass publishing; persistent hybrid flag survives full verification, restart, publication and catalog export; full track-level provenance and original rip files remain immutable; no fabricated EAC/CUE provenance; physical-only repair path unaffected.
+
 ### Proposed external-source recovery — RipRepair Source Finder
 
 **Design only; not implemented.** Add a third opt-in recovery lane alongside second/third physical reads and alternate drives: **search for a suitable externally acquired track or album, then independently validate it**. Never treat source filename, user description, shared log, FLAC format, checksum of transfer, or "AccurateRip" wording as proof of an accurate CD extraction.
