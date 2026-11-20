@@ -169,6 +169,8 @@ def _advance(entries):
             if live_id != entry["old_publish_id"] or backup.exists():
                 raise BoxsetApplyError("Ambiguous old and retained disc generations")
             _validate_leaf(source, entry, new=False)
+            if not temp.is_dir():
+                raise BoxsetApplyError("Expected verified candidate is missing during recovery")
             _validate_leaf(temp, entry, new=True)
             backup.parent.mkdir(parents=True, exist_ok=True)
             if backup.exists() or backup.is_symlink():
@@ -177,6 +179,8 @@ def _advance(entries):
         else:
             if not backup.exists():
                 raise BoxsetApplyError("Disc missing without a retained original")
+        if not temp.is_dir():
+            raise BoxsetApplyError("Expected verified candidate is missing during recovery")
         _validate_leaf(temp, entry, new=True)
         archive_publish._rename_noreplace(temp, source)
         _validate_leaf(source, entry, new=True)
