@@ -5,7 +5,9 @@ Candidate matches are never represented as a physically verified pressing.
 """
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import re
 from pathlib import Path
 
@@ -196,7 +198,7 @@ def archive_preview(job_id, *, prepare=None, review=None):
 def archive_publish_start(job_id, fingerprint, confirmation, *,
                           acknowledge_observations=False, start=None,
                           prepare=None):
-    """Explicit Semi Automatic/Best Guess archive handoff; never implicit."""
+    """Explicit operator archive handoff with one durable reservation."""
     from oscar import archive_publish
     if confirmation != "PUBLISH_REVIEWED_ARCHIVE":
         raise GoError("Explicit final archive publication confirmation required")
@@ -211,16 +213,200 @@ def archive_publish_start(job_id, fingerprint, confirmation, *,
         raise GoError("Archive destination exists; refusing overwrite")
     if plan.get("metadata_observations") and not acknowledge_observations:
         raise GoError("Explicit acknowledgement of metadata observations required")
+    reserved = workflow_ledger.reserve_archive_publish(
+        job_id, copy_id, release_id, fingerprint,
+        plan["relative_directory"], automatic=False)
     publisher = start or archive_publish.start
-    result = publisher(job_id, copy_id, "original_tags", "auto", fingerprint, confirmation,
-                       acknowledge_observations=acknowledge_observations,
-                       include_cover=False, approve_cover=False,
-                       release_match_status=state["release_match_status"])
-    return {"workflow": state, "release_id": release_id,
+    try:
+        result = publisher(
+            job_id, copy_id, "original_tags", "auto", fingerprint, confirmation,
+            acknowledge_observations=acknowledge_observations,
+            include_cover=False, approve_cover=False,
+            release_match_status=state["release_match_status"],
+            reserved_publish_id=reserved["archive_publish_id"])
+        if result.get("publish_id") != reserved["archive_publish_id"]:
+            raise GoError("Publisher did not use the durable reservation ID")
+    except Exception:
+        workflow_ledger.complete_archive_publish(
+            job_id, reserved["archive_publish_id"], published=False,
+            reason="publisher_failed_or_interrupted")
+        raise
+    return {"workflow": reserved, "release_id": release_id,
             "release_match_status": state["release_match_status"],
             "result": result,
-            "notice": "Publication started by explicit operator action. "
-                      "No claim of physical edition verification or source removal."}
+            "notice": "Publication was reserved durably before starting; no repeated worker. "
+                      "Original rip remains preserved."}
+
+
+
+def _read_published_archive(job_id, state):
+    """Fail closed on restart unless exact reserved manifest and file hashes agree."""
+    from oscar import archive_publish
+    root = archive_publish.archive_root()
+    relative = Path(state["archive_relative_directory"])
+    if (relative.is_absolute() or not relative.parts or
+            any(part in {".", ".."} for part in relative.parts)):
+        raise GoError("Unsafe reserved archive directory")
+    folder = root / relative
+    if not folder.is_relative_to(root) or folder.is_symlink() or not folder.is_dir():
+        return None
+    manifest = folder / "manifest.json"
+    if manifest.is_symlink() or not manifest.is_file() or manifest.stat().st_size > 3_000_000:
+        return None
+    try:
+        data = json.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict) or not (
+            data.get("status") == "published_verified"
+            and data.get("publish_id") == state["archive_publish_id"]
+            and data.get("job_id") == job_id
+            and data.get("copy_id") == state["metadata_copy_id"]
+            and data.get("release_id") == state["archive_release_id"]
+            and data.get("archive_plan_fingerprint") == state["archive_fingerprint"]):
+        return None
+    entries = data.get("files")
+    if not isinstance(entries, list) or not entries or len(entries) > 250:
+        return None
+    seen = set()
+    for entry in entries:
+        name = entry.get("filename") if isinstance(entry, dict) else None
+        sha = entry.get("sha256") if isinstance(entry, dict) else None
+        if (not isinstance(name, str) or name in seen or Path(name).name != name
+                or name in {".", ".."} or not name.lower().endswith(".flac")
+                or not isinstance(sha, str) or not re.fullmatch(r"[a-f0-9]{64}", sha)):
+            return None
+        seen.add(name)
+        file = folder / name
+        if file.is_symlink() or not file.is_file():
+            return None
+        h = hashlib.sha256()
+        try:
+            with file.open("rb") as inp:
+                while chunk := inp.read(1024 * 1024):
+                    h.update(chunk)
+        except OSError:
+            return None
+        if h.hexdigest() != sha:
+            return None
+    return data
+
+
+def reconcile_archive(job_id, *, publish_status=None, manifest_reader=None):
+    """Poll active worker or recover an exact published manifest after restart.
+
+    Never restart a reserved publication. A lost worker without valid manifest
+    needs operator intervention; the staging rip remains unchanged.
+    """
+    from oscar import archive_publish
+    state = workflow_ledger.refresh(job_id)
+    phase = state["phase"]
+    if phase == "ARCHIVE_PUBLISHED":
+        return {"workflow": state, "action": "archive_published",
+                "publish_id": state["archive_publish_id"],
+                "message": "Verified archive was published; catalog: " +
+                           (state.get("archive_catalog_status") or "not recorded")}
+    if phase == "ARCHIVE_REVIEW_REQUIRED":
+        return {"workflow": state, "action": "archive_review_required",
+                "publish_id": state["archive_publish_id"],
+                "message": "Publication failed or was interrupted; inspect the archive. Never auto-retry."}
+    if phase != "ARCHIVE_PUBLISH_RUNNING":
+        raise GoError("No reserved archive publication to reconcile")
+    publish_id = state["archive_publish_id"]
+    reader = publish_status or archive_publish.status
+    try:
+        progress = reader(job_id, publish_id)
+    except (archive_publish.PublishError, OSError):
+        progress = None
+    if progress and progress.get("status") == "running":
+        return {"workflow": state, "action": "archive_publish_running",
+                "publish_id": publish_id,
+                "message": "Archiving verified files. No duplicate worker will start."}
+    # A successful worker result is not sufficient by itself: check the exact
+    # on-disk manifest, all names and all file SHA-256 values.
+    loader = manifest_reader or _read_published_archive
+    archive = loader(job_id, state)
+    if archive is not None:
+        catalog_status = (progress.get("catalog") or {}).get("status", "") if progress else ""
+        if catalog_status not in {"indexed", "index_required"}:
+            try:
+                from oscar.collection_catalog import import_published
+                dest = archive_publish.archive_root() / state["archive_relative_directory"]
+                import_published(only_path=dest)
+                catalog_status = "indexed"
+            except Exception:
+                catalog_status = "index_required"
+        finished = workflow_ledger.complete_archive_publish(
+            job_id, publish_id, published=True, catalog_status=catalog_status,
+            reason="publisher_result_verified" if progress else "manifest_reconciled")
+        return {"workflow": finished, "action": "archive_published",
+                "publish_id": publish_id,
+                "message": "Exact publication manifest and FLAC hashes verified. Catalog: " +
+                           catalog_status + ". Original rip preserved."}
+    finished = workflow_ledger.complete_archive_publish(
+        job_id, publish_id, published=False, reason="publisher_failed_or_interrupted")
+    return {"workflow": finished, "action": "archive_review_required",
+            "publish_id": publish_id,
+            "message": "Publication stopped or lost without an exact verified archive manifest. "
+                       "Inspect staging/hidden folders. No automatic retry."}
+
+
+def _auto_publish_best_guess(job_id):
+    """Explicit container opt-in + unique candidate + zero warnings only."""
+    from oscar import archive_publish
+    state, release_id, copy_id = _go_publish_source(job_id)
+    if state["identification_mode"] != "best_guess":
+        return {"workflow": state, "action": "metadata_ready",
+                "release_id": release_id, "copy_id": copy_id}
+    if (os.environ.get("OSCAR_ENABLE_BEST_GUESS_AUTO_PUBLISH") != "1"
+            or os.environ.get("OSCAR_ENABLE_ARCHIVE_PUBLISH") != "1"):
+        return {"workflow": state, "action": "metadata_ready",
+                "release_id": release_id, "copy_id": copy_id,
+                "message": "Best Guess archiving is opt-in; review and publish manually."}
+    if state["release_evidence"] != "inferred_disc_id_unique":
+        return {"workflow": state, "action": "archive_review_required",
+                "release_id": release_id, "copy_id": copy_id,
+                "message": "Multiple inferred editions. Automatic archive publication blocked."}
+    try:
+        plan = archive_publish.prepare(job_id, copy_id, "original_tags", "auto",
+                                       include_cover=False)
+    except (archive_publish.PublishError, OSError, ValueError, KeyError) as exc:
+        return {"workflow": state, "action": "archive_review_required",
+                "release_id": release_id, "copy_id": copy_id,
+                "message": "Archive planning requires manual review: " + str(exc)[:180]}
+    if (plan.get("release_id") != release_id or plan.get("copy_id") != copy_id
+            or plan.get("job_id") != job_id or not plan.get("fingerprint")
+            or not plan.get("relative_directory") or plan.get("output_exists")
+            or plan.get("metadata_observations")):
+        return {"workflow": state, "action": "archive_review_required",
+                "release_id": release_id, "copy_id": copy_id,
+                "message": "Archive preview is ambiguous, conflicted or already exists. "
+                           "No automatic publication; use operator review."}
+    reserved = workflow_ledger.reserve_archive_publish(
+        job_id, copy_id, release_id, plan["fingerprint"],
+        plan["relative_directory"], automatic=True)
+    try:
+        started = archive_publish.start(
+            job_id, copy_id, "original_tags", "auto", plan["fingerprint"],
+            "PUBLISH_REVIEWED_ARCHIVE", acknowledge_observations=False,
+            include_cover=False, approve_cover=False,
+            release_match_status=state["release_match_status"],
+            reserved_publish_id=reserved["archive_publish_id"])
+        if started.get("publish_id") != reserved["archive_publish_id"]:
+            raise GoError("Publisher failed to honor unique durable publication ID")
+    except Exception as exc:
+        failed = workflow_ledger.complete_archive_publish(
+            job_id, reserved["archive_publish_id"], published=False,
+            reason="publisher_failed_or_interrupted")
+        return {"workflow": failed, "action": "archive_review_required",
+                "publish_id": reserved["archive_publish_id"],
+                "message": "Automatic publisher could not start: " + str(exc)[:180]}
+    return {"workflow": reserved, "action": "archive_publish_running",
+            "publish_id": reserved["archive_publish_id"],
+            "release_id": release_id, "copy_id": copy_id,
+            "release_match_status": state["release_match_status"],
+            "message": "Opted-in Best Guess automatically archives the uniquely inferred, "
+                       "warning-free verified copy. Edition NOT physically verified."}
 
 
 def advance(job_id, *, lookup=None, verify_start=None,
@@ -230,7 +416,7 @@ def advance(job_id, *, lookup=None, verify_start=None,
 
     The authenticated POST may start verification and an isolated metadata
     copy only after the persisted identification-policy gate passes.
-    Original FLACs and archive destinations are never written.
+    Archive publication is separately gated, durable, opt-in and non-destructive.
     """
     rip = ripping.status(job_id)
     if rip.get("status") == "interrupted":
@@ -256,10 +442,18 @@ def advance(job_id, *, lookup=None, verify_start=None,
         return {"workflow":workflow, "action":"verification_review",
                 "verification_status":report.get("status"),
                 "message":"Failed or ambiguous verification. Stop and review."}
+    if phase in {"ARCHIVE_PUBLISH_RUNNING", "ARCHIVE_PUBLISHED",
+                 "ARCHIVE_REVIEW_REQUIRED"}:
+        return reconcile_archive(job_id)
+    if phase == "METADATA_READY" and workflow["identification_mode"] == "best_guess":
+        return _auto_publish_best_guess(job_id)
     if phase in {"METADATA_COPY_RUNNING", "METADATA_READY", "METADATA_REVIEW_REQUIRED"}:
-        return _metadata_handoff(job_id, workflow,
+        step = _metadata_handoff(job_id, workflow,
             preview=metadata_preview, copy_start=metadata_copy_start,
             copy_status=metadata_copy_status, copy_inspect=metadata_copy_inspect)
+        # Testable handoff remains independently injectable; automatic archive
+        # promotion follows only on a subsequent real Go advancement request.
+        return step
     if phase == "RELEASE_ACCEPTED" and workflow["identification_mode"] == "semi_automatic":
         return _metadata_handoff(job_id, workflow,
             preview=metadata_preview, copy_start=metadata_copy_start,
@@ -314,4 +508,4 @@ def advance(job_id, *, lookup=None, verify_start=None,
     return {"workflow":workflow, "action":"best_guess_proposed",
             "candidates":options, "release_id":workflow["proposed_release_id"],
             "release_match_status":"INFERRED_NOT_PHYSICALLY_VERIFIED",
-            "message":"Candidate stored. Automatic tagging/publication not enabled yet."}
+            "message":"Candidate stored as INFERRED; copy verification follows. Auto archive requires explicit container opt-in."}
