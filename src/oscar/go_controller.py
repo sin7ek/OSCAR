@@ -1,7 +1,8 @@
 """First Go controller: durable rip registration, automatic verification, safe discovery.
 
-No automatic tags, archive publication, deletion, or Discogs collection writes.
-Candidate matches are never represented as a physically verified pressing.
+Verified metadata copies, durable opt-in archive publication and safe review.
+Never deletes staging or writes to Discogs. Candidate matches are never
+represented as a physically verified pressing.
 """
 from __future__ import annotations
 
@@ -30,7 +31,8 @@ def start(stable_id):
                         on_completed=_after_rip)
     return {"job": job, "workflow": workflow_ledger.list_jobs(),
             "notice": ("Go phase 1 starts a rip, records the mode and automatically "
-                       "starts post-rip verification. It never auto-tags or publishes.")}
+                       "starts post-rip verification. Subsequent verified steps follow the saved "
+                       "mode and explicit archive auto-publish opt-in.")}
 
 
 def _source_plan(job_id):
@@ -83,7 +85,8 @@ def _metadata_handoff(job_id, workflow, *, preview=None, copy_start=None,
                 "action": "metadata_ready" if phase == "METADATA_READY" else "metadata_review_required",
                 "release_id": release_id, "copy_id": workflow["metadata_copy_id"],
                 "message": ("Tagged copy passed saved manifest and FLAC tag/hash checks. "
-                            "Archive publishing remains separate and disabled in Go."
+                            "Archive publication is independently gated; an opted-in, unique, warning-free "
+                            "Best Guess may publish on a subsequent Go advancement."
                             if phase == "METADATA_READY" else
                             "Tagged-copy creation or inspection requires manual review; no automatic retry.")}
     if not workflow["metadata_copy_id"]:
