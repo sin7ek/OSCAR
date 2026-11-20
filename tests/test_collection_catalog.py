@@ -354,7 +354,7 @@ def test_curated_multidisc_artist_never_overwritten(archive):
                        identification_status='HUMAN_REVIEWED'
                        WHERE archive_path=?""", (str(disc),))
     assert catalog.import_published()["repaired"] == 0
-    row = catalog.list_items()["items"][0]
+    row = next(x for x in catalog.list_items()["items"] if x["archive_path"] == str(disc))
     assert row["artist"] == "Manually curated"
 
 
