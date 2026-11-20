@@ -213,3 +213,123 @@ def test_boxset_preview_refuses_unindexed_published_disc(prepared):
     for n, archived in paths.items():
         assert ((archived / "01 - Track.flac").read_bytes(),
                 (archived / "manifest.json").read_bytes()) == originals[n]
+
+
+def _approved_group(prepared, monkeypatch):
+    """Two-disc synthetic publication fixture for group journaling, not audio QA."""
+    import shutil
+    import uuid
+    from oscar import archive_revision_boxset_apply as engine
+    from oscar import archive_revision as single
+    paths, _, lookup = prepared
+    for leaf in paths.values():
+        pending = scan.scan("additions", str(leaf), lookup=lookup)["pending"]
+        scan.decide(pending[0]["fingerprint"], "accept", lookup=lookup)
+    monkeypatch.setenv("OSCAR_ENABLE_BOXSET_ARCHIVE_REVISIONS", "1")
+
+    def fake_copy(plan, temp, source):
+        shutil.copytree(source, temp)
+        manifest_path = temp / "manifest.json"
+        data = json.loads(manifest_path.read_text())
+        old_id = data["publish_id"]
+        new_id = uuid.uuid4().hex
+        data["publish_id"] = new_id
+        data["revision"] = {
+            "parent_publish_id": old_id,
+            "parent_manifest_sha256": plan["original_manifest_sha256"],
+        }
+        audio = temp / data["files"][0]["filename"]
+        audio.write_bytes(audio.read_bytes() + b" TAGGED")
+        data["files"][0]["sha256"] = hashlib.sha256(audio.read_bytes()).hexdigest()
+        manifest_path.write_text(json.dumps(data))
+        return new_id
+
+    def synthetic_validation(path, entry, *, new):
+        manifest = json.loads((path / "manifest.json").read_text())
+        expected = entry["new_publish_id"] if new else entry["old_publish_id"]
+        assert manifest["publish_id"] == expected
+        if not new:
+            assert hashlib.sha256((path / "manifest.json").read_bytes()).hexdigest() == entry["old_manifest_sha256"]
+        audio = path / manifest["files"][0]["filename"]
+        assert hashlib.sha256(audio.read_bytes()).hexdigest() == manifest["files"][0]["sha256"]
+        return manifest
+
+    monkeypatch.setattr(single, "_copy_and_retag", fake_copy)
+    monkeypatch.setattr(engine, "_validate_leaf", synthetic_validation)
+    return paths, lookup, engine
+
+
+def test_group_apply_requires_explicit_opt_in_and_confirmation(prepared, monkeypatch):
+    from oscar import archive_revision_boxset_apply as engine
+    paths, _, lookup = prepared
+    for leaf in paths.values():
+        pending = scan.scan("additions", str(leaf), lookup=lookup)["pending"]
+        scan.decide(pending[0]["fingerprint"], "accept", lookup=lookup)
+    review = boxset.preview(RELEASE, lookup=lookup)
+    with pytest.raises(engine.BoxsetApplyError, match="disabled"):
+        engine.apply(RELEASE, review["fingerprint"], "APPLY_COORDINATED_BOXSET_REVISION", lookup=lookup)
+    monkeypatch.setenv("OSCAR_ENABLE_BOXSET_ARCHIVE_REVISIONS", "1")
+    with pytest.raises(engine.BoxsetApplyError, match="confirmation"):
+        engine.apply(RELEASE, review["fingerprint"], "wrong", lookup=lookup)
+    for leaf in paths.values():
+        assert (leaf / "manifest.json").is_file()
+
+
+def test_group_apply_versions_both_discs_and_commits_collection_together(prepared, monkeypatch):
+    paths, lookup, engine = _approved_group(prepared, monkeypatch)
+    review = boxset.preview(RELEASE, lookup=lookup)
+    result = engine.apply(RELEASE, review["fingerprint"],
+                          "APPLY_COORDINATED_BOXSET_REVISION", lookup=lookup)
+    assert result["status"] == "completed"
+    assert result["discs"] == [4, 6]
+    for leaf in paths.values():
+        assert (leaf / "01 - Track.flac").read_bytes().endswith(b" TAGGED")
+    for name in result["originals_retained"]:
+        assert (Path(name) / "01 - Track.flac").is_file()
+        assert not (Path(name) / "01 - Track.flac").read_bytes().endswith(b" TAGGED")
+    with engine._db() as db:
+        operations = db.execute("SELECT status FROM boxset_revision_operations").fetchall()
+        assert [r["status"] for r in operations] == ["completed"]
+        proposals = db.execute("SELECT status FROM metadata_proposals").fetchall()
+        assert [r["status"] for r in proposals] == ["applied", "applied"]
+        rows = db.execute("SELECT label FROM archive_items ORDER BY disc_number").fetchall()
+        assert [r["label"] for r in rows] == ["Deutsche Grammophon"] * 2
+
+
+def test_group_failure_reconciles_after_one_promoted_disc(prepared, monkeypatch):
+    paths, lookup, engine = _approved_group(prepared, monkeypatch)
+    from oscar import archive_publish
+    original_rename = archive_publish._rename_noreplace
+    counter = {"n": 0}
+
+    def fail_third_rename(source, dest):
+        counter["n"] += 1
+        if counter["n"] == 3:
+            raise OSError("simulated crash after first disc promotion")
+        return original_rename(source, dest)
+
+    monkeypatch.setattr(archive_publish, "_rename_noreplace", fail_third_rename)
+    review = boxset.preview(RELEASE, lookup=lookup)
+    with pytest.raises(engine.BoxsetApplyError, match="reconciliation"):
+        engine.apply(RELEASE, review["fingerprint"],
+                     "APPLY_COORDINATED_BOXSET_REVISION", lookup=lookup)
+    history = engine.operations()["items"]
+    assert len(history) == 1 and history[0]["status"] == "prepared"
+    with engine._db() as db:
+        assert {r["status"] for r in db.execute("SELECT status FROM metadata_proposals")} == {"accepted"}
+    monkeypatch.setattr(archive_publish, "_rename_noreplace", original_rename)
+    assert engine.reconcile(history[0]["operation_id"])["status"] == "completed"
+    assert all((leaf / "01 - Track.flac").read_bytes().endswith(b" TAGGED") for leaf in paths.values())
+    with engine._db() as db:
+        assert {r["status"] for r in db.execute("SELECT status FROM metadata_proposals")} == {"applied"}
+
+
+def test_group_rejects_stale_fingerprint_without_mutation(prepared, monkeypatch):
+    paths, lookup, engine = _approved_group(prepared, monkeypatch)
+    review = boxset.preview(RELEASE, lookup=lookup)
+    with pytest.raises(engine.BoxsetApplyError, match="Stale"):
+        engine.apply(RELEASE, "0" * 64,
+                     "APPLY_COORDINATED_BOXSET_REVISION", lookup=lookup)
+    assert not engine.operations()["items"]
+    for leaf in paths.values():
+        assert (leaf / "01 - Track.flac").is_file()
