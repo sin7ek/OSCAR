@@ -8,15 +8,15 @@ An opt-in, single-CD **archive revision** implementation is now on `feature/arch
 
 ---
 
-## Archive-wide metadata scanning and Discogs PAT naming — 2026-11-20 (feature PR pending CI)
+## Archive-wide metadata scanning and Discogs PAT naming — 2026-11-20 (PR #94 merged; Unraid test pending)
 
-The operator requested **full-archive** scans as the normal Collection experience, instead of requiring album-by-album selection. Implementation: background per-album scan of all imported `archive_items`, tracking total/processed/failed and reporting individual MusicBrainz/verification failures while continuing with the rest. Both existing scan modes and accepted/ignored suppression remain unchanged; exact per-album scan is kept under an Advanced expander. No staging required and no archive files changed. Run Collection → Import published archive records first when necessary. The scan is deliberately bounded to 10,000 indexed leaves; worker progress is process-local, but proposals and decisions survive restart in SQLite.
+The operator requested **full-archive** scans as the normal Collection experience, instead of requiring album-by-album selection. Implementation: background per-album scan of every OSCAR-shaped published archive manifest under the archive root, including unindexed leaves, tracking total/processed/failed and reporting individual MusicBrainz/verification failures while continuing with the rest. Both existing scan modes and accepted/ignored suppression remain unchanged; exact per-album scan is kept under an Advanced expander. No staging required and no archive files changed. Run Collection → Import published archive records first when necessary. The scan is deliberately bounded to 10,000 indexed leaves; worker progress is process-local, but proposals and decisions survive restart in SQLite.
 
 The older **Fill missing labels from exact MusicBrainz release** button remains in an Advanced subsection because it writes missing `archive_items.label` data in Collection, whereas Archive Metadata Scan proposes reviewed FLAC tag additions. It should be retired after source-aware, approved archive metadata migration/reindexing supersedes it.
 
 Discogs personal token environment renamed **`OSCAR_DISCOGS_PAK` → `OSCAR_DISCOGS_PAT`** in code, UI, README and tests; operator must update Portainer variable name when deploying. Token value is never copied to GitHub or logged. OSCAR already stores the MusicBrainz physical release UUID in FLAC tag `MUSICBRAINZ_ALBUMID`, the archive manifest `release_id`, and Collection `musicbrainz_release_id`; this does not prove pressing identity.
 
-**Important:** this PR implements archive-wide read-only scans, NOT archive metadata migration/application or archive folder renaming. Separate operator-approved, rollback-capable migration remains required. GitHub CI / Docker and live Unraid test pending. See [ARCHIVE_METADATA_LIFECYCLE.md](ARCHIVE_METADATA_LIFECYCLE.md).
+**Important:** PR #94 implements archive-wide read-only scans, not metadata application. The separate opt-in archive revision implementation is now tracked above; its Unraid acceptance remains pending. Separate operator-approved, rollback-capable migration remains required. GitHub CI / Docker and live Unraid test pending. See [ARCHIVE_METADATA_LIFECYCLE.md](ARCHIVE_METADATA_LIFECYCLE.md).
 
 ---
 
