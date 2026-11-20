@@ -357,3 +357,43 @@ def test_revision_updates_existing_recordlabel_alias_on_approved_label_change(fi
         assert tags.get("LABEL") == ["CFMusic"]
         assert tags.get("RECORDLABEL") == ["CFMusic"]
     assert scanner.scan("changes", str(migrated), lookup=lookup)["detected"] == 0
+
+
+def test_approved_multilabel_revision_updates_exact_sourced_collection_label(fixture):
+    root, old, original, lookup = fixture
+    # Previously enriched Collection values can be partial while the newly
+    # reviewed release explicitly names multiple labels.
+    with catalog._connect() as db:
+        db.execute("UPDATE archive_items SET label=?,label_provenance=? WHERE archive_path=?",
+                   ("Epic", "musicbrainz_exact_release_catalog_match", str(old)))
+    def multilabel(*args):
+        value = lookup(*args)
+        value["label_info"] = [
+            {"name": "Daylight", "catalog_number": "CGi2010"},
+            {"name": "Epic", "catalog_number": "CGi2010"},
+        ]
+        return value
+    result = scanner.scan("additions", str(old), lookup=multilabel)
+    label = next(x for x in result["pending"] if x["field"] == "LABEL")
+    scanner.decide(label["fingerprint"], "accept", lookup=multilabel)
+    plan = revision._plan(str(old), lookup=multilabel)
+    # No need to also approve catalog change; the label-only migration can
+    # update the Collection row while preserving the original folder name.
+    revision.apply(str(old), plan["fingerprint"], "APPLY_VERIFIED_ARCHIVE_REVISION")
+    assert catalog.list_items()["items"][0]["label"] == "Daylight; Epic"
+    assert catalog.list_items()["items"][0]["label_provenance"] == "archive_revision_approved_labels"
+    catalog.import_published()
+    assert catalog.list_items()["items"][0]["label"] == "Daylight; Epic"
+
+
+def test_approved_label_revision_preserves_manual_collection_value(fixture):
+    _, old, _, lookup = fixture
+    with catalog._connect() as db:
+        db.execute("UPDATE archive_items SET label=?,label_provenance=? WHERE archive_path=?",
+                   ("My verified physical label", "manual", str(old)))
+    result = scanner.scan("additions", str(old), lookup=lookup)
+    label = next(x for x in result["pending"] if x["field"] == "LABEL")
+    scanner.decide(label["fingerprint"], "accept", lookup=lookup)
+    plan = revision.preview(str(old))
+    revision.apply(str(old), plan["fingerprint"], "APPLY_VERIFIED_ARCHIVE_REVISION")
+    assert catalog.list_items()["items"][0]["label"] == "My verified physical label"
