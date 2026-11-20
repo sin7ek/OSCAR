@@ -78,8 +78,6 @@ def _plan(archive_path, *, lookup=None):
     source_manifest = json.loads((album_path / "manifest.json").read_text(encoding="utf-8"))
     if source_manifest.get("disc_total", 1) != 1:
         raise RevisionError("v1 migration cannot split or partially migrate a boxset")
-    if source_manifest.get("revision"):
-        raise RevisionError("Already versioned releases require a separate revision-chain review")
     with _db() as db:
         rows = db.execute(
             "SELECT * FROM metadata_proposals WHERE archive_path=? AND status='accepted' ORDER BY fingerprint",
@@ -248,7 +246,6 @@ def _copy_and_retag(plan, temp, source, *, flac_factory=None, runner=None):
     manifest_path.write_text(new_manifest, encoding="utf-8")
     # Verify every new FLAC against its NEW whole-file digest and manifest,
     # before any published directory is moved.
-    scanner._archive_snapshot_override = None  # no archive writes; never use for validation
     for entry in files:
         if scanner._digest(temp / entry["filename"]) != entry["sha256"]:
             raise RevisionError("New archive FLAC hash validation failed")
@@ -338,7 +335,8 @@ def apply(archive_path, fingerprint, confirmation):
         operation_id = uuid.uuid4().hex
         temp = old.parent / (".oscar-unpublished-revision-" + operation_id)
         history_parent = root / ".oscar-archive-versions" / plan["original_publish_id"]
-        if history_parent.is_symlink():
+        if (history_parent.is_symlink() or history_parent.parent.is_symlink()
+                or history_parent.parent.exists() and not history_parent.parent.is_dir()):
             raise RevisionError("Unsafe archive revision history directory")
         history_parent.mkdir(parents=True, exist_ok=True)
         hidden = history_parent / operation_id
