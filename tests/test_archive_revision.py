@@ -443,3 +443,46 @@ def test_explicit_reconciliation_preserves_manually_curated_label(fixture, monke
     assert result["labels_updated"] == 0
     assert result["manual_values_preserved"] == 1
     assert catalog.list_items()["items"][0]["label"] == "My curated edition note"
+
+
+def test_completed_archive_revision_verify_is_read_only_and_checks_both_generations(fixture, monkeypatch):
+    from oscar import archive_revision_verify as maintenance
+    monkeypatch.setattr(maintenance, "FLAC", FakeFlac)
+    _, old, _, _ = fixture
+    plan = _approve(fixture)
+    done = revision.apply(str(old), plan["fingerprint"], "APPLY_VERIFIED_ARCHIVE_REVISION")
+    before_original = {p.name: p.read_bytes() for p in Path(done["original_retained_at"]).glob("*.flac")}
+    before_new = {p.name: p.read_bytes() for p in Path(done["archive_path"]).glob("*.flac")}
+    report = maintenance.verify(done["operation_id"])
+    assert report["status"] == "verified"
+    assert report["original_flacs_verified"] == 2
+    assert report["revised_flacs_verified"] == 2
+    assert report["approved_fields_verified"] == 2
+    assert report["collection_verified"] and report["manifest_and_evidence_verified"]
+    assert {p.name: p.read_bytes() for p in Path(done["archive_path"]).glob("*.flac")} == before_new
+    assert {p.name: p.read_bytes() for p in Path(done["original_retained_at"]).glob("*.flac")} == before_original
+
+
+def test_verify_rejects_changed_new_flac_and_missing_original_evidence(fixture, monkeypatch):
+    from oscar import archive_revision_verify as maintenance
+    monkeypatch.setattr(maintenance, "FLAC", FakeFlac)
+    _, old, _, _ = fixture
+    plan = _approve(fixture)
+    done = revision.apply(str(old), plan["fingerprint"], "APPLY_VERIFIED_ARCHIVE_REVISION")
+    modified = Path(done["archive_path"]) / "01 - Song.flac"
+    modified.write_bytes(b"tampered after publication")
+    with pytest.raises((maintenance.ArchiveVerifyError, scanner.ScanError), match="SHA-256"):
+        maintenance.verify(done["operation_id"])
+
+
+def test_verify_rejects_stale_sourced_collection_label(fixture, monkeypatch):
+    from oscar import archive_revision_verify as maintenance
+    monkeypatch.setattr(maintenance, "FLAC", FakeFlac)
+    _, old, _, _ = fixture
+    plan = _approve(fixture)
+    done = revision.apply(str(old), plan["fingerprint"], "APPLY_VERIFIED_ARCHIVE_REVISION")
+    with catalog._connect() as db:
+        db.execute("UPDATE archive_items SET label=?,label_provenance=? WHERE archive_path=?",
+                   ("Old label", "musicbrainz_exact_release_catalog_match", done["archive_path"]))
+    with pytest.raises(maintenance.ArchiveVerifyError, match="Label is stale"):
+        maintenance.verify(done["operation_id"])
