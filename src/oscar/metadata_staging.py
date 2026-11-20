@@ -84,6 +84,16 @@ def _track_data(track, position, total, disc_number, disc_total, album):
         tag["BARCODE"] = album["barcode"]
     if album.get("catalog_numbers"):
         tag["CATALOGNUMBER"] = album["catalog_numbers"]
+    # Write the actual reviewed release labels during initial tagging. The
+    # existing archive scanner can still detect missing labels on older rips.
+    # Keep separate multivalue LABEL comments for multi-label releases.
+    labels = list(dict.fromkeys(
+        str(item["name"]).strip()
+        for item in (album.get("labels") or [])
+        if isinstance(item, dict) and item.get("name") and str(item["name"]).strip()
+    ))
+    if labels:
+        tag["LABEL"] = labels
     if track.get("recording_id"):
         tag["MUSICBRAINZ_TRACKID"] = track["recording_id"]
     if track.get("release_track_id"):
