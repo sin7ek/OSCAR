@@ -359,7 +359,7 @@ def test_revision_updates_existing_recordlabel_alias_on_approved_label_change(fi
     assert scanner.scan("changes", str(migrated), lookup=lookup)["detected"] == 0
 
 
-def test_approved_multilabel_revision_updates_exact_sourced_collection_label(fixture):
+def test_approved_multilabel_revision_updates_exact_sourced_collection_label(fixture, monkeypatch):
     root, old, original, lookup = fixture
     # Previously enriched Collection values can be partial while the newly
     # reviewed release explicitly names multiple labels.
@@ -373,6 +373,7 @@ def test_approved_multilabel_revision_updates_exact_sourced_collection_label(fix
             {"name": "Epic", "catalog_number": "CGi2010"},
         ]
         return value
+    monkeypatch.setattr(scanner, "lookup_release_medium", multilabel)
     result = scanner.scan("additions", str(old), lookup=multilabel)
     label = next(x for x in result["pending"] if x["field"] == "LABEL")
     scanner.decide(label["fingerprint"], "accept", lookup=multilabel)
