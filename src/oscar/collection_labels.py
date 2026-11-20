@@ -122,7 +122,10 @@ def reconcile_applied_archive_labels():
             ).fetchone()
             if indexed is None or indexed["label"] == target:
                 continue
-            if indexed["label_provenance"] not in allowed:
+            # Nonempty labels with unknown/blank provenance may have been
+            # manually entered by an older OSCAR version: preserve them.
+            if (indexed["label_provenance"] not in allowed
+                    or (indexed["label"] and not indexed["label_provenance"])):
                 skipped_manual += 1
                 continue
         # Before any SQLite change, read and rehash the archived, published
