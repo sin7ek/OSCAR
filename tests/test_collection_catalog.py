@@ -112,7 +112,7 @@ class MockResponse:
 
 def test_discogs_token_in_header_and_never_in_response(monkeypatch):
     token = "A"*48
-    monkeypatch.setenv("OSCAR_DISCOGS_PAK", token)
+    monkeypatch.setenv("OSCAR_DISCOGS_PAT", token)
     seen = []
     def opener(req, timeout):
         seen.append(req)
@@ -128,7 +128,7 @@ def test_discogs_token_in_header_and_never_in_response(monkeypatch):
 
 
 def test_discogs_absent_token_does_not_call_provider(monkeypatch):
-    monkeypatch.delenv("OSCAR_DISCOGS_PAK", raising=False)
+    monkeypatch.delenv("OSCAR_DISCOGS_PAT", raising=False)
     assert not discogs.account_summary()["connected"]
 
 
