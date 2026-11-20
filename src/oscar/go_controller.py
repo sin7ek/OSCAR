@@ -93,11 +93,19 @@ def _metadata_handoff(job_id, workflow, *, preview=None, copy_start=None,
         from oscar.metadata_staging import MetadataError
         reader = preview or metadata_staging.preview
         try:
-            plan = reader(job_id, release_id)
+            # Caller-supplied preview functions in offline tests keep their
+            # existing two-argument contract. Production uses the persisted
+            # semi-automatic acceptance gate; Best Guess never gets this bypass.
+            if preview is None and workflow["identification_mode"] == "semi_automatic":
+                plan = reader(job_id, release_id, operator_accepted=(
+                    workflow.get("accepted_release_id") == release_id
+                    and workflow.get("release_match_status") == "INFERRED_OPERATOR_ACCEPTED"))
+            else:
+                plan = reader(job_id, release_id)
         except (MetadataError, musicbrainz.MusicBrainzError, OSError, ValueError) as exc:
             return {"workflow": workflow, "action": "metadata_review_required",
                     "release_id": release_id,
-                    "message": "Exact-disc metadata preview not available: " + str(exc)[:200]}
+                    "message": "Metadata preview requires exact Disc ID or a uniquely matched operator-accepted single CD: " + str(exc)[:200]}
         if plan.get("job_id") != job_id or plan.get("release_id") != release_id or not plan.get("fingerprint"):
             raise GoError("Metadata preview differs from snapshotted release identity")
         workflow = workflow_ledger.reserve_metadata_copy(
