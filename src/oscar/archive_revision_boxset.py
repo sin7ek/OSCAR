@@ -104,6 +104,20 @@ def preview(release_id, *, lookup=None):
             "label_status": status,
             "accepted_fingerprint": approvals[0]["fingerprint"] if accepted else None,
         })
+    # Never silently omit a newly published disc that has not yet been
+    # imported into Collection. A future coordinated Apply must include every
+    # published leaf of the release, not just the currently indexed subset.
+    indexed_paths = {Path(row["archive_path"]) for row in albums}
+    for sibling in parent.iterdir():
+        if not re.fullmatch(r"Disc \\d{2}", sibling.name):
+            continue
+        if sibling.is_symlink():
+            raise BoxsetReviewError("Unsafe linked physical disc directory in boxset")
+        if sibling.is_dir() and (sibling / "manifest.json").exists():
+            if sibling not in indexed_paths:
+                raise BoxsetReviewError(
+                    "Unindexed published disc detected; refresh Collection before reviewing this boxset"
+                )
     missing = sorted(set(range(1, total + 1)) - set(present))
     ready = all(d["label_status"] != "needs_operator_approval" for d in result)
     fingerprint = hashlib.sha256(json.dumps({
