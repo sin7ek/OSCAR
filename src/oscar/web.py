@@ -132,6 +132,7 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 <p>Preview approved metadata proposals for an archived single-CD album. Actual migration is disabled unless OSCAR_ENABLE_ARCHIVE_REVISIONS=1. When enabled, OSCAR preserves the original published generation in retained archive history, verifies a new FLAC/tag/manifest generation, and updates Collection. A catalog-number change also updates the album folder name. Boxsets require a separate coordinated migration.</p>
 <button type="button" id="archive-revision-preview">Preview approved archive migration for selected album</button>
 <button type="button" id="archive-revision-operations">View archive revision history and recovery status</button>
+<button type="button" id="archive-boxset-label-preview">Preview coordinated multidisc labels (read-only)</button>
 <p>Verify checks new and original FLACs, manifests, CUE/source evidence and Collection. Clean permanently removes only the verified retained original of one operation, destroys OSCAR's internal rollback, and requires OSCAR_ENABLE_ARCHIVE_HISTORY_CLEANUP=1 plus an independent backup and double confirmation. Prefer excluding hidden archive history from media-server scans. Never Clean if you need the original archive for recovery.</p>
 <div id="archive-revision-output" aria-live="polite"></div>
 <h3>Track-level catalog (classical &amp; other music)</h3>
@@ -1818,6 +1819,39 @@ async function showArchiveRevisionOperations(){
   }
  }catch(error){out.textContent='Revision journal: '+error.message}
 }
+document.getElementById('archive-boxset-label-preview').onclick=async()=>{
+ const out=document.getElementById('archive-revision-output');
+ const selected=document.getElementById('archive-scan-album');
+ const release=selected.selectedOptions[0]?.dataset.releaseId;
+ if(!release){out.textContent='Select a disc in Advanced · scan only one archive album first.';return}
+ const headers=requestAuthHeaders('Read-only coordinated boxset metadata review');
+ if(!headers)return;
+ out.textContent='Verifying all available archived CD media and reviewed MusicBrainz release labels…';
+ try{
+  const response=await fetch('/api/collection/archive-revisions/boxset-preview',{
+   method:'POST',headers:{'Content-Type':'application/json',...headers},
+   body:JSON.stringify({release_id:release})
+  });
+  const data=await response.json();
+  if(!response.ok)throw Error(data.detail||'Boxset review unavailable');
+  out.replaceChildren();
+  const h=document.createElement('h4');h.textContent='Multidisc release label review (read-only)';out.append(h);
+  for(const line of [
+   'MusicBrainz release: '+data.release_id,
+   'Archived discs: '+data.present_disc_numbers.join(', ')+' of '+data.disc_total,
+   'Missing discs: '+(data.missing_disc_numbers.join(', ')||'none'),
+   'Reviewed label(s): '+data.reviewed_labels.join('; '),
+   'All existing discs reviewed: '+(data.all_present_discs_reviewed?'yes':'no'),
+   data.note
+  ]){const p=document.createElement('p');p.textContent=line;out.append(p)}
+  for(const disc of data.disc_reviews){
+   const p=document.createElement('p');
+   p.textContent='Disc '+disc.disc+' · '+disc.track_count+' tracks · '+disc.label_status+
+    ' · FLAC LABEL: '+(disc.existing_flac_labels.join('; ')||'(missing)')+
+    ' · '+disc.archive_path;out.append(p);
+  }
+ }catch(error){out.textContent='Read-only boxset preview blocked: '+error.message}
+};
 document.getElementById('archive-revision-operations').onclick=showArchiveRevisionOperations;
 document.getElementById('archive-revision-preview').onclick=async()=>{
  const out=document.getElementById('archive-revision-output');
@@ -2007,6 +2041,7 @@ async function fetchLocalCollection(){
   for(const item of data.items){
    const option=document.createElement('option');
    option.value=item.archive_path;
+   option.dataset.releaseId=item.musicbrainz_release_id;
    option.textContent=item.artist+' — '+item.title+' ('+item.year+') · disc '+(item.disc_number||1)+'/'+(item.disc_total||1);
    selected.append(option);
   }
