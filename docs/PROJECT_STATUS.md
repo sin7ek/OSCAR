@@ -1,3 +1,12 @@
+## Review UI — explicit Reverify saved rip button
+
+The Review tab offers an explicitly confirmed **Reverify saved rip** action for tracked jobs in `VERIFICATION_PENDING`. It reuses OSCAR's authenticated `POST /api/rip/jobs/{job_id}/verification` endpoint and polls the existing report endpoint, displaying outcomes in the relevant job row. The user need not manually copy the job ID or use the terminal.
+
+The action rereads saved FLACs, the manifest, cyanrip log, CUE and AccurateRip evidence; it does **not** rip again, overwrite FLAC/CUE/log, change metadata or publish an archive. Existing `verification.start()` behavior preserves previous unsuccessful reports as timestamped backup files before replacing the report. A successful reverify still requires the standard Go! advancement action and all remaining release and archive approvals. No automatic reverify on restart or repeat loops.
+
+**Known UX caveat:** the already-saved report can remain visible until a fresh background verification finishes. During reverify the UI explicitly shows the running state; it is not evidence of a code regression to see the old report before the new check completes. Inspect the report's modification timestamp if a stale result appears. The Anne-Sophie Mutter job `940a5de1542d4a54ab4a4020efef283c` had a known previous `Unexpected FLAC path in manifest` report. PR #72 supports its single-digit file paths, but the actual new verifier outcome must be observed before claiming the rip passed.
+
+---
 ## Proposed future feature — RipRepair (damaged-CD recovery)
 
 **Status: design idea only; NOT implemented, not enabled in Go!, and not yet hardware-tested.** Captured from the real-world Roxy Music trial on 2026-11-20. This is a separate future feature, not part of PR #71 (GUI) or PR #72 (unpadded filename compatibility).
