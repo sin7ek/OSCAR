@@ -100,6 +100,8 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 <button type="button" id="collection-enrich-labels">Fill missing labels from exact MusicBrainz release (Collection only)</button>
 </details>
 <button type="button" id="collection-refresh">Refresh collection</button>
+<button type="button" id="collection-sync-approved-labels">Synchronize applied labels (Collection only)</button>
+<p>Synchronize previously approved album labels after a completed archive revision, including multiple labels such as Daylight; Epic. Actual archived FLACs are independently checked first. Locally curated values stay unchanged.</p>
 <label for="collection-search">Find in collection</label>
 <input id="collection-search" placeholder="Artist, album, label, composer, conductor or soloist" maxlength="150" style="width:350px;max-width:90%">
 <label for="collection-sort">Sort collection</label>
