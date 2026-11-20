@@ -731,7 +731,7 @@ def test_discid_attach_link_uses_saved_toc_and_never_submits_edit(tmp_path, monk
     assert data["status"] == "human_submission_required"
     assert "toc=1+2+1000+150+300" in data["musicbrainz_attach_url"]
     assert data["release_id"] == RELEASE1
-    assert "does not" in data["warning"].lower()
+    assert "will not submit" in data["warning"].lower()
     assert "Add missing Disc ID to MusicBrainz" in TestClient(app).get("/").text
 
 
