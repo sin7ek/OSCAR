@@ -148,7 +148,20 @@ def _verify_locked(operation_id):
             if response.returncode:
                 raise ArchiveVerifyError("Original or revised FLAC failed decoding")
         checked += 1
+    # This content-bound receipt can be submitted for an explicitly opted-in
+    # cleanup. Cleanup MUST run this entire verification again under the lock.
+    fingerprint = hashlib.sha256(json.dumps({
+        "operation_id": operation_id,
+        "old_manifest": row["source_manifest_sha256"],
+        "new_manifest": scan._digest(new / "manifest.json"),
+        "old_flacs": [entry["sha256"] for entry in old_files],
+        "new_flacs": [entry["sha256"] for entry in new_files],
+        "approved": row["proposal_fingerprints"],
+        "collection": [linked[0]["catalog_number"], linked[0]["label"],
+                       linked[0]["label_provenance"]],
+    }, sort_keys=True).encode()).hexdigest()
     return {
+        "verification_fingerprint": fingerprint,
         "operation_id": operation_id, "status": "verified",
         "original_flacs_verified": checked,
         "revised_flacs_verified": checked,
