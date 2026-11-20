@@ -264,3 +264,61 @@ def test_second_revision_can_be_planned_from_new_archive_without_staging(fixture
     assert scanner._archive_snapshot(new_path)["release_id"] == RELEASE
     # New source fields match MusicBrainz; no new proposal should be created.
     assert scanner.scan("changes", new_path, lookup=fixture[3])["detected"] == 0
+
+
+def test_real_flac_audio_integrity_through_metadata_revision(fixture, monkeypatch, tmp_path):
+    """Integration exercise with actual encoded audio if the FLAC CLI exists."""
+    import shutil
+    import subprocess
+    import wave
+    from mutagen.flac import FLAC as MutagenFLAC
+
+    if not shutil.which("flac"):
+        pytest.skip("flac CLI not installed on this CI runner")
+    root, old, _, lookup = fixture
+    wav = tmp_path / "silent.wav"
+    with wave.open(str(wav), "wb") as audio:
+        audio.setnchannels(1)
+        audio.setsampwidth(2)
+        audio.setframerate(8000)
+        audio.writeframes(b"\\x00\\x00" * 2400)
+    manifest_path = old / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    original_md5s = []
+    for item in manifest["files"]:
+        path = old / item["filename"]
+        path.unlink()
+        subprocess.check_call(["flac", "--silent", "-f", "-o", str(path), str(wav)])
+        obj = MutagenFLAC(str(path))
+        obj["MUSICBRAINZ_ALBUMID"] = RELEASE
+        obj["MUSICBRAINZ_DISCID"] = DISC
+        obj["MUSICBRAINZ_TRACKID"] = f"rec-{item['track']}"
+        obj["TITLE"] = "Song"
+        obj["ARTIST"] = "Carmen Gomes Inc."
+        obj["ALBUM"] = "Desire"
+        obj.save()
+        item["sha256"] = _digest(path)
+        item["streaminfo_audio_md5"] = format(MutagenFLAC(str(path)).info.md5_signature, "032x")
+        original_md5s.append(item["streaminfo_audio_md5"])
+    manifest_path.write_text(json.dumps(manifest))
+    monkeypatch.setattr(scanner, "FLAC", MutagenFLAC)
+    monkeypatch.setattr(revision, "FLAC", MutagenFLAC)
+    def real_flac_runner(args, **kwargs):
+        with subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE) as proc:
+            proc.communicate(timeout=kwargs.get("timeout", 180))
+            return SimpleNamespace(returncode=proc.returncode)
+    monkeypatch.setattr(revision.subprocess, "run", real_flac_runner)
+    result = scanner.scan("additions", str(old), lookup=lookup)
+    for row in result["pending"]:
+        scanner.decide(row["fingerprint"], "accept", lookup=lookup)
+    plan = revision.preview(str(old))
+    completed = revision.apply(str(old), plan["fingerprint"], "APPLY_VERIFIED_ARCHIVE_REVISION")
+    new = Path(completed["archive_path"])
+    assert new.is_dir()
+    for index, item in enumerate(json.loads((new / "manifest.json").read_text())["files"]):
+        obj = MutagenFLAC(str(new / item["filename"]))
+        assert format(obj.info.md5_signature, "032x") == original_md5s[index]
+        assert obj["CATALOGNUMBER"] == ["CGi2010"]
+        assert obj["LABEL"] == ["CFMusic"]
+        assert _digest(new / item["filename"]) == item["sha256"]
+    assert Path(completed["original_retained_at"]).is_dir()
