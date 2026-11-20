@@ -7,6 +7,16 @@
 
 > This dashboard tracks implementation maturity toward the eventual **insert CD → Go** experience. The percentages are subjective progress estimates, not test pass rates, promises or objective milestones. Passing CI does not mean a feature has been accepted on real Unraid hardware. Do not calculate a single overall project completion percentage from these different domains.
 
+## Latest engineering change — MusicBrainz match refresh (2026-11-20)
+
+PR candidate on `feature/musicbrainz-match-refresh`: operator-triggered, authenticated read-only refresh of an accepted MusicBrainz release's current Disc ID medium association. The saved TOC, disc ID, and completed verification are checked before the network lookup. Historical `INFERRED_OPERATOR_ACCEPTED` is never upgraded, and no audio, tagging, or archive operation is triggered. See [MUSICBRAINZ_MATCH_REFRESH.md](MUSICBRAINZ_MATCH_REFRESH.md) and [PROJECT_STATUS.md](PROJECT_STATUS.md).
+
+**Dashboard percentages remain unchanged pending independent tests and the real Unraid Carmen Gomes verification.** GitHub CI passing alone does not establish that an updated external Disc ID has been observed on the actual deployment.
+
+Branding foundation #78 is merged to main; image binary integration and Unraid visual acceptance remain outstanding.
+
+---
+
 ## Progress by area
 
 | Area | Progress | Visual progress | Evidence / remaining gaps |
