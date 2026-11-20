@@ -1,3 +1,9 @@
+## Carmen Gomes real-Unraid read-only archive migration preview acceptance (2026-11-20)
+
+Operator provided output of the deployed **Verified archive migration preview** for *Carmen Gomes Inc. — Desire (2010)*. It correctly reports source `/archive/Carmen Gomes Inc/Desire (2010) [fa89edc1]`, target `/archive/Carmen Gomes Inc/[CGi2010] Desire (2010) [fa89edc1]`, reviewed catalog number `CGi2010`, **2 accepted changes**, **12 tracks**, and original publish ID `3908eef79f114450b0a7eb76bec44926`. UI explicitly states **No changes yet**. This confirms live read-only preview wiring and proposal-to-path planning, **NOT** an actual archive revision, backup, source retention, FLAC audio re-verification, SQLite rebind, or crash recovery. Next acceptance checks: ensure archive and `/config` Collection DB have restorable backups and enough free space, verify whole-archive scan and Anastacia preview, then perform any apply only after explicit operator review. Boulez 6CD boxset remains ineligible for single-disc apply. Keep original archive untouched until approved.
+
+---
+
 ## Seven operator-approved metadata events; LABEL alias correction and developer handoff (2026-11-20)
 
 The operator supplied 7 historical metadata decision events in the live Unraid UI, including accepted `LABEL = Deutsche Grammophon` for `Disc 06` (21:57:37.921509 UTC) and `Disc 04` (21:57:41.643189 UTC) of *Boulez Conducts Stravinsky* (2010), MusicBrainz release `423f636d-742d-47b0-9ba2-51515a6fdfd2`; previous accepted Carmen Gomes Inc. (catalog number CGi2010 and CFMusic label) and Anastacia (Daylight/Epic) remain in the audit. **Acceptance is approval only, not evidence that FLACs or the multidisc album were migrated.** Multidisc migration remains explicitly unsupported in the v1 versioned migration engine.
