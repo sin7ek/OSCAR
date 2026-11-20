@@ -1512,13 +1512,13 @@ async function fetchLocalCollection(){
   out.append(summary);
   const table=document.createElement('table');table.style.width='100%';
   const head=document.createElement('tr');
-  for(const label of ['Artist','Album','Year','Record label','Catalog','Composer','Conductor','Soloists','Tracks','Status']){
+  for(const label of ['Artist','Album','Year','Record label','Catalog','Composer','Conductor','Soloists','Disc','Tracks','Status']){
     const th=document.createElement('th');th.textContent=label;head.append(th);
   }
   table.append(head);
   for(const item of data.items){
     const row=document.createElement('tr');
-    for(const value of [item.artist,item.title,item.year,item.label,item.catalog_number,item.composer,item.conductor,item.soloists,item.track_count,item.archive_status]){
+    for(const value of [item.artist,item.title,item.year,item.label,item.catalog_number,item.composer,item.conductor,item.soloists,(item.disc_number||1)+'/'+(item.disc_total||1),item.track_count,item.archive_status]){
       const td=document.createElement('td');td.textContent=String(value);td.style.padding='5px';
       row.append(td);
     }
@@ -1718,7 +1718,7 @@ async function goAdvance(){
         if(!statusResponse.ok){msg.textContent='Publication status unavailable: '+(status.detail||'inspect archive');return}
         msg.textContent='Archive publication '+started.result.publish_id+' · '+status.status+
          (status.error?' · '+status.error:'')+
-         '. Catalog indexing is a separate step.';
+         '. Catalog: '+(status.catalog?.status||'indexing not reported')+'.';
         if(status.status==='running')setTimeout(progress,4000);
        };
        await progress();

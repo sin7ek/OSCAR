@@ -1,3 +1,11 @@
+## PR #69 — multidisc catalog correction and archive auto-indexing
+
+Catalog import now supports both `/archive/Artist/[catalog] Album (year) [release]/` and `/archive/Artist/[catalog] Album (year) [release]/Disc NN/` for OSCAR-generated, `published_verified` manifests. Disc position `disc_number`/`disc_total` is stored and shown in the local catalog/export. Folder and manifest disc positions must agree. Previously imported multidisc entries created by the old parser are **selectively repaired when re-imported**, only if the old unedited misparse signature is still present. Custom catalog fields, notes, composer/conductor credits and manually renamed records remain untouched. The migration does not move/rename the archive or original staging files.
+
+For newly published archives, the publisher attempts a single-leaf catalog import **after** successful verified atomic publication; success is reported as `catalog.status=indexed`. Failure is nonfatal for the already verified archive and reported `catalog.status=index_required`; manual Collection `Import archives` remains an idempotent fallback. New Go archive publication conveys the ledger's inference status into the published manifest. Existing manifests without release status import as `EDITION_NOT_VERIFIED`, not as physical-pressing proof; previously curated nonlegacy entries preserve their existing status. This is local SQLite only; no Discogs write.
+
+Unraid validation: after deployment, open Collection, click **Import archives** once to repair existing multidisc catalog rows, and check correct Artist/Album/Year/Catalog/Disc values. Do not delete/re-import the underlying FLACs or manually edit database rows. Real hardware acceptance still pending after CI.
+
 ## Go Phase 3 — archive review and explicit publication handoff (PR #68, 2026-11-20)
 
 Go jobs at `METADATA_READY` can now request an authenticated read-only archive preview. OSCAR reads back the actual staging-copy FLAC tags and displays track-level classical composer/conductor/Work/Recording-ID evidence, metadata consistency flags, archive CUE proposal, destination and plan fingerprint in the Go UI. No automatic editorial claim is made; the operator must check against the physical CD. An inferred release remains `INFERRED_OPERATOR_ACCEPTED` (Semi Automatic) or `INFERRED_NOT_PHYSICALLY_VERIFIED` (Best Guess).

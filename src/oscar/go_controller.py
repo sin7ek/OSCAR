@@ -214,7 +214,8 @@ def archive_publish_start(job_id, fingerprint, confirmation, *,
     publisher = start or archive_publish.start
     result = publisher(job_id, copy_id, "original_tags", "auto", fingerprint, confirmation,
                        acknowledge_observations=acknowledge_observations,
-                       include_cover=False, approve_cover=False)
+                       include_cover=False, approve_cover=False,
+                       release_match_status=state["release_match_status"])
     return {"workflow": state, "release_id": release_id,
             "release_match_status": state["release_match_status"],
             "result": result,

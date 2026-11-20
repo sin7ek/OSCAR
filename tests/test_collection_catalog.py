@@ -289,3 +289,88 @@ def test_legacy_soloist_value_other_than_calculated_source_is_preserved(archive,
         db.execute("UPDATE archive_items SET soloists='Manually curated credit'")
     catalog.import_published()
     assert catalog.list_items()["items"][0]["soloists"] == "Manually curated credit"
+
+
+def _multidisc_fixture(archive):
+    root, _, _ = archive
+    disc = root / "Stravinsky; Pierre Boulez" / (
+        "[6CD 477 8730 GB6] Boulez Conducts Stravinsky (2010) [423f636d]") / "Disc 06"
+    disc.mkdir(parents=True)
+    manifest = {"status": "published_verified",
+                "release_id": "423f636d-742d-47b0-9ba2-51515a6fdfd2",
+                "release_match_status": "INFERRED_OPERATOR_ACCEPTED",
+                "disc_number": 6, "disc_total": 6,
+                "files": [{"track": i, "filename": f"{i:02}.flac"} for i in range(1, 33)]}
+    (disc / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    return disc
+
+
+def test_multidisc_archive_import_tracks_disc_and_inference(archive):
+    disc = _multidisc_fixture(archive)
+    result = catalog.import_published()
+    assert result["imported"] == 2
+    row = next(x for x in catalog.list_items()["items"] if x["track_count"] == 32)
+    assert row["archive_path"] == str(disc)
+    assert row["artist"] == "Stravinsky; Pierre Boulez"
+    assert row["title"] == "Boulez Conducts Stravinsky"
+    assert row["year"] == "2010"
+    assert row["catalog_number"] == "6CD 477 8730 GB6"
+    assert row["disc_number"] == 6
+    assert row["disc_total"] == 6
+    assert row["identification_status"] == "INFERRED_OPERATOR_ACCEPTED"
+    assert catalog.import_published()["imported"] == 0
+
+
+def test_bad_legacy_multidisc_row_repaired_without_manual_field_loss(archive):
+    disc = _multidisc_fixture(archive)
+    catalog.import_published(only_path=disc)
+    # Simulate the old parser's exact broken signature, including a
+    # separately curated operator field that must not be overwritten.
+    with sqlite3.connect(catalog.database_path()) as db:
+        db.execute("""UPDATE archive_items SET
+            artist=?, title='Disc 06', year='', catalog_number='',
+            identification_status='HUMAN_REVIEWED', folder='Private shelf',
+            notes='Operator note', composer='Manual composer'
+            WHERE archive_path=?""", (disc.parent.name, str(disc)))
+    result = catalog.import_published()
+    assert result["repaired"] == 1
+    row = next(x for x in catalog.list_items()["items"] if x["track_count"] == 32)
+    assert row["artist"] == "Stravinsky; Pierre Boulez"
+    assert row["title"] == "Boulez Conducts Stravinsky"
+    assert row["disc_number"] == 6 and row["disc_total"] == 6
+    assert row["identification_status"] == "INFERRED_OPERATOR_ACCEPTED"
+    assert row["folder"] == "Private shelf"
+    assert row["notes"] == "Operator note"
+    assert row["composer"] == "Manual composer"
+    assert catalog.import_published()["repaired"] == 0
+
+
+def test_curated_multidisc_artist_never_overwritten(archive):
+    disc = _multidisc_fixture(archive)
+    catalog.import_published(only_path=disc)
+    with sqlite3.connect(catalog.database_path()) as db:
+        db.execute("""UPDATE archive_items SET artist='Manually curated',
+                       title='Disc 06',year='',catalog_number='',
+                       identification_status='HUMAN_REVIEWED'
+                       WHERE archive_path=?""", (str(disc),))
+    assert catalog.import_published()["repaired"] == 0
+    row = next(x for x in catalog.list_items()["items"] if x["archive_path"] == str(disc))
+    assert row["artist"] == "Manually curated"
+
+
+def test_mismatched_multidisc_manifest_rejected(archive):
+    disc = _multidisc_fixture(archive)
+    path = disc / "manifest.json"
+    manifest = json.loads(path.read_text())
+    manifest["disc_number"] = 5
+    path.write_text(json.dumps(manifest))
+    assert catalog.import_published(only_path=disc)["imported"] == 0
+    assert catalog.list_items()["total"] == 0
+
+
+def test_index_single_archive_does_not_scan_unrelated_entries(archive):
+    disc = _multidisc_fixture(archive)
+    result = catalog.import_published(only_path=disc)
+    assert result["imported"] == 1
+    assert catalog.list_items()["total"] == 1
+    assert catalog.list_items()["items"][0]["track_count"] == 32
