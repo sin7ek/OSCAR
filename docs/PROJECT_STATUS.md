@@ -10,6 +10,8 @@
 
 **MusicBrainz edit note UX (planned):** generate an English factual template locally using the release UUID, physical source evidence, saved libdiscid TOC, actual track count, known catalog number and optional user-confirmed printed-booklet/TOC differences. Show preview and copy/paste; no paid/free remote AI required, no invented physical evidence or automatic submission.
 
+**Planned GUI branding (new request, not yet deployed):** use the operator-supplied `OSCAR-header.png` as the main GUI header artwork and `OSCAR-favicon.png` as the browser favicon. Preserve image aspect ratio and readability on narrow/mobile screens; define sensible favicon PNG sizes and favicon HTML links; avoid altering existing Go! / Review / Collection / Settings functionality. The actual binary artwork must be sourced from verified supplied files and added separately to the GitHub repository before claiming the change implemented. This is **not part of the current documentation-only PR**.
+
 **Development priority order:** (1) fresh MusicBrainz Disc ID refresh for accepted Carmen Gomes job; (2) deterministic edit-note UX; (3) MusicBrainz OAuth read-only collections; (4) joined local / Discogs / MusicBrainz collection comparison; (5) preview-only, explicitly approved idempotent collection synchronization. See [PROGRESS.md](PROGRESS.md), [AUTOMATION_ROADMAP.md](AUTOMATION_ROADMAP.md), [DISCOGS_COLLECTION_CATALOG.md](DISCOGS_COLLECTION_CATALOG.md). PR #76's source link prefilter should be tested in the next deployed build, even though initial PR #75 handoff was tested by the user.
 
 ---
