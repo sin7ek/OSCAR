@@ -7,6 +7,12 @@
 
 > This dashboard tracks implementation maturity toward the eventual **insert CD → Go** experience. The percentages are subjective progress estimates, not test pass rates, promises or objective milestones. Passing CI does not mean a feature has been accepted on real Unraid hardware. Do not calculate a single overall project completion percentage from these different domains.
 
+## Real-Unraid Carmen Gomes archive migration preview (2026-11-20)
+
+The operator demonstrated a working read-only migration preview on live Unraid for the 12-track Carmen Gomes Inc. *Desire*: 2 approved changes, catalog number `CGi2010`, correct proposed archive folder rename and original publication ID `3908eef79f114450b0a7eb76bec44926`. **No apply or archive mutation occurred**. Actual generation promotion, retained original, `flac -t`, Collection transaction and crash recovery still require separate acceptance with backups and free-space checks. No maturity percentage increase for a preview alone.
+
+---
+
 ## Open-source beginner onboarding — draft only (2026-11-20)
 
 Created an explicitly **unreviewed** commented Unraid/Portainer Compose example: [`compose.unraid.example.yml`](../compose.unraid.example.yml). It is a documentation baseline, **not** a tested/recommended replacement for the operator's existing working stack. Required next steps: review exact Docker/Portainer compatibility, network/access controls, mounting and permissions, drives, token handling, archive revision opt-in and safe defaults. **Planned:** [`docs/GETTING_STARTED.md`](GETTING_STARTED.md) (not yet written), a true beginner guide to Docker concepts, prerequisite checks, selecting bridge vs br0 networking, secure secrets, first rip, first archive publish, maintenance, updates and troubleshooting. See [PROJECT_STATUS.md](PROJECT_STATUS.md) for the full checklist. No maturity percentage increase for an untested documentation draft.
