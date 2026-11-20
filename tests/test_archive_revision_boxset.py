@@ -357,3 +357,59 @@ def test_coordinated_boxset_api_requires_auth_and_explicit_opt_in(prepared, monk
                       headers=headers).status_code == 200
     assert client.post("/api/collection/archive-revisions/boxset-reconcile",
                        json={"operation_id": "a" * 32}).status_code == 403
+
+
+def test_preparation_failure_does_not_move_any_original(prepared, monkeypatch):
+    paths, lookup, engine = _approved_group(prepared, monkeypatch)
+    from oscar import archive_revision as single
+    original_copy = single._copy_and_retag
+    called = {"count": 0}
+
+    def broken_second_copy(plan, temp, source):
+        called["count"] += 1
+        if called["count"] == 2:
+            raise OSError("simulated preparation failure before journal")
+        return original_copy(plan, temp, source)
+
+    monkeypatch.setattr(single, "_copy_and_retag", broken_second_copy)
+    review = boxset.preview(RELEASE, lookup=lookup)
+    with pytest.raises(OSError, match="preparation failure"):
+        engine.apply(RELEASE, review["fingerprint"],
+                     "APPLY_COORDINATED_BOXSET_REVISION", lookup=lookup)
+    assert not engine.operations()["items"]
+    for leaf in paths.values():
+        assert (leaf / "manifest.json").is_file()
+        assert not (leaf / "01 - Track.flac").read_bytes().endswith(b" TAGGED")
+    assert not (paths[4].parents[2] / ".oscar-archive-versions").exists()
+
+
+def test_recovery_refuses_missing_candidate_and_preserves_history(prepared, monkeypatch):
+    import shutil
+    from oscar import archive_publish
+    paths, lookup, engine = _approved_group(prepared, monkeypatch)
+    rename = archive_publish._rename_noreplace
+    counter = {"n": 0}
+
+    def fail_after_first_promotion(source, dest):
+        counter["n"] += 1
+        if counter["n"] == 3:
+            raise OSError("inject interrupted promotion")
+        return rename(source, dest)
+
+    monkeypatch.setattr(archive_publish, "_rename_noreplace", fail_after_first_promotion)
+    review = boxset.preview(RELEASE, lookup=lookup)
+    with pytest.raises(engine.BoxsetApplyError, match="reconciliation"):
+        engine.apply(RELEASE, review["fingerprint"],
+                     "APPLY_COORDINATED_BOXSET_REVISION", lookup=lookup)
+    operation = engine.operations()["items"][0]
+    with engine._db() as db:
+        entry = json.loads(db.execute(
+            "SELECT entries_json FROM boxset_revision_operations"
+        ).fetchone()["entries_json"])[1]
+    shutil.rmtree(entry["temp"])  # Synthetic test fixture only; real OSCAR never does this.
+    monkeypatch.setattr(archive_publish, "_rename_noreplace", rename)
+    with pytest.raises(engine.BoxsetApplyError, match="Expected verified"):
+        engine.reconcile(operation["operation_id"])
+    assert engine.operations()["items"][0]["status"] == "prepared"
+    assert Path(entry["source"]).is_dir()
+    assert (paths[4] / "manifest.json").is_file()
