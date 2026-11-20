@@ -15,7 +15,7 @@ Implementing a separately enabled, **staging-independent** archive migration for
 
 ## Bulk archive scanner and Discogs PAT variable (2026-11-20)
 
-Feature branch implements asynchronous **whole indexed archive** MusicBrainz scans with per-album progress/error isolation. One-album scans move to Advanced; the legacy Collection label-enrichment tool remains in Advanced because it serves a different read-only-external/write-local-Collection task. Discogs connection renamed to `OSCAR_DISCOGS_PAT`; Unraid Portainer environment must be updated at deployment. The MusicBrainz release UUID was already in FLAC `MUSICBRAINZ_ALBUMID`. No applied archive metadata migration yet, and maturity estimates do not rise before complete GitHub CI and real Unraid acceptance.
+PR #94 (merged after GitHub Tests and Docker CI) implements asynchronous **whole published archive** MusicBrainz scans with per-album progress/error isolation. One-album scans move to Advanced; the legacy Collection label-enrichment tool remains in Advanced because it serves a different read-only-external/write-local-Collection task. Discogs connection renamed to `OSCAR_DISCOGS_PAT`; Unraid Portainer environment must be updated at deployment. The MusicBrainz release UUID was already in FLAC `MUSICBRAINZ_ALBUMID`. No applied archive metadata migration yet, and maturity estimates do not rise before complete GitHub CI and real Unraid acceptance.
 
 ---
 
