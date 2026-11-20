@@ -619,3 +619,25 @@ def test_publisher_rejects_symlinked_extraction_log(publishable, tmp_path):
     (job / "audio" / "unknown.log").symlink_to(outside)
     with pytest.raises(archive_publish.PublishError, match="Unsafe original extraction log"):
         archive_publish.prepare(JOB, COPY, "original_tags", "standard")
+
+
+def test_missing_catalog_number_warns_in_physical_archive_review(staged):
+    source = staged / ("metadata-copy-" + COPY) / "metadata-preview.json"
+    original = json.loads(source.read_text(encoding="utf-8"))
+    original["album"]["catalog_numbers"] = []
+    source.write_text(json.dumps(original), encoding="utf-8")
+    before = source.read_bytes()
+    result = archive_review.review(JOB, COPY, "original_tags", artwork=False)
+    found = [f for f in result["consistency"]["flags"]
+             if f["code"] == "missing_release_catalog_number"]
+    assert len(found) == 1
+    assert found[0]["severity"] == "review"
+    assert "MusicBrainz" in found[0]["message"]
+    assert result["consistency"]["review_count"] >= 1
+    assert source.read_bytes() == before
+
+
+def test_documented_catalog_number_does_not_raise_missing_warning(staged):
+    result = archive_review.review(JOB, COPY, "original_tags", artwork=False)
+    assert not any(f["code"] == "missing_release_catalog_number"
+                   for f in result["consistency"]["flags"])
