@@ -1,8 +1,18 @@
-## MusicBrainz accepted-match refresh — 20 November 2026 (PR #79 merged, Unraid test pending)
+## Unraid acceptance result — MusicBrainz Match Refresh (2026-11-20)
+
+**Observed directly in the operator's OSCAR UI:** PR #79's read-only refresh succeeded on historical staging job `b68488f667cc492d8dd94f90717cdb28` for Carmen Gomes Inc. *Desire* (2010), accepted MusicBrainz release `fa89edc1-32f9-4290-8788-bbac2e366a46`, Disc ID `VxfLacbEsNFCv5Ua4bvIeBIQ3jQ-`. OSCAR reported **"Saved Disc ID is now attached to the accepted release · medium 1"** while preserving `INFERRED_OPERATOR_ACCEPTED`. The workflow was `METADATA_READY`, `semi_automatic`, with tagged staging copy `9af8f01c736843ff8f53a1d7e8af2b56`; archive preview listed 12 tracks and proposed `Carmen Gomes Inc/Desire (2010) [fa89edc1]`.
+
+**Interpretation:** operator-observed functional acceptance for the match refresh is complete, beyond passing CI. The UI explicitly confirms no metadata or archive changes caused by the refresh. A fresh external Disc ID association is not independently verified physical pressing identity, and this test does not demonstrate new archive publication or independent file-system hash comparison. The preview showed no automatic metadata consistency warnings, which is not proof of metadata correctness.
+
+**Next features:** deterministic, evidence-bound MusicBrainz edit-note preview/copy UI; thereafter MusicBrainz OAuth read-only collections and comparison with Discogs and OSCAR. These remain unimplemented. The separate branding artwork upload and Unraid visual acceptance also remain outstanding.
+
+---
+
+## MusicBrainz accepted-match refresh — 20 November 2026 (PR #79 merged; Unraid test accepted)
 
 The next OSCAR change adds an authenticated, read-only **Refresh MusicBrainz match** button for explicitly accepted Semi Automatic Go! jobs. It reuses the original saved physical TOC, Disc ID, completed per-track verification and accepted release UUID to fetch fresh MusicBrainz medium information. A newly attached Disc ID is displayed as fresh external evidence; original `INFERRED_OPERATOR_ACCEPTED` history, tags, archive and audio remain untouched. No physical-edition verification is inferred from a database association.
 
-**Release acceptance case:** Carmen Gomes Inc. *Desire*, job `b68488f667cc492d8dd94f90717cdb28`, release `fa89edc1-32f9-4290-8788-bbac2e366a46`, original Disc ID `VxfLacbEsNFCv5Ua4bvIeBIQ3jQ-`. This must still be checked on real Unraid hardware after CI. Implementation, test cases and operator acceptance checklist: [MUSICBRAINZ_MATCH_REFRESH.md](MUSICBRAINZ_MATCH_REFRESH.md).
+**Release acceptance case:** Carmen Gomes Inc. *Desire*, job `b68488f667cc492d8dd94f90717cdb28`, release `fa89edc1-32f9-4290-8788-bbac2e366a46`, original Disc ID `VxfLacbEsNFCv5Ua4bvIeBIQ3jQ-`. This was subsequently confirmed in the operator's real Unraid OSCAR UI, as documented above. Implementation, test cases and operator acceptance checklist: [MUSICBRAINZ_MATCH_REFRESH.md](MUSICBRAINZ_MATCH_REFRESH.md).
 
 **Outstanding next phases (not in this change):** locally generated factual MusicBrainz edit-note templates, MusicBrainz OAuth read-only collection access, local/Discogs/MusicBrainz collection comparison and separately approved sync. Keep `OSCAR_MUSICBRAINZ_ID` and `OSCAR_MUSICBRAINZ_CS` exclusively server-side.
 
