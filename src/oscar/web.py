@@ -1696,6 +1696,123 @@ document.getElementById('discogs-check').onclick=async()=>{
 
 let goPoll=null;
 let goSessionHeaders=null;
+let goDashboardRefresh=null;
+async function startGoForDrive(stableId){
+ const dropdown=document.getElementById('go-drive');
+ const allowed=[...dropdown.options].some(option=>option.value===stableId);
+ if(!allowed){document.getElementById('go-result').textContent='This drive must be enabled and saved in Settings first.';return}
+ dropdown.value=stableId;
+ showOscarTab('go');
+ document.getElementById('go-start').click();
+}
+function addGoAction(parent,label,handler){
+ const button=document.createElement('button');
+ button.type='button';button.textContent=label;button.onclick=handler;
+ parent.append(button);return button;
+}
+async function refreshGoCards(interactive=true){
+ const target=document.getElementById('go-drive-cards');
+ const workflows=document.getElementById('go-workflows');
+ if(!target||!workflows||!settings)return;
+ let headers;
+ if(interactive)headers=requestAuthHeaders('Read OSCAR drive and Go! status');
+ else if(trustedLocalUI)headers={'X-OSCAR-UI-ACTION':'confirmed'};
+ if(!headers){
+  if(interactive)target.textContent='Authentication required to refresh drive status.';
+  return;
+ }
+ try{
+  const [driveResponse,jobResponse]=await Promise.all([
+    fetch('/api/rip/dashboard',{headers}),
+    fetch('/api/workflow/jobs',{headers})
+  ]);
+  if(!driveResponse.ok||!jobResponse.ok)throw new Error('Drive/workflow status unavailable');
+  const dashboard=await driveResponse.json(), ledger=await jobResponse.json();
+  target.replaceChildren();workflows.replaceChildren();
+  for(const drive of dashboard.drives||[]){
+   const card=document.createElement('article');card.className='go-drive-card';
+   const h=document.createElement('h3');h.textContent=drive.label;card.append(h);
+   const device=document.createElement('small');
+   device.textContent=(drive.device||'Not detected')+
+    ' · '+(drive.offset_set?'offset configured':'offset missing');
+   card.append(device);
+   const state=document.createElement('strong');
+   const ready=drive.status==='ready'&&dashboard.slots_available>0;
+   state.className=ready?'drive-ready':'drive-busy';
+   state.textContent=drive.status==='ripping'?'Ripping in progress':
+      !drive.present?'Drive not detected':
+      !drive.offset_set?'Read offset required':
+      dashboard.slots_available===0?'All ripping slots occupied':'Ready to rip';
+   card.append(state);
+   const last=drive.job;
+   if(last&&last.id){
+    const info=document.createElement('small');
+    info.textContent='Last rip: '+last.id+' · '+(last.status||'unknown');
+    card.append(info);
+    addGoAction(card,'Open last job',()=>{
+     document.getElementById('go-job').value=last.id;
+     showOscarTab('go');goAdvance();
+    });
+   }
+   const start=addGoAction(card,'Go! · '+drive.label,()=>startGoForDrive(drive.stable_id));
+   start.disabled=!ready;
+   if(!ready)start.title='Available only for a detected, enabled, calibrated and idle drive';
+   target.append(card);
+  }
+  if(!(dashboard.drives||[]).length)
+   target.textContent='No enabled optical drives. Configure them under Settings.';
+  const jobs=ledger.jobs||[];
+  for(const job of jobs){
+   const row=document.createElement('div');row.className='go-workflow-row';
+   const label=document.createElement('strong');
+   label.textContent=job.phase+' · '+job.identification_mode;
+   row.append(label);
+   const id=document.createElement('small');
+   id.textContent=job.job_id;row.append(id);
+   addGoAction(row,'Open / Check next safe step',()=>{
+    document.getElementById('go-job').value=job.job_id;
+    showOscarTab('go');goAdvance();
+   });
+   workflows.append(row);
+  }
+  if(!jobs.length)workflows.textContent='No tracked Go! jobs yet.';
+ }catch(error){
+  target.textContent='Drive status unavailable: '+error.message;
+ }
+}
+const reviewPhases=new Set(['RIP_FAILED','RIP_INTERRUPTED','METADATA_REVIEW_REQUIRED',
+ 'ARCHIVE_REVIEW_REQUIRED','VERIFICATION_PENDING','RELEASE_REVIEW_PENDING',
+ 'DEFERRED_REVIEW','METADATA_READY','RELEASE_ACCEPTED']);
+async function refreshReviewQueue(interactive=true){
+ const target=document.getElementById('review-jobs');
+ if(!target)return;
+ let headers;
+ if(interactive)headers=requestAuthHeaders('Review tracked OSCAR jobs');
+ else if(trustedLocalUI)headers={'X-OSCAR-UI-ACTION':'confirmed'};
+ if(!headers)return;
+ try{
+  const response=await fetch('/api/workflow/jobs',{headers});
+  if(!response.ok)throw new Error('Unable to read workflow ledger');
+  const data=await response.json();
+  target.replaceChildren();
+  const matching=(data.jobs||[]).filter(job=>reviewPhases.has(job.phase));
+  for(const job of matching){
+   const row=document.createElement('div');row.className='go-workflow-row';
+   const title=document.createElement('strong');
+   title.textContent=job.phase+' · '+job.identification_mode;
+   const id=document.createElement('small');id.textContent=job.job_id;
+   row.append(title,id);
+   addGoAction(row,'Inspect in Go!',()=>{
+    document.getElementById('go-job').value=job.job_id;
+    showOscarTab('go');goAdvance();
+   });
+   target.append(row);
+  }
+  if(!matching.length)target.textContent='No tracked jobs currently require review.';
+ }catch(error){target.textContent='Review queue unavailable: '+error.message}
+}
+document.getElementById('go-refresh-drives').onclick=()=>refreshGoCards(true);
+document.getElementById('review-refresh').onclick=()=>refreshReviewQueue(true);
 async function goAdvance(){
  const output=document.getElementById('go-result');
  const id=document.getElementById('go-job').value.trim().toLowerCase();
@@ -1910,6 +2027,7 @@ document.getElementById('go-start').onclick=async()=>{
   document.getElementById('go-job').value=data.job.id;
   goSessionHeaders=headers;
   await goAdvance();
+  await refreshGoCards(false);
  }catch(error){output.textContent='Go start blocked safely: '+error.message}
 };
 
@@ -1981,7 +2099,9 @@ document.getElementById('save').onclick=async()=>{
  if(!r.ok)throw new Error(await r.text());status.textContent='Settings saved. No rip started.';}
  catch(e){status.textContent='Could not save: '+e.message}
 };
-init().catch(e=>document.getElementById('status').textContent=e.message);
+init().then(()=>{
+ if(trustedLocalUI){refreshGoCards(false);refreshReviewQueue(false)}
+}).catch(e=>document.getElementById('status').textContent=e.message);
 </script></body></html>"""
 
 
