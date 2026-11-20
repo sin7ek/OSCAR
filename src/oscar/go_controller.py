@@ -248,6 +248,10 @@ def _read_published_archive(job_id, state):
             any(part in {".", ".."} for part in relative.parts)):
         raise GoError("Unsafe reserved archive directory")
     folder = root / relative
+    try:
+        archive_publish._check_directory(folder, root)
+    except (archive_publish.PublishError, OSError):
+        return None
     if not folder.is_relative_to(root) or folder.is_symlink() or not folder.is_dir():
         return None
     manifest = folder / "manifest.json"
