@@ -753,6 +753,81 @@ class ArchiveBulkScanRequest(BaseModel):
     mode: str = Field(pattern=r"^(additions|changes)$")
 
 
+class ArchiveRevisionPreviewRequest(BaseModel):
+    archive_path: str = Field(min_length=2, max_length=1500)
+
+
+class ArchiveRevisionApplyRequest(ArchiveRevisionPreviewRequest):
+    fingerprint: str = Field(pattern=r"^[a-f0-9]{64}$")
+    confirmation: str
+
+
+@app.post("/api/collection/archive-revisions/preview")
+def archive_revision_preview(body: ArchiveRevisionPreviewRequest, request: Request,
+                             x_oscar_rip_token: str | None = Header(default=None)):
+    from oscar.archive_revision import RevisionError, preview
+    from oscar.archive_metadata_scan import ScanError
+    from oscar.collection_catalog import CatalogError
+    from oscar.musicbrainz import MusicBrainzError
+    _rip_auth(x_oscar_rip_token, request)
+    try:
+        return preview(body.archive_path)
+    except (RevisionError, ScanError, CatalogError, MusicBrainzError,
+            ValueError, OSError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/collection/archive-revisions/apply")
+def archive_revision_apply(body: ArchiveRevisionApplyRequest, request: Request,
+                           x_oscar_rip_token: str | None = Header(default=None)):
+    from oscar.archive_revision import RevisionError, start
+    from oscar.archive_metadata_scan import ScanError
+    from oscar.collection_catalog import CatalogError
+    from oscar.musicbrainz import MusicBrainzError
+    _rip_auth(x_oscar_rip_token, request)
+    try:
+        return start(body.archive_path, body.fingerprint, body.confirmation)
+    except (RevisionError, ScanError, CatalogError, MusicBrainzError,
+            ValueError, OSError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.get("/api/collection/archive-revisions/workers/{task_id}")
+def archive_revision_worker(task_id: str, request: Request,
+                            x_oscar_rip_token: str | None = Header(default=None)):
+    from oscar.archive_revision import RevisionError, task_status
+    _rip_auth(x_oscar_rip_token, request)
+    try:
+        return task_status(task_id)
+    except RevisionError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/api/collection/archive-revisions/operations")
+def archive_revision_operations(request: Request,
+                                x_oscar_rip_token: str | None = Header(default=None)):
+    from oscar.archive_revision import operations
+    _rip_auth(x_oscar_rip_token, request)
+    return operations()
+
+
+class ArchiveRevisionReconcileRequest(BaseModel):
+    operation_id: str = Field(pattern=r"^[a-f0-9]{32}$")
+
+
+@app.post("/api/collection/archive-revisions/reconcile")
+def archive_revision_reconcile(body: ArchiveRevisionReconcileRequest, request: Request,
+                               x_oscar_rip_token: str | None = Header(default=None)):
+    from oscar.archive_revision import RevisionError, reconcile
+    from oscar.archive_metadata_scan import ScanError
+    from oscar.collection_catalog import CatalogError
+    _rip_auth(x_oscar_rip_token, request)
+    try:
+        return reconcile(body.operation_id)
+    except (RevisionError, ScanError, CatalogError, ValueError, OSError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
 @app.post("/api/collection/archive-metadata/scan-all")
 def archive_metadata_scan_all(body: ArchiveBulkScanRequest, request: Request,
                               x_oscar_rip_token: str | None = Header(default=None)):
