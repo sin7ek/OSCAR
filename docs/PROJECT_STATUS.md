@@ -1,3 +1,13 @@
+## Reopen archive metadata decisions + catalog folder migration requirement (2026-11-20; PR pending)
+
+Operator test: Carmen Gomes Inc. *Desire* has two durable decisions: `accepted CATALOGNUMBER=CGi2010` at `2026-11-20T20:46:53.576873+00:00` and `ignored LABEL=CFMusic` at `2026-11-20T20:49:27.220609+00:00`. The second Ignore was accidental and must be reversible. Feature branch adds **Reopen decision** in Collection decision history with authenticated API, rechecks the published archive revision and latest MusicBrainz value, restores a pending proposal and appends a `reopened` event without erasing the original decision. The operator can then Accept the reopened CFMusic label proposal. No FLAC or archive operation is performed.
+
+**Future archive migration MUST incorporate directory naming for an approved catalog number**: `/archive/Carmen Gomes Inc/Desire (2010) [fa89edc1]` → `/archive/Carmen Gomes Inc/[CGi2010] Desire (2010) [fa89edc1]`. Require collision-free, verified, rollback-capable archive version creation and Collection path/index transaction; do not rename existing folders during proposal approval. Actual migration not implemented in this PR.
+
+**Acceptance pending:** GitHub Tests and Docker build, then real Unraid Reopen → Accept → scan suppression/history. See [ARCHIVE_METADATA_LIFECYCLE.md](ARCHIVE_METADATA_LIFECYCLE.md).
+
+---
+
 ## Archive Metadata Scanner — first real Unraid observation (2026-11-20)
 
 **User-reported OSCAR Collection output for PR #89:** the published archive selection lists Anastacia *Freak of Nature* (disc 1/1), Carmen Gomes Inc. *Desire* (disc 1/1), and Boulez/Stravinsky boxset discs 4/6 and 6/6. A scan reported **2 value differences, 0 already accepted/ignored** for the selected Carmen Gomes archive, and the global pending queue displayed **3 proposals** in total:

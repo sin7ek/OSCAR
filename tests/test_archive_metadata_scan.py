@@ -146,3 +146,53 @@ def test_api_auth_and_gui_controls(archive):
     assert "Scan archive for metadata additions" in html
     assert "Scan archive for metadata changes" in html
     assert "Ignore this exact change" in html
+
+
+def test_reopen_ignored_label_preserves_decision_history(archive):
+    album, lookup = archive
+    original_bytes = {p.name: p.read_bytes() for p in album.iterdir()}
+    result = scan.scan("additions", str(album), lookup=lookup)
+    label = next(p for p in result["pending"] if p["field"] == "LABEL")
+    fp = label["fingerprint"]
+    assert scan.decide(fp, "ignore", lookup=lookup)["status"] == "ignored"
+    assert not any(p["fingerprint"] == fp for p in
+                   scan.scan("additions", str(album), lookup=lookup)["pending"])
+    restored = scan.reopen_decision(fp, lookup=lookup)
+    assert restored["status"] == "pending" and restored["applied"] is False
+    assert scan.list_proposals()["count"] == 2
+    events = scan.decision_history()["events"]
+    assert [e["decision"] for e in events] == ["reopened", "ignored"]
+    assert scan.decide(fp, "accept", lookup=lookup)["status"] == "accepted"
+    assert [e["decision"] for e in scan.decision_history()["events"]] == [
+        "accepted", "reopened", "ignored"
+    ]
+    assert {p.name: p.read_bytes() for p in album.iterdir()} == original_bytes
+
+
+def test_reopen_rejects_stale_provider_and_pending_proposal(archive):
+    album, lookup = archive
+    label = next(p for p in scan.scan("additions", str(album), lookup=lookup)["pending"]
+                 if p["field"] == "LABEL")
+    with pytest.raises(scan.ScanError, match="Only an accepted or ignored"):
+        scan.reopen_decision(label["fingerprint"], lookup=lookup)
+    scan.decide(label["fingerprint"], "ignore", lookup=lookup)
+    def changed(*args):
+        info = lookup(*args)
+        info["label_info"][0]["name"] = "CFMusic Updated"
+        return info
+    with pytest.raises(scan.ScanError, match="MusicBrainz data changed"):
+        scan.reopen_decision(label["fingerprint"], lookup=changed)
+    assert scan.list_proposals()["count"] == 1
+    assert [e["decision"] for e in scan.decision_history()["events"]] == ["ignored"]
+
+
+def test_reopen_authentication_and_interface(archive):
+    album, lookup = archive
+    item = scan.scan("additions", str(album), lookup=lookup)["pending"][0]
+    scan.decide(item["fingerprint"], "ignore", lookup=lookup)
+    client = TestClient(app)
+    assert client.post("/api/collection/archive-metadata/reopen",
+                       json={"fingerprint": item["fingerprint"]}).status_code == 403
+    html = client.get("/").text
+    assert "Reopen decision" in html
+    assert "View decision history" in html

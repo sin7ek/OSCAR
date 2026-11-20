@@ -786,6 +786,25 @@ def archive_metadata_decision(body: ArchiveMetadataDecisionRequest, request: Req
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
+class ArchiveMetadataReopenRequest(BaseModel):
+    fingerprint: str = Field(min_length=64, max_length=64, pattern=r"^[a-f0-9]{64}$")
+
+
+@app.post("/api/collection/archive-metadata/reopen")
+def archive_metadata_reopen(body: ArchiveMetadataReopenRequest, request: Request,
+                            x_oscar_rip_token: str | None = Header(default=None)):
+    """Undo an Ignore/Accept decision without deleting its historical event."""
+    from oscar.archive_metadata_scan import ScanError, reopen_decision
+    from oscar.musicbrainz import MusicBrainzError
+    from oscar.collection_catalog import CatalogError
+    _rip_auth(x_oscar_rip_token, request)
+    try:
+        return reopen_decision(body.fingerprint)
+    except (ScanError, CatalogError, MusicBrainzError, ValueError, OSError,
+            KeyError, TypeError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
 @app.get("/api/collection/archive-metadata/history")
 def archive_metadata_history(request: Request,
                              x_oscar_rip_token: str | None = Header(default=None)):

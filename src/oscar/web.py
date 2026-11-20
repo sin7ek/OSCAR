@@ -1697,6 +1697,30 @@ document.getElementById('archive-scan-history').onclick=async()=>{
    row.textContent=event.happened_at+' · '+event.decision+' · '+event.field+
     ' · '+event.archive_path;
    box.append(row);
+   if(event.decision==='ignored'||event.decision==='accepted'){
+    const button=document.createElement('button');
+    button.type='button';button.textContent='Reopen decision';
+    row.append(button);
+    button.onclick=async()=>{
+     if(!window.confirm('Reopen this previously '+event.decision+
+       ' metadata proposal? Earlier decisions remain in history. No archive files will change.'))return;
+     const auth=requestAuthHeaders('Reopen historical metadata decision');if(!auth)return;
+     button.disabled=true;
+     try{
+      const response=await fetch('/api/collection/archive-metadata/reopen',{
+       method:'POST',headers:{'Content-Type':'application/json',...auth},
+       body:JSON.stringify({fingerprint:event.fingerprint})
+      });
+      const result=await response.json();
+      if(!response.ok)throw new Error(result.detail||'Reopen declined');
+      await showArchiveProposals();
+     }catch(error){
+      button.disabled=false;
+      const warning=document.createElement('span');
+      warning.textContent=' · Could not reopen: '+error.message;row.append(warning);
+     }
+    };
+   }
   }
  }catch(error){box.textContent='Metadata history: '+error.message}
 };
