@@ -413,3 +413,59 @@ def test_recovery_refuses_missing_candidate_and_preserves_history(prepared, monk
     assert engine.operations()["items"][0]["status"] == "prepared"
     assert Path(entry["source"]).is_dir()
     assert (paths[4] / "manifest.json").is_file()
+
+
+def test_real_flac_audio_identity_check_for_boxset_generations(tmp_path):
+    """Exercise the unmocked audio check using actual lossless FLAC streams."""
+    import array
+    import shutil
+    import subprocess
+    import wave
+    from mutagen.flac import FLAC
+    from oscar import archive_revision_boxset_apply as engine
+
+    flac_binary = shutil.which("flac")
+    if not flac_binary:
+        pytest.skip("flac CLI not available")
+    source = tmp_path / "current"
+    backup = tmp_path / "original"
+    source.mkdir()
+    backup.mkdir()
+    wav = tmp_path / "tone.wav"
+    with wave.open(str(wav), "wb") as out:
+        out.setnchannels(1)
+        out.setsampwidth(2)
+        out.setframerate(44100)
+        out.writeframes(array.array("h", [1000, -1000] * 4410).tobytes())
+    original = backup / "01 - Track.flac"
+    subprocess.run([flac_binary, "--silent", "-f", "-o", str(original), str(wav)],
+                   check=True)
+    original_tags = FLAC(str(original))
+    original_tags["LABEL"] = ["Old Label"]
+    original_tags.save()
+    revised = source / original.name
+    shutil.copyfile(original, revised)
+    new_tags = FLAC(str(revised))
+    new_tags["LABEL"] = ["Deutsche Grammophon"]
+    new_tags.save()
+    identity = {"release_id": RELEASE, "disc_number": 4, "disc_total": 6}
+    (backup / "manifest.json").write_text(json.dumps({
+        **identity, "files": [{"filename": original.name}]
+    }))
+    (source / "manifest.json").write_text(json.dumps({
+        **identity, "files": [{"filename": revised.name}]
+    }))
+    entry = {"backup": str(backup), "source": str(source)}
+    assert engine._verify_audio_pair(entry) is True
+    assert FLAC(str(original))["LABEL"] == ["Old Label"]
+    assert FLAC(str(revised))["LABEL"] == ["Deutsche Grammophon"]
+    different_wav = tmp_path / "different.wav"
+    with wave.open(str(different_wav), "wb") as out:
+        out.setnchannels(1)
+        out.setsampwidth(2)
+        out.setframerate(44100)
+        out.writeframes(array.array("h", [0] * 8820).tobytes())
+    subprocess.run([flac_binary, "--silent", "-f", "-o", str(revised), str(different_wav)],
+                   check=True)
+    with pytest.raises(engine.BoxsetApplyError, match="Decoded-audio"):
+        engine._verify_audio_pair(entry)
