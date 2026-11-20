@@ -4,7 +4,7 @@
 >
 > **Maintained manually at each significant milestone.** This is a working *handoff*, not another roadmap/dashboard. Review GitHub `main` and recent PRs before trusting status details. Do not paste API keys, access tokens, private file contents, or real secrets into this document.
 >
-> **Last factual operator report:** 2026-11-20 (Anastacia label-only revision reported `completed` on Unraid; independent validation pending; seven SQLite decisions, Carmen Gomes migration `completed` on Unraid, **all twelve new FLAC metadata tag sets independently confirmed via Mutagen**, **12/12 independent FLAC decoder tests also passed**, **12/12 retained-original SHA-256 checks also passed**, **Collection DB path, labels and applied decisions independently verified**). **Latest merged engineering change:** PR #98, merge commit `2cb9c47e6603a95da81aaebf6f496dd4d5543049`, after two successful GitHub Tests runs and a successful Docker build. Real Unraid acceptance for new alias/tagging behavior is still pending. Verify current `main` in the next chat; subsequent changes may supersede this handoff.
+> **Last factual operator report:** 2026-11-20 (Anastacia independent 12/12 tags, audio and original hashes PASS; local Collection label projection `Epic` incomplete; seven SQLite decisions, Carmen Gomes migration `completed` on Unraid, **all twelve new FLAC metadata tag sets independently confirmed via Mutagen**, **12/12 independent FLAC decoder tests also passed**, **12/12 retained-original SHA-256 checks also passed**, **Collection DB path, labels and applied decisions independently verified**). **Latest merged engineering change:** PR #98, merge commit `2cb9c47e6603a95da81aaebf6f496dd4d5543049`, after two successful GitHub Tests runs and a successful Docker build. Real Unraid acceptance for new alias/tagging behavior is still pending. Verify current `main` in the next chat; subsequent changes may supersede this handoff.
 
 ### Latest independently verified OSCAR Unraid acceptance (2026-11-20)
 
@@ -15,6 +15,12 @@
 ### Second live Unraid revision (2026-11-20): Anastacia reported completed
 
 The operator's archive revision history shows **two `completed` operations**. New: Anastacia *Freak of Nature* (2001), original and new archive path both `/archive/Anastacia/[504757 2] Freak of Nature (2001) [4b370e6c]` (expected for **label-only** revision; catalog number unchanged); retained original `/archive/.oscar-archive-versions/5ff97661e98742afbf5db690f827d0f1/f5e41eef584c44288cc76a2a8477e635`. Previously accepted labels `Daylight` and `Epic`. **Only operator-reported journal status is verified so far**, NOT independent new-FLAC tag/decoder integrity, retained original hashes or Collection/decision SQLite consistency. Requested a read-only script to inspect these next. Carmen Gomes separately remains primary happy-path independently verified.
+
+### Anastacia independently confirmed; Collection projection issue and next milestones
+
+2026-11-20 Unraid operator independently tested Anastacia *Freak of Nature* (2001), 12/12 new FLAC `LABEL=[Daylight, Epic]` and release identity correct; 12/12 `flac -t`; 12/12 retained originals match original manifest SHA-256; Collection retains correct old path/catalog `504757 2` and has `LABEL` proposal `applied`. However, local Collection `label=Epic` persists after Refresh. Root cause: old `_finalize` only updated blank Collection labels. PR #106 changes only future completed revisions to sync **sourced** Collection labels while protecting manual/unknown values and renames UI heading to **Label**. Anastacia's already-completed row still needs an explicit, verified reconciliation action.
+
+User's next requested development: Verify button for previous manual tests; Clean and combined Verify & Clean (must have strict independent verification, explicit irreversible-loss confirmation/opt-in, safe per-operation-only scope, audit/recovery and no silent destructive archive mutations); coordinated multidisc migration for Boulez (available discs 4 and 6 of 6). Do not apply single-CD engine to partial boxset or remove hidden archive versions merely to appease Plex/Navidrome. An immediate safe workaround is excluding `.oscar-archive-versions` in media-server library paths, though hidden folders are not necessarily ignored by all servers.
 
 ## 1. Fast context for the next assistant
 
