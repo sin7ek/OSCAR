@@ -90,6 +90,26 @@ def test_preview_exact_medium_and_classical_roles(setup):
     assert not list(setup.glob("metadata-copy-*"))
 
 
+def test_preview_maps_unpadded_source_names_without_changing_rip(setup):
+    audio = setup / "audio"
+    manifest = {}
+    for number in (1, 2):
+        original = audio / f"{number:02d} - Unknown track.flac"
+        renamed = audio / f"{number} - Unknown track.flac"
+        original.rename(renamed)
+        manifest[f"audio/{renamed.name}"] = hashlib.sha256(renamed.read_bytes()).hexdigest()
+    state_path = setup / "state.json"
+    state = json.loads(state_path.read_text())
+    state["files_sha256"] = manifest
+    state_path.write_text(json.dumps(state))
+    before = {p.name: p.read_bytes() for p in audio.iterdir()}
+    plan = metadata.preview(JOB, RELEASE, lookup=lookup)
+    assert [track["original_file"] for track in plan["tracks"]] == [
+        "audio/1 - Unknown track.flac", "audio/2 - Unknown track.flac"]
+    assert len(plan["fingerprint"]) == 64
+    assert before == {p.name: p.read_bytes() for p in audio.iterdir()}
+
+
 def test_reject_ambiguous_release(setup):
     info=medium_payload()
     info["status"]="review_disc_id_or_count_ambiguity"
