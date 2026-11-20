@@ -6,7 +6,7 @@ The publication handoff is **explicitly operator-confirmed for BOTH Semi Automat
 
 **Deferred:** fully unattended Best Guess publication, post-publication automatic catalog indexing, persistent archive publication state reconciliation, and a completed physical-release evidence approval path for Secure. The existing publisher is asynchronous; a running job's state may need manual archive-manifest inspection after a service restart. Never infer a successful publication from a started thread. The local collection import remains an explicit separate action; it is not proof of physical pressing verification.
 
-Hardware acceptance case: Boulez rip job `8961e2d68ab3402797ceabb8aea9db92`, tagged copy `f148e307a5f44ef3b988f310a47033f1` — user confirmed `METADATA_READY` for PR #67. The actual classical tag contents and booklet match have **not yet** been independently inspected or verified. Use the new Go archive preview to inspect them; do not publish on the basis of the technical readiness status alone.
+Hardware acceptance: PR #67 isolated metadata copy reached `METADATA_READY` in a real Unraid test. The actual classical tag contents and booklet match have **not yet** been independently inspected or verified. Use the Go archive preview to inspect them; do not publish on the basis of technical readiness alone.
 
 # OSCAR — project status and handoff
 
