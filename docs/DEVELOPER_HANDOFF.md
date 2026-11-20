@@ -1,0 +1,100 @@
+# OSCAR — Developer handoff for the next chat
+
+> **Purpose:** make it possible to resume the OSCAR engineering project in a fresh ChatGPT conversation (e.g. "OSCAR chat 5") with minimal reconstruction, without confusing prior intentions with verified implementation.
+>
+> **Maintained manually at each significant milestone.** This is a working *handoff*, not another roadmap/dashboard. Review GitHub `main` and recent PRs before trusting status details. Do not paste API keys, access tokens, private file contents, or real secrets into this document.
+>
+> **Last factual operator report:** 2026-11-20 21:57 UTC (7 SQLite decision events on real Unraid). **Draft engineering branch at handoff creation:** `feature/label-alias-and-developer-handoff`. Verify its final merge/CI outcome via GitHub; this document is intentionally future-proof against subsequent branch changes.
+
+## 1. Fast context for the next assistant
+
+- OSCAR repository: **https://github.com/sin7ek/OSCAR**. Open-source CD ripping, physical edition review, lossless FLAC verification and long-lived archive maintenance; Python/FastAPI + server-rendered/vanilla-JS UI; Docker/Unraid/Portainer.
+- Operator runs Unraid host `Tower` and tests real published archives. **Never claim a GitHub CI pass proves an Unraid deployment works.** Ask for the relevant result or read existing logs before declaring end-to-end acceptance.
+- The architecture is **staging temporary, immutable original ripping evidence preserved, versioned published archives independently maintainable**. A MusicBrainz Disc ID does NOT prove an exact physical pressing. Never silently substitute editions or infer classical credit metadata.
+- Always check **GitHub `main` HEAD**, the actual source under `src/oscar`, current CI runs, and the latest `docs/PROJECT_STATUS.md` and `docs/PROGRESS.md` before changing code. The canonical ongoing design is `docs/ARCHIVE_METADATA_LIFECYCLE.md`.
+- Relevant canonical source files:
+  - `src/oscar/metadata_staging.py` — release lookup and tags written to verified staged copies.
+  - `src/oscar/archive_publish.py` — verified atomic archive publishing, `manifest.json`, CUE/evidence hashes and filesystem lock.
+  - `src/oscar/archive_metadata_scan.py` — per-archive snapshot hash verification, exact MusicBrainz values, durable proposal fingerprints and decision audit.
+  - `src/oscar/archive_metadata_bulk.py` — whole-archive discovery and bounded asynchronous scan; progress is process-local.
+  - `src/oscar/archive_revision.py` — opt-in, staging-independent, separately approved archive revision engine and operation journal.
+  - `src/oscar/collection_catalog.py` / `src/oscar/collection_labels.py` — persisted Collection index and legacy label enrichment.
+  - `src/oscar/api.py` and `src/oscar/web.py` — authenticated REST/UI entry points.
+  - `src/oscar/discogs_readonly.py` — optional read-only Discogs personal token lookup.
+  - `tests/test_archive_metadata_scan.py`, `tests/test_archive_metadata_bulk.py`, `tests/test_archive_revision.py`, `tests/test_metadata_staging.py` — relevant regressions.
+
+## 2. Confirmed code milestones — distinguish from live acceptance
+
+- **PR #89** built an archive-first read-only MusicBrainz change scanner and durable SQLite decisions. **#90** documented status. **#91** recorded first real Unraid proposed-field detections.
+- **PR #92** added `Reopen decision` preserving the original `ignored` event; **#93** prevented reopening superseded historical rows. These were demonstrated on real Unraid.
+- **PR #94** added whole-archive scanning and renamed the Discogs environment variable to **`OSCAR_DISCOGS_PAT`** (not PAK). **#95** added single-CD archive revision apply/preview, original-generation retention and crash journal; **#96** updated status docs.
+- **PR #97** saved an **explicitly unreviewed** beginner-oriented `compose.unraid.example.yml` draft and scheduled a clear `docs/GETTING_STARTED.md`. The user's own working Docker Compose was NOT changed.
+- `MUSICBRAINZ_ALBUMID` is the physical **MusicBrainz release ID** in FLAC tags; `MUSICBRAINZ_DISCID` is the Disc ID; `MUSICBRAINZ_TRACKID` is recording identity. `manifest.json.release_id` and `archive_items.musicbrainz_release_id` carry the release UUID.
+- **PR #95 archive migrations are disabled by default**. The Unraid operator must explicitly set `OSCAR_ENABLE_ARCHIVE_REVISIONS=1` and approve preview/apply before any version promotion. This code has GitHub Tests/Docker evidence, **not live-Unraid mutation acceptance**. Single-CD only; boxsets blocked.
+- Unraid had **7 auditable decision events** at the last operator report. They are decisions, NOT automatically applied metadata revisions.
+
+## 3. Current operator evidence and fixture identifiers
+
+| Physical archive / release | Exact source path or identity | User-reviewed decision |
+| --- | --- | --- |
+| Carmen Gomes Inc. — *Desire* (2010) | `/archive/Carmen Gomes Inc/Desire (2010) [fa89edc1]` · MusicBrainz release `fa89edc1-32f9-4290-8788-bbac2e366a46` | `CATALOGNUMBER = CGi2010` accepted, `LABEL = CFMusic` accepted after `ignored → reopened → accepted` |
+| Anastacia — *Freak of Nature* (2001) | `/archive/Anastacia/[504757 2] Freak of Nature (2001) [4b370e6c]` · release `4b370e6c-e6d2-36a5-8c47-5337a2d77d69` | `LABEL = Daylight; Epic` accepted |
+| Stravinsky; Pierre Boulez — *Boulez Conducts Stravinsky* (2010), 6CD | `/archive/Stravinsky; Pierre Boulez/[6CD 477 8730 GB6] Boulez Conducts Stravinsky (2010) [423f636d]/Disc 04` and `Disc 06`; release `423f636d-742d-47b0-9ba2-51515a6fdfd2` | Two separate `LABEL = Deutsche Grammophon` accepted decisions on 2026-11-20 21:57 UTC. **Do not attempt single-disc archive migration on this boxset.** |
+
+Exact recorded decision history (UTC, from operator-provided output):
+- 20:46:53.576873 — accepted Carmen Gomes `CATALOGNUMBER`.
+- 20:49:27.220609 — ignored Carmen Gomes `LABEL`.
+- 20:54:43.583898 — reopened Carmen Gomes `LABEL`.
+- 20:55:13.088707 — accepted Carmen Gomes `LABEL`.
+- 20:55:19.602314 — accepted Anastacia `LABEL`.
+- 21:57:37.921509 — accepted Boulez `Disc 06 LABEL`.
+- 21:57:41.643189 — accepted Boulez `Disc 04 LABEL`.
+
+Operator previously reported a repeated scan with `1 detected; 1 already accepted/ignored; 0 pending`, confirming same-semantic-proposal suppression on that real instance. Separate container-restart persistence / full-root scan and versioned-apply tests may need explicit new evidence depending on what has since been reported.
+
+### Expected safe catalog rename when operator eventually approves apply
+
+`/archive/Carmen Gomes Inc/Desire (2010) [fa89edc1]`
+→ `/archive/Carmen Gomes Inc/[CGi2010] Desire (2010) [fa89edc1]`.
+
+Revision engine must keep the original byte-identical publication in hidden `.oscar-archive-versions`, maintain parent lineage, rehash new FLACs, test decoded audio and update Collection paths atomically with an operator-recoverable journal. **Never suggest manual move/rename of this archive.**
+
+## 4. Current focused engineering issue — LABEL / RECORDLABEL
+
+- User reported Boulez label suggestions despite Deutsche Grammophon appearing in Collection and wondered whether `RECORDLABEL` was involved.
+- Verified root: the scanner used the **first published FLAC `LABEL` tag**, not the independent Collection `label` value or `manifest.label_info`. An absent FLAC `LABEL` therefore legitimately creates an archive-tag enrichment proposal. Do not mark a missing FLAC tag as already applied merely because SQLite has that label.
+- In the current `feature/label-alias-and-developer-handoff` branch, a focused correction is in progress: newly staged copies write exact MusicBrainz label names to multivalue `LABEL`; existing FLAC `RECORDLABEL` may be recognized as a legacy alias; conflicting `LABEL`/`RECORDLABEL` must fail closed instead of silently replacing metadata; Collection reads `RECORDLABEL` as supplementary label evidence.
+- **Critical compatibility:** existing accepted fingerprints (including both Boulez discs) should remain valid; proposal fingerprints are derived from original archived manifest, field and before/after. Do not alter `LABEL` canonical naming or rewrite existing decisions without migration design.
+- Cross-disc boxset label proposals currently remain **per archived disc**. Future feature must group them logically by physical MusicBrainz release while still explicitly reviewing per-disc applicability and only writing tags for verified/available discs. A 6CD release with only discs 4 and 6 in OSCAR must not be treated as complete or expose a single-disc apply action.
+
+## 5. Highest-priority next work (NOT automatically done)
+
+1. Verify the code/CI/merge outcome of the label-alias and handoff PR (branch named above); fix tests if needed.
+2. Operator should pull the current OSCAR image and run a **read-only full-archive metadata scan**, reporting counts/errors, then inspect **Archive Metadata Migration Preview** for Carmen Gomes and Anastacia. The migration **apply** remains deliberately disabled until a separate real-Unraid safety review.
+3. Audit/strengthen boxset-wide album label semantics: multi-disc release grouping, avoid duplicates in user review, exact CD-medium checks, incomplete boxsets, coordinated safe archive publication and persistent Collection linkage. Do not repurpose single-CD migration.
+4. Perform a deliberate Unraid single-CD version-migration acceptance, with backup, adequate free space, `flac -t` on each track, correct new directory, retained original generation, manifest provenance, Collection row and no rescan duplicates. Failure scenarios and recovery/reconcile need explicit evidence before promoting this to a recommended procedure.
+5. Revisit label sources: actual FLAC `LABEL` vs `RECORDLABEL`, Collection `label`, manifest `label_info`, exact MusicBrainz release `label_info`. Keep canonical writes and transparent provenance; do not silently overwrite manually curated values.
+6. Thoroughly review `compose.unraid.example.yml` before recommending it, especially Docker/Portainer substitution, UID/GID, br0, device permissions, permissions of /archive and /staging, security defaults. Write novice-friendly `docs/GETTING_STARTED.md` with a generic-bridge path and Unraid variant. Current Compose is a **DRAFT only**.
+7. Continue maintaining code status and qualitative maturity estimates accurately: passing GitHub Tests does not equal live acceptance, and scope increases do not automatically raise dashboard percentages.
+
+## 6. How to work in a new OSCAR chat
+
+- Start with: **"Read `docs/DEVELOPER_HANDOFF.md` in `sin7ek/OSCAR`, then `docs/PROJECT_STATUS.md`, `docs/PROGRESS.md` and GitHub `main`/recent PRs. Continue from the next unverified milestone, without touching my Unraid server or secrets."**
+- Prefer inspecting **actual** GitHub files via the connected GitHub app before changing code; do not guess from this handoff if source changed.
+- Changes follow: new branch from current `main` → focused implementation/tests → update status and review evidence → PR → verify final-head GitHub Tests and Docker build are green → squash merge. Record true merge SHA and whether live Unraid acceptance exists. Do not claim completed work before verifying.
+- Any archive filesystem mutation must be **operator opt-in** and reviewed, never triggered by ordinary scan/Accept. No shortcuts around verified FLACs, release/medium identity, physical edition uncertainty or Collection data preservation.
+- No API token or credential belongs in GitHub. Use environment variable names only (e.g. `OSCAR_DISCOGS_PAT`, `OSCAR_RIP_TOKEN`, `OSCAR_MUSICBRAINZ_ID` / `OSCAR_MUSICBRAINZ_CS` reserved for future OAuth).
+- The user prefers direct Dutch collaboration, actual tested GitHub contributions, realistic reporting and minimal repeated questions when facts are already in documentation.
+
+## 7. Handoff maintenance convention
+
+After each significant PR or real Unraid acceptance:
+1. Update this document's verified state, head PR links, short live-evidence table and next 1–3 actionable tasks.
+2. Preserve truly useful stable architecture and relevant source pointers; move old project history to `PROJECT_STATUS.md` rather than growing this document indefinitely.
+3. Mark uncertain or untested details as **pending**. Distinguish code implemented / CI green / Docker image published / operator pulled / real Unraid tested / actual data migrated.
+4. Keep chronological audit details in canonical docs; handoff only needs decisive referents and operational pitfalls.
+5. Never put personal credentials, host secrets, full private logs or private filesystem data outside intentionally public project examples into this file.
+
+---
+
+*This document is a project-specific, intentionally concise engineering context handoff; it is not a guarantee that a new assistant has automatically read it. Open the GitHub file explicitly at the beginning of the next conversation.*
