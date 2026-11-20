@@ -1847,6 +1847,43 @@ async function goAdvance(){
    selected.textContent=(data.action==='semi_release_accepted'?'Operator accepted release ':'MusicBrainz release ')+data.release_id+
     ' · '+(data.release_match_status||state.release_match_status||'INFERRED, NOT physically verified');output.append(selected);
   }
+  if(state.identification_mode==='semi_automatic' &&
+     state.accepted_release_id && state.release_match_status==='INFERRED_OPERATOR_ACCEPTED'){
+   const attach=document.createElement('button');attach.type='button';
+   attach.textContent='Add missing Disc ID to MusicBrainz (manual review)';
+   output.append(attach);
+   attach.onclick=async()=>{
+    const auth=requestAuthHeaders('Prepare MusicBrainz Disc ID submission link');
+    if(!auth)return;
+    attach.disabled=true;
+    try{
+     const response=await fetch('/api/go/jobs/'+id+'/musicbrainz/discid-attach',{headers:auth});
+     const data=await response.json();
+     if(!response.ok)throw new Error(data.detail||'Disc ID submission link unavailable');
+     const section=document.createElement('section');
+     const note=document.createElement('p');
+     note.textContent='Disc ID '+data.disc_id+' · '+data.track_count+
+      ' tracks. Check the physical CD release and correct medium on MusicBrainz. '+
+      'OSCAR does not submit edits, and this does not change existing tags or verification.';
+     section.append(note);
+     const link=document.createElement('a');
+     link.href=data.musicbrainz_attach_url;
+     link.textContent='Open MusicBrainz: review and attach this CD TOC';
+     link.target='_blank';link.rel='noopener noreferrer';
+     section.append(link);
+     const release=document.createElement('p');
+     const releaseLink=document.createElement('a');
+     releaseLink.href=data.release_url;releaseLink.target='_blank';
+     releaseLink.rel='noopener noreferrer';
+     releaseLink.textContent='Review accepted MusicBrainz release '+data.release_id;
+     release.append(releaseLink);section.append(release);
+     output.append(section);
+    }catch(error){
+     const message=document.createElement('p');
+     message.textContent='Disc ID attachment unavailable: '+error.message;output.append(message);
+    }finally{attach.disabled=false}
+   };
+  }
   if(data.copy_id){
    const copy=document.createElement('p');
    copy.textContent='Isolated staging metadata copy ID: '+data.copy_id+

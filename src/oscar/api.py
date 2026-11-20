@@ -889,6 +889,88 @@ def go_archive_publish(job_id: str, body: GoArchivePublishApproval, request: Req
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
+@app.get("/api/go/jobs/{job_id}/musicbrainz/discid-attach")
+def musicbrainz_discid_attach_link(job_id: str, request: Request,
+                                  x_oscar_rip_token: str | None = Header(default=None)):
+    """Prepare an external human-confirmed MusicBrainz TOC submission link only.
+
+    Never submit a MusicBrainz edit or infer physical edition verification.
+    A saved, verified, explicitly accepted single-CD Semi Automatic job is required.
+    """
+    import json
+    import re
+    import urllib.parse
+    from oscar import verification, workflow_ledger
+    from oscar.boxsets import lookup_release_medium
+    from oscar.musicbrainz import MusicBrainzError
+    from oscar.ripping import RipError
+    from oscar.workflow_ledger import WorkflowError
+
+    _rip_auth(x_oscar_rip_token, request)
+    try:
+        workflow = workflow_ledger.refresh(job_id)
+        if (workflow.get("identification_mode") != "semi_automatic"
+                or not workflow.get("accepted_release_id")
+                or workflow.get("release_match_status") != "INFERRED_OPERATOR_ACCEPTED"):
+            raise ValueError("An explicitly accepted Semi Automatic release is required")
+        folder = verification._safe_job(job_id)
+        state = verification._load_job(folder, job_id)
+        report = verification.report(job_id)
+        if (report.get("status") != "checks_passed"
+                or report.get("job_id") != job_id
+                or not all(t.get("checks_passed") for t in report.get("tracks", []))):
+            raise ValueError("A fully verified rip is required before Disc ID submission")
+        planfile = folder / "plan.json"
+        if planfile.is_symlink() or not planfile.is_file():
+            raise ValueError("Unsafe or missing saved rip plan")
+        plan = json.loads(planfile.read_text(encoding="utf-8"))
+        toc = plan.get("toc_string")
+        disc_id = plan.get("disc_id")
+        if not isinstance(toc, str) or len(toc) > 1200:
+            raise ValueError("Missing or invalid saved physical CD TOC")
+        values = toc.split()
+        if (len(values) < 4 or len(values) > 102
+                or any(not re.fullmatch(r"[0-9]{1,10}", v) for v in values)):
+            raise ValueError("Invalid saved TOC format")
+        first, last, leadout = map(int, values[:3])
+        starts = [int(v) for v in values[3:]]
+        if (first != 1 or last < first or last > 99
+                or len(starts) != last - first + 1
+                or any(x < 150 or x >= leadout for x in starts)
+                or starts != sorted(set(starts))):
+            raise ValueError("Saved TOC track boundaries are invalid")
+        if (last != report.get("expected_tracks")
+                or disc_id != state.get("disc_id")
+                or disc_id != plan.get("disc_id")):
+            raise ValueError("Saved TOC does not match the verified rip")
+        release_id = workflow["accepted_release_id"]
+        info = lookup_release_medium(release_id, disc_id, last)
+        media = info.get("all_media") or []
+        if (info.get("status") != "no_exact_medium_match"
+                or len(media) != 1 or info.get("total_media") != 1
+                or media[0].get("format") != "CD"
+                or media[0].get("position") != 1
+                or media[0].get("track_count") != last
+                or media[0].get("disc_id_attached")):
+            raise ValueError("MusicBrainz CD medium is ambiguous, incompatible, or already has this Disc ID")
+        url = "https://musicbrainz.org/cdtoc/attach?" + urllib.parse.urlencode({"toc": toc})
+        return {
+            "status": "human_submission_required",
+            "job_id": job_id,
+            "release_id": release_id,
+            "disc_id": disc_id,
+            "track_count": last,
+            "medium_position": 1,
+            "musicbrainz_attach_url": url,
+            "release_url": "https://musicbrainz.org/release/" + release_id,
+            "warning": ("MusicBrainz is an external website. Independently select the exact "
+                        "physical CD medium and confirm there. OSCAR will not submit "
+                        "anything, store MusicBrainz credentials or claim this edit succeeded."),
+        }
+    except (ValueError, RipError, WorkflowError, MusicBrainzError, OSError, KeyError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
 @app.post("/api/go/start")
 def go_start(request: RipRequest, http_request: Request,
              x_oscar_rip_token: str | None = Header(default=None)):

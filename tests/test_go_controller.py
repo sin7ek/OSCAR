@@ -697,3 +697,68 @@ def test_review_reverify_uses_existing_auth_protected_verification_api():
     assert "The prior verification report is backed up" in html
     assert "/api/rip/jobs/'+job+'/verification" in html
     assert "window.confirm('Reverify this saved rip" in html
+
+
+def test_discid_attach_link_uses_saved_toc_and_never_submits_edit(tmp_path, monkeypatch):
+    """Only an accepted, verified single CD gets a link to MusicBrainz' own editor."""
+    from oscar import boxsets
+    directory = tmp_path / ("oscar-" + "a" * 32)
+    directory.mkdir()
+    (directory / "plan.json").write_text(json.dumps({
+        "disc_id": DISC, "toc_string": "1 2 1000 150 300"}))
+    monkeypatch.setenv("OSCAR_RIP_TOKEN", TOKEN)
+    monkeypatch.setenv("OSCAR_ENABLE_RIPPING", "1")
+    monkeypatch.setattr(ledger, "refresh", lambda job_id: {
+        "identification_mode": "semi_automatic",
+        "accepted_release_id": RELEASE1,
+        "release_match_status": "INFERRED_OPERATOR_ACCEPTED"})
+    monkeypatch.setattr(verification, "_safe_job", lambda job_id: directory)
+    monkeypatch.setattr(verification, "_load_job", lambda folder, job_id: {"disc_id": DISC})
+    monkeypatch.setattr(verification, "report", lambda job_id: {
+        "status": "checks_passed", "job_id": job_id, "expected_tracks": 2,
+        "tracks": [{"checks_passed": True}, {"checks_passed": True}]})
+    from oscar import api
+    monkeypatch.setattr(api, "lookup_release_medium", lambda *args: None, raising=False)
+    monkeypatch.setattr(boxsets, "lookup_release_medium", lambda *args: {
+        "status": "no_exact_medium_match", "total_media": 1,
+        "all_media": [{"format": "CD", "position": 1, "track_count": 2,
+                       "disc_id_attached": False}]})
+    response = TestClient(app).get(
+        "/api/go/jobs/" + "a" * 32 + "/musicbrainz/discid-attach",
+        headers={"X-OSCAR-RIP-TOKEN": TOKEN})
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["status"] == "human_submission_required"
+    assert "toc=1+2+1000+150+300" in data["musicbrainz_attach_url"]
+    assert data["release_id"] == RELEASE1
+    assert "will not submit" in data["warning"].lower()
+    assert "Add missing Disc ID to MusicBrainz" in TestClient(app).get("/").text
+
+
+def test_discid_attach_link_rejects_unaccepted_or_ambiguous_job(tmp_path, monkeypatch):
+    from oscar import boxsets
+    directory = tmp_path / ("oscar-" + "a" * 32)
+    directory.mkdir()
+    (directory / "plan.json").write_text(json.dumps({
+        "disc_id": DISC, "toc_string": "1 2 1000 150 300"}))
+    monkeypatch.setenv("OSCAR_RIP_TOKEN", TOKEN)
+    monkeypatch.setenv("OSCAR_ENABLE_RIPPING", "1")
+    accepted = {"identification_mode": "semi_automatic",
+                "accepted_release_id": "",
+                "release_match_status": "INFERRED_NOT_PHYSICALLY_VERIFIED"}
+    monkeypatch.setattr(ledger, "refresh", lambda job_id: accepted)
+    monkeypatch.setattr(verification, "_safe_job", lambda job_id: directory)
+    monkeypatch.setattr(verification, "_load_job", lambda folder, job_id: {"disc_id": DISC})
+    monkeypatch.setattr(verification, "report", lambda job_id: {
+        "status": "checks_passed", "job_id": job_id, "expected_tracks": 2,
+        "tracks": [{"checks_passed": True}, {"checks_passed": True}]})
+    client = TestClient(app)
+    url = "/api/go/jobs/" + "a" * 32 + "/musicbrainz/discid-attach"
+    headers = {"X-OSCAR-RIP-TOKEN": TOKEN}
+    assert client.get(url, headers=headers).status_code == 409
+    accepted["accepted_release_id"] = RELEASE1
+    accepted["release_match_status"] = "INFERRED_OPERATOR_ACCEPTED"
+    monkeypatch.setattr(boxsets, "lookup_release_medium", lambda *args: {
+        "status": "no_exact_medium_match", "total_media": 2,
+        "all_media": [{"format": "CD", "position": 1, "track_count": 2}]})
+    assert client.get(url, headers=headers).status_code == 409
