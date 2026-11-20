@@ -120,7 +120,7 @@ def preview(release_id, *, lookup=None):
                 )
     missing = sorted(set(range(1, total + 1)) - set(present))
     ready = all(d["label_status"] != "needs_operator_approval" for d in result)
-    actionable = bool(result) and all(d["label_status"] == "approved_for_review" for d in result)
+    actionable = (ready and any(d["label_status"] == "approved_for_review" for d in result))
     enabled = os.environ.get("OSCAR_ENABLE_BOXSET_ARCHIVE_REVISIONS") == "1"
     fingerprint = hashlib.sha256(json.dumps({
         "release_id": release_id, "discs": result, "missing": missing,
