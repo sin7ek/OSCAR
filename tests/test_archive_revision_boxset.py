@@ -199,3 +199,15 @@ def test_five_of_six_preview_includes_newly_published_discs_and_invalidates_old_
     for n, leaf in paths.items():
         assert ((leaf / "01 - Track.flac").read_bytes(),
                 (leaf / "manifest.json").read_bytes()) == originals[n]
+
+
+def test_boxset_preview_refuses_unindexed_published_disc(prepared):
+    paths, originals, lookup = prepared
+    leaf = paths[4].parent / "Disc 01"
+    leaf.mkdir()
+    (leaf / "manifest.json").write_text('{"status":"published_verified"}')
+    with pytest.raises(boxset.BoxsetReviewError, match="Unindexed published disc"):
+        boxset.preview(RELEASE, lookup=lookup)
+    for n, archived in paths.items():
+        assert ((archived / "01 - Track.flac").read_bytes(),
+                (archived / "manifest.json").read_bytes()) == originals[n]
