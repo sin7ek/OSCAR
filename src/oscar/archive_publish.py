@@ -435,7 +435,8 @@ def _do_publish(plan, publish_id, *, allow_metadata_observations, cover_download
 
 def start(job_id, copy_id, kind, profile, fingerprint, confirmation,
           *, acknowledge_observations=False, include_cover=False,
-          approve_cover=False, release_match_status=None):
+          approve_cover=False, release_match_status=None,
+          reserved_publish_id=None):
     if confirmation != _CONFIRM:
         raise PublishError("Explicit archive publishing confirmation is required")
     if release_match_status not in {None, "INFERRED_OPERATOR_ACCEPTED",
@@ -455,8 +456,12 @@ def start(job_id, copy_id, kind, profile, fingerprint, confirmation,
         raise PublishError("Review observations require acknowledgement")
     # Provenance is server-supplied; not an operator-editable MusicBrainz match.
     plan["_release_match_status"] = release_match_status
-    publish_id = uuid.uuid4().hex
+    if reserved_publish_id is not None and not _COPY_ID.fullmatch(reserved_publish_id):
+        raise PublishError("Invalid reserved archive publication ID")
+    publish_id = reserved_publish_id or uuid.uuid4().hex
     with _LOCK:
+        if publish_id in _JOBS:
+            raise PublishError("Publication ID already used by this process")
         if (job_id, copy_id) in _RUNNING:
             raise PublishError("This tagged copy is already being published")
         _RUNNING.add((job_id, copy_id))

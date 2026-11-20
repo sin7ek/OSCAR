@@ -430,7 +430,7 @@ def test_go_archive_publish_confirmation_fingerprint_and_source(rig, monkeypatch
     launched = []
     def publish(*args, **kwargs):
         launched.append((args, kwargs))
-        return {"publish_id": "b" * 32, "status": "running"}
+        return {"publish_id": kwargs["reserved_publish_id"], "status": "running"}
     adapter = lambda *a, **kw: plan
     with pytest.raises(go.GoError, match="confirmation"):
         go.archive_publish_start(job_id, "a"*64, "NOT_APPROVED",
@@ -486,3 +486,161 @@ def test_go_archive_endpoints_require_auth(rig):
     assert client.post(f"/api/go/jobs/{job_id}/archive/publish",
         json={"fingerprint": "a"*64,
               "confirmation": "PUBLISH_REVIEWED_ARCHIVE"}).status_code == 403
+
+
+def test_durable_archive_manual_reservation_rejects_second_worker(rig, monkeypatch):
+    from oscar import archive_publish
+    job_id, copy = _prepare_verified_go_archive(rig, monkeypatch)
+    plan = _fake_go_archive_plan(job_id, copy)
+    launched = []
+    def start(*args, **kwargs):
+        launched.append(kwargs["reserved_publish_id"])
+        return {"publish_id": kwargs["reserved_publish_id"], "status": "running"}
+    first = go.archive_publish_start(
+        job_id, "a"*64, "PUBLISH_REVIEWED_ARCHIVE",
+        prepare=lambda *a, **kw: plan, start=start)
+    assert first["workflow"]["phase"] == "ARCHIVE_PUBLISH_RUNNING"
+    assert first["result"]["publish_id"] == launched[0]
+    assert len(launched) == 1
+    assert ledger.refresh(job_id)["archive_publish_id"] == launched[0]
+    with pytest.raises(go.GoError, match="METADATA_READY"):
+        go.archive_publish_start(job_id, "a"*64, "PUBLISH_REVIEWED_ARCHIVE",
+                                 prepare=lambda *a, **kw: plan, start=start)
+    assert len(launched) == 1
+    with pytest.raises(ledger.WorkflowError, match="already reserved"):
+        ledger.reserve_archive_publish(
+            job_id, copy, RELEASE1, "a"*64, plan["relative_directory"])
+
+
+def test_archive_reconciliation_recovers_manifest_after_worker_restart(rig, monkeypatch):
+    from oscar import archive_publish
+    job_id, copy = _prepare_verified_go_archive(rig, monkeypatch)
+    planned = _fake_go_archive_plan(job_id, copy)
+    reserved = ledger.reserve_archive_publish(
+        job_id, copy, RELEASE1, "a"*64, planned["relative_directory"])
+    pid = reserved["archive_publish_id"]
+    # The old worker's in-memory status is unavailable after process restart.
+    def missing(*a):
+        raise archive_publish.PublishError("worker state lost")
+    validated = {"status": "published_verified", "job_id": job_id, "copy_id": copy}
+    monkeypatch.setattr(archive_publish, "archive_root",
+                        lambda: rig[0])
+    monkeypatch.setattr(
+        __import__("oscar.collection_catalog", fromlist=["import_published"]),
+        "import_published", lambda **kw: {"imported": 1})
+    done = go.reconcile_archive(job_id, publish_status=missing,
+                               manifest_reader=lambda *a: validated)
+    assert done["action"] == "archive_published"
+    assert done["workflow"]["phase"] == "ARCHIVE_PUBLISHED"
+    assert done["workflow"]["archive_catalog_status"] == "indexed"
+    assert go.reconcile_archive(job_id)["action"] == "archive_published"
+
+
+def test_archive_lost_worker_without_manifest_stops_permanently(rig, monkeypatch):
+    from oscar import archive_publish
+    job_id, copy = _prepare_verified_go_archive(rig, monkeypatch)
+    reserved = ledger.reserve_archive_publish(
+        job_id, copy, RELEASE1, "a"*64, "Artist/Album/Disc 01")
+    result = go.reconcile_archive(
+        job_id,
+        publish_status=lambda *a: (_ for _ in ()).throw(
+            archive_publish.PublishError("no worker")),
+        manifest_reader=lambda *a: None)
+    assert result["action"] == "archive_review_required"
+    assert ledger.refresh(job_id)["archive_publish_id"] == reserved["archive_publish_id"]
+    assert go.reconcile_archive(job_id)["action"] == "archive_review_required"
+
+
+def test_best_guess_autopublish_requires_explicit_optin_and_unique_candidate(rig, monkeypatch):
+    from oscar import archive_publish
+    job_id, copy = _prepare_verified_go_archive(rig, monkeypatch, mode="best_guess")
+    plan = _fake_go_archive_plan(job_id, copy)
+    monkeypatch.setattr(archive_publish, "prepare", lambda *a, **kw: plan)
+    calls = []
+    def starter(*args, **kwargs):
+        calls.append(kwargs)
+        return {"publish_id": kwargs["reserved_publish_id"], "status": "running"}
+    monkeypatch.setattr(archive_publish, "start", starter)
+    assert go.advance(job_id)["action"] == "metadata_ready"
+    assert not calls
+    monkeypatch.setenv("OSCAR_ENABLE_BEST_GUESS_AUTO_PUBLISH", "1")
+    monkeypatch.setenv("OSCAR_ENABLE_ARCHIVE_PUBLISH", "1")
+    start = go.advance(job_id)
+    assert start["action"] == "archive_publish_running"
+    assert start["workflow"]["phase"] == "ARCHIVE_PUBLISH_RUNNING"
+    assert start["release_match_status"] == "INFERRED_NOT_PHYSICALLY_VERIFIED"
+    assert calls[0]["include_cover"] is False
+    assert calls[0]["acknowledge_observations"] is False
+    assert calls[0]["reserved_publish_id"] == start["publish_id"]
+
+
+def test_best_guess_autopublish_warning_and_ambiguous_block(rig, monkeypatch):
+    from oscar import archive_publish
+    job_id, copy = _prepare_verified_go_archive(rig, monkeypatch, mode="best_guess")
+    monkeypatch.setenv("OSCAR_ENABLE_BEST_GUESS_AUTO_PUBLISH", "1")
+    monkeypatch.setenv("OSCAR_ENABLE_ARCHIVE_PUBLISH", "1")
+    plan = _fake_go_archive_plan(job_id, copy)
+    plan["metadata_observations"] = [{"code": "missing_work_relationship"}]
+    monkeypatch.setattr(archive_publish, "prepare", lambda *a, **kw: plan)
+    launched = []
+    monkeypatch.setattr(archive_publish, "start", lambda *a, **kw: launched.append(a))
+    assert go.advance(job_id)["action"] == "archive_review_required"
+    assert not launched
+    plan["metadata_observations"] = []
+    with ledger._db() as db:
+        db.execute("UPDATE workflow_jobs SET release_evidence='inferred_disc_id_ranked' WHERE job_id=?",
+                   (job_id,))
+    assert go.advance(job_id)["action"] == "archive_review_required"
+    assert not launched
+    assert ledger.refresh(job_id)["archive_publish_id"] == ""
+
+
+def test_secure_cannot_reserve_inferred_archive(rig, monkeypatch):
+    job_id, copy = _prepare_verified_go_archive(rig, monkeypatch)
+    with ledger._db() as db:
+        db.execute("UPDATE workflow_jobs SET identification_mode='secure' WHERE job_id=?",
+                   (job_id,))
+    with pytest.raises(ledger.WorkflowError, match="Secure"):
+        ledger.reserve_archive_publish(job_id, copy, RELEASE1, "a"*64, "Artist/Album")
+
+
+def test_reconciler_requires_exact_persisted_manifest_and_every_flac_hash(rig, monkeypatch):
+    import hashlib
+    from oscar import archive_publish
+    job_id, copy = _prepare_verified_go_archive(rig, monkeypatch)
+    relative = "Artist/Album/Disc 01"
+    reserved = ledger.reserve_archive_publish(
+        job_id, copy, RELEASE1, "a"*64, relative)
+    dest = rig[0] / relative
+    dest.mkdir(parents=True)
+    file = dest / "01.flac"
+    file.write_bytes(b"verified archive content")
+    sha = hashlib.sha256(file.read_bytes()).hexdigest()
+    manifest = {"status": "published_verified",
+                "publish_id": reserved["archive_publish_id"],
+                "job_id": job_id, "copy_id": copy,
+                "release_id": RELEASE1,
+                "archive_plan_fingerprint": "a"*64,
+                "files": [{"filename": "01.flac", "sha256": sha}]}
+    (dest / "manifest.json").write_text(json.dumps(manifest))
+    monkeypatch.setattr(archive_publish, "archive_root", lambda: rig[0])
+    assert go._read_published_archive(job_id, reserved) == manifest
+    file.write_bytes(b"tampered content")
+    assert go._read_published_archive(job_id, reserved) is None
+    file.write_bytes(b"verified archive content")
+    manifest["publish_id"] = "f"*32
+    (dest / "manifest.json").write_text(json.dumps(manifest))
+    assert go._read_published_archive(job_id, reserved) is None
+
+
+def test_reconciler_refuses_symlinked_archive_parent(rig, monkeypatch, tmp_path):
+    import hashlib
+    from oscar import archive_publish
+    job_id, copy = _prepare_verified_go_archive(rig, monkeypatch)
+    reserved = ledger.reserve_archive_publish(
+        job_id, copy, RELEASE1, "a"*64, "Linked/Album")
+    elsewhere = tmp_path / "elsewhere"
+    (elsewhere / "Album").mkdir(parents=True)
+    (rig[0] / "Linked").symlink_to(elsewhere, target_is_directory=True)
+    monkeypatch.setattr(archive_publish, "archive_root", lambda: rig[0])
+    assert go._read_published_archive(job_id, reserved) is None

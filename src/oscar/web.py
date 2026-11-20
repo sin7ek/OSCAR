@@ -98,8 +98,8 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 <button type="button" id="discogs-check">Check Discogs account and folders</button>
 <div id="discogs-result" aria-live="polite"></div>
 </section>
-<section><h2>Go! · verified rip and metadata handoff (phase 2)</h2>
-<p>Start a new rip and persist your saved Best Guess, Semi Automatic or Secure policy before extraction. Verification automatically starts after ripping. The controller checks MusicBrainz candidates only after verified audio, then can create a <strong>separate, integrity-checked tagged staging copy</strong> for an accepted Semi Automatic release or Best Guess inference. The original FLAC rip remains unchanged. <strong>Physical edition verification and archive publication are not automatic.</strong></p>
+<section><h2>Go! · rip, verification, metadata and archive (phase 3)</h2>
+<p>Start a new rip and persist your saved Best Guess, Semi Automatic or Secure policy before extraction. Verification automatically starts after ripping. The controller checks MusicBrainz candidates only after verified audio, then can create a <strong>separate, integrity-checked tagged staging copy</strong> for an accepted Semi Automatic release or Best Guess inference. The original FLAC rip remains unchanged. <strong>Semi Automatic always requires separate publication approval. Best Guess may automatically publish only when OSCAR_ENABLE_BEST_GUESS_AUTO_PUBLISH=1, archive publishing is enabled, a unique inferred candidate is present and metadata review raises no warnings. Neither inference nor archived_verified proves the exact physical edition.</strong></p>
 <label for="go-drive">Enabled optical drive</label><select id="go-drive"></select>
 <button type="button" id="go-start">Go! — rip to verified staging</button>
 <label for="go-job">Go job ID</label>
@@ -1621,8 +1621,15 @@ async function goAdvance(){
   }
   if(data.copy_id){
    const copy=document.createElement('p');
-   copy.textContent='Isolated staging metadata copy ID: '+data.copy_id+' · no archive publication';
+   copy.textContent='Isolated staging metadata copy ID: '+data.copy_id+
+    (state.phase==='ARCHIVE_PUBLISHED'?' · published archive verified':' · original staging preserved');
    output.append(copy);
+  }
+  if(data.publish_id||state.archive_publish_id){
+   const p=document.createElement('p');
+   p.textContent='Durable archive publication ID: '+(data.publish_id||state.archive_publish_id)+
+    ' · '+state.phase+' · catalog: '+(state.archive_catalog_status||'pending');
+   output.append(p);
   }
   for(const item of data.candidates||[]){
    const link=document.createElement('a');
@@ -1632,7 +1639,8 @@ async function goAdvance(){
    link.target='_blank';link.rel='noopener noreferrer';
    const row=document.createElement('p');row.append(link);output.append(row);
   }
-  if(data.action==='metadata_ready'){
+  if((data.action==='metadata_ready'||data.action==='archive_review_required')
+     && state.phase==='METADATA_READY'){
    const previewButton=document.createElement('button');
    previewButton.type='button';
    previewButton.textContent='Review actual tags, classical works, CUE and archive destination';
@@ -1710,18 +1718,11 @@ async function goAdvance(){
        const started=await publishResponse.json();
        if(!publishResponse.ok)throw new Error(started.detail||'Publication blocked');
        const msg=document.createElement('p');
-       msg.textContent='Archive publication '+started.result.publish_id+' started; original rip preserved.';
+       msg.textContent='Durable archive publication '+started.result.publish_id+
+        ' started; original rip preserved. Go! will reconcile its final status.';
        section.append(msg);
-       const progress=async()=>{
-        const statusResponse=await fetch('/api/rip/jobs/'+id+'/archive-publish/'+started.result.publish_id,{headers});
-        const status=await statusResponse.json();
-        if(!statusResponse.ok){msg.textContent='Publication status unavailable: '+(status.detail||'inspect archive');return}
-        msg.textContent='Archive publication '+started.result.publish_id+' · '+status.status+
-         (status.error?' · '+status.error:'')+
-         '. Catalog: '+(status.catalog?.status||'indexing not reported')+'.';
-        if(status.status==='running')setTimeout(progress,4000);
-       };
-       await progress();
+       if(goPoll)clearTimeout(goPoll);
+       goPoll=setTimeout(goAdvance,4000);
       }catch(err){approval.disabled=false;const msg=document.createElement('p');
        msg.textContent='Publication blocked: '+err.message;section.append(msg)}
      };
@@ -1780,7 +1781,9 @@ async function goAdvance(){
    };
    output.append(defer);
   }
-  if(['ripping','verifying','metadata_copy_running','best_guess_proposed'].includes(data.action)){
+  if(['ripping','verifying','metadata_copy_running','best_guess_proposed',
+      'archive_publish_running'].includes(data.action) ||
+      (data.action==='metadata_ready' && state.automated_actions_enabled)){
    if(goPoll)clearTimeout(goPoll);
    goPoll=setTimeout(goAdvance,4000);
   }else{
@@ -1797,7 +1800,7 @@ document.getElementById('go-start').onclick=async()=>{
  const drive=document.getElementById('go-drive').value;
  if(!drive){output.textContent='Enable an optical drive and save settings first.';return}
  const headers=requestAuthHeaders('Go! — start staged CD rip');if(!headers)return;
- if(!window.confirm('Start a new CD rip to staging with saved OSCAR settings? No tags or archives will be published.'))return;
+ if(!window.confirm('Start a CD rip using saved OSCAR settings? Semi Automatic requires explicit archive approval. An opted-in Best Guess workflow may automatically publish a unique, warning-free inferred release after strict verification. Original ripping files are preserved.'))return;
  output.textContent='Registering Go job and starting CD extraction…';
  try{
   const response=await fetch('/api/go/start',{method:'POST',
