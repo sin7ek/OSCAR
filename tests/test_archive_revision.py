@@ -273,8 +273,9 @@ def test_real_flac_audio_integrity_through_metadata_revision(fixture, monkeypatc
     import wave
     from mutagen.flac import FLAC as MutagenFLAC
 
-    if not shutil.which("flac"):
-        pytest.skip("flac CLI not installed on this CI runner")
+    flac_bin, ffmpeg_bin = shutil.which("flac"), shutil.which("ffmpeg")
+    if not flac_bin and not ffmpeg_bin:
+        pytest.skip("Neither flac nor ffmpeg is installed on this CI runner")
     root, old, _, lookup = fixture
     wav = tmp_path / "silent.wav"
     with wave.open(str(wav), "wb") as audio:
@@ -288,7 +289,11 @@ def test_real_flac_audio_integrity_through_metadata_revision(fixture, monkeypatc
     for item in manifest["files"]:
         path = old / item["filename"]
         path.unlink()
-        subprocess.check_call(["flac", "--silent", "-f", "-o", str(path), str(wav)])
+        if flac_bin:
+            subprocess.check_call([flac_bin, "--silent", "-f", "-o", str(path), str(wav)])
+        else:
+            subprocess.check_call([ffmpeg_bin, "-v", "error", "-y", "-i", str(wav),
+                                   "-c:a", "flac", str(path)])
         obj = MutagenFLAC(str(path))
         obj["MUSICBRAINZ_ALBUMID"] = RELEASE
         obj["MUSICBRAINZ_DISCID"] = DISC
@@ -304,7 +309,10 @@ def test_real_flac_audio_integrity_through_metadata_revision(fixture, monkeypatc
     monkeypatch.setattr(scanner, "FLAC", MutagenFLAC)
     monkeypatch.setattr(revision, "FLAC", MutagenFLAC)
     def real_flac_runner(args, **kwargs):
-        with subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE) as proc:
+        test_command = ([flac_bin, "-t", "--silent", args[-1]] if flac_bin else
+                        [ffmpeg_bin, "-v", "error", "-i", args[-1], "-f", "null", "-"])
+        with subprocess.Popen(test_command, stdout=subprocess.PIPE,
+                              stderr=subprocess.PIPE) as proc:
             proc.communicate(timeout=kwargs.get("timeout", 180))
             return SimpleNamespace(returncode=proc.returncode)
     monkeypatch.setattr(revision.subprocess, "run", real_flac_runner)
