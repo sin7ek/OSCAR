@@ -460,7 +460,7 @@ def reconcile(operation_id):
             return {"operation_id": operation_id, "status": "completed"}
         if not new.exists() and backup.is_dir() and not old.exists():
             archive_publish._rename_noreplace(backup, old)
-        if old.is_dir() and not backup.exists() and not new.exists():
+        if old.is_dir() and not backup.exists() and (old == new or not new.exists()):
             with _db() as db:
                 db.execute(
                     "UPDATE archive_revision_operations SET status='rolled_back',finished_at=? "
