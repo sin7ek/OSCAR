@@ -1,3 +1,15 @@
+## Archive metadata scanner and durable decisions — 2026-11-20 (feature PR; tests pending)
+
+Implemented in a new feature branch: staging-independent **Scan archive for metadata additions**, **Scan archive for metadata changes**, permanent per-value **Accept/Ignore** proposal decisions and decision history in Collection. Each scan validates the existing published manifest and per-file FLAC SHA-256 and uses saved archive release, Disc ID and recording identities to query MusicBrainz via the shared rate limiter. Changes are only proposed when external values are nonempty and verified against the exact CD medium. The current supported comparisons are release catalog number/label/barcode and track title/artist; complex changed release/recording identities are blocked pending explicit higher-risk design.
+
+Acceptance of a proposal currently means **approved for a later migration only**; it does not retag, rename, delete or publish an archive. Ignored proposals with the same semantic fingerprint are suppressed across scans and restarts, while a changed provider value becomes a distinct proposal. Fingerprints include archive manifest revision; historical decisions remain recorded in persistent SQLite. More nuanced re-proposals on reverted provider values, and an actual versioned archive migration, are follow-up tasks.
+
+**Acceptance gate:** all GitHub Python tests and Docker build must pass before merge, and the feature needs real Unraid smoke testing afterward. A simulated absent staging directory is included in the automated tests. Carmen Gomes *Desire* (published ID `3908eef79f114450b0a7eb76bec44926`) is the first real planned test case. Import its published manifest into Collection first if needed. Never claim this feature applied new metadata to existing FLACs.
+
+Architecture and deliberate v1 limitations: [ARCHIVE_METADATA_LIFECYCLE.md](ARCHIVE_METADATA_LIFECYCLE.md).
+
+---
+
 ## Archive-first metadata maintenance — agreed design (2026-11-20; not implemented)
 
 The operator established a non-negotiable lifecycle requirement: **staging files will eventually be removed, so archive metadata maintenance MUST work independently of staging.** Add two future Collection controls: **Scan archive for metadata additions** and **Scan archive for metadata changes**, returning human-reviewed proposals for metadata found or changed in sources such as MusicBrainz. Operators must be able to **Accept** or **Ignore** each concrete semantic change. Persistent source-aware, per-field decision fingerprints suppress repeated identical suggestions; a subsequently changed external value or materially different archive revision must be eligible for review again. Keep decision history and recoverable archive-version lineage.

@@ -1,6 +1,16 @@
 # Archive-first metadata lifecycle — design decision (2026-11-20)
 
-**Status:** approved product direction / implementation **not yet started**. This design is not an authorization to rewrite existing archive files.
+**Status:** design approved; read-only scan + durable decision ledger implemented on test branch, CI and Unraid acceptance pending. Archive update/migration remains unimplemented. This design is not an authorization to rewrite existing archive files.
+
+## Implementation milestone — Archive Metadata Scanner v1 (2026-11-20)
+
+**Implemented on feature branch (CI and real Unraid pending):** Collection buttons **Scan archive for metadata additions** and **Scan archive for metadata changes** on a selected published album; source-of-truth archive leaf and SHA-256 manifest validation, FLAC tag readback, exact saved release/Disc ID/CD-medium MusicBrainz lookup, normalized per-field proposals, durable SQLite Accept/Ignore ledger, and decision history. The scan uses only published archiving evidence and `OSCAR_CATALOG_DB`; it never requires staging. Accepted means **approved for a future separately gated migration**, not applied; ignored exact proposals are suppressed on repeat scans while new values receive new fingerprints.
+
+**Initial scope:** one Collection-selected album per scan (not a bulk recursive scan), catalog number, label and barcode additions, track TITLE/ARTIST changes. Deliberately block ambiguous media/recording identities, invalid hashes and provider omissions (no deletion proposals). No actual archive mutation or migration implementation, no artwork and no recording/work relationship edits yet. The GUI intentionally does not offer an Apply operation. Early deployments may have valid older archives whose physical Disc ID or recording tags are missing: scanner refuses these rather than guessing their identities. Broader archive layouts and legacy metadata sources will be addressed after smoke tests.
+
+**Acceptance:** GitHub Tests + Docker build must be green before merge. On Unraid import the published Carmen Gomes Inc. archive into Collection, select it, run Additions; expect catalog `CGi2010` as pending if absent in archived FLACs, along with any other source-backed missing label. Ignore, rerun scan and confirm suppression persists through a restart; if provider later changes a value, test a distinct proposal. Do not delete staging just to test the feature; simulated absent staging is covered by automated tests. Archive migration remains a separate future PR.
+
+---
 
 ## Principle
 

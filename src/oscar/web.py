@@ -109,6 +109,15 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 <button type="button" id="collection-xlsx">Export Excel-compatible (.xlsx)</button>
 <button type="button" id="collection-csv">Export CSV</button>
 <div id="collection-result" aria-live="polite"></div>
+<h3>Archive metadata maintenance (staging-independent)</h3>
+<p>Compare a verified published album against current MusicBrainz. Scans never change FLACs or existing archives. Accepted proposals are saved for a future separately approved migration, not applied now.</p>
+<label for="archive-scan-album">Published archive to scan</label>
+<select id="archive-scan-album"><option value="">Import/refresh Collection and select an album</option></select>
+<button type="button" id="archive-scan-additions">Scan archive for metadata additions</button>
+<button type="button" id="archive-scan-changes">Scan archive for metadata changes</button>
+<button type="button" id="archive-scan-review">Review pending metadata proposals</button>
+<button type="button" id="archive-scan-history">View decision history</button>
+<div id="archive-scan-result" aria-live="polite"></div>
 <h3>Track-level catalog (classical &amp; other music)</h3>
 <p>Search each archived FLAC's recorded track title, MusicBrainz Work, composer, conductor, performer or explicitly credited soloist. No missing credits are inferred.</p>
 <button type="button" id="collection-index-tracks">Index verified published tracks</button>
@@ -1604,6 +1613,94 @@ document.getElementById('collection-index-tracks').onclick=async()=>{
  }catch(error){out.textContent='Track indexing failed: '+error.message}
 };
 
+async function showArchiveProposals(){
+ const box=document.getElementById('archive-scan-result');
+ const headers=requestAuthHeaders('Read archived metadata proposals');if(!headers)return;
+ const response=await fetch('/api/collection/archive-metadata/proposals',{headers});
+ const data=await response.json();
+ if(!response.ok)throw new Error(data.detail||'Proposal list unavailable');
+ box.replaceChildren();
+ const status=document.createElement('p');status.textContent=data.count+' pending metadata proposal(s).';
+ box.append(status);
+ for(const item of data.items){
+  const article=document.createElement('section');
+  const heading=document.createElement('strong');
+  heading.textContent=(item.scope==='track'?'Track '+item.track:'Album')+' · '+item.field;
+  article.append(heading);
+  const values=document.createElement('p');
+  values.textContent='Archive: '+JSON.stringify(item.before)+' · MusicBrainz: '+JSON.stringify(item.after);
+  article.append(values);
+  const loc=document.createElement('small');
+  loc.textContent=item.archive_path+' · '+item.source_url;
+  article.append(loc);
+  for(const [choice,label] of [['accept','Accept proposal (approval only)'],['ignore','Ignore this exact change']]){
+   const button=document.createElement('button');button.type='button';button.textContent=label;
+   article.append(button);
+   button.onclick=async()=>{
+    if(!window.confirm(choice==='accept'
+     ? 'Record approval for a future separately reviewed archive migration? NO FLAC or Collection metadata will be changed.'
+     : 'Ignore this exact proposed value on future scans? A different value can be proposed later.'))return;
+    const auth=requestAuthHeaders('Record archive metadata decision');if(!auth)return;
+    button.disabled=true;
+    try{
+     const response=await fetch('/api/collection/archive-metadata/decision',{
+      method:'POST',headers:{'Content-Type':'application/json',...auth},
+      body:JSON.stringify({fingerprint:item.fingerprint,choice})
+     });
+     const outcome=await response.json();
+     if(!response.ok)throw new Error(outcome.detail||'Decision refused');
+     await showArchiveProposals();
+    }catch(error){button.disabled=false;const err=document.createElement('p');
+     err.textContent='Decision not saved: '+error.message;article.append(err)}
+   };
+  }
+  box.append(article);
+ }
+}
+async function runArchiveScan(mode){
+ const box=document.getElementById('archive-scan-result');
+ const path=document.getElementById('archive-scan-album').value;
+ if(!path){box.textContent='Select a published archive album first.';return}
+ const headers=requestAuthHeaders('Scan published archive for metadata');if(!headers)return;
+ box.textContent='Verifying archive hashes and comparing MusicBrainz metadata…';
+ try{
+  const response=await fetch('/api/collection/archive-metadata/scan',{
+   method:'POST',headers:{'Content-Type':'application/json',...headers},
+   body:JSON.stringify({mode,archive_path:path})
+  });
+  const data=await response.json();
+  if(!response.ok)throw new Error(data.detail||'Archive scan failed');
+  await showArchiveProposals();
+  const info=document.createElement('p');
+  info.textContent='Scan found '+data.detected+' value difference(s), of which '+
+   data.suppressed+' already accepted/ignored; archive files untouched.';
+  box.prepend(info);
+ }catch(error){box.textContent='Archive scan safely stopped: '+error.message}
+}
+document.getElementById('archive-scan-additions').onclick=()=>runArchiveScan('additions');
+document.getElementById('archive-scan-changes').onclick=()=>runArchiveScan('changes');
+document.getElementById('archive-scan-review').onclick=async()=>{
+ try{await showArchiveProposals()}catch(error){
+  document.getElementById('archive-scan-result').textContent='Metadata review: '+error.message}
+};
+document.getElementById('archive-scan-history').onclick=async()=>{
+ const box=document.getElementById('archive-scan-result');
+ const headers=requestAuthHeaders('Read metadata decisions');if(!headers)return;
+ try{
+  const response=await fetch('/api/collection/archive-metadata/history',{headers});
+  const data=await response.json();if(!response.ok)throw new Error(data.detail||'History failed');
+  box.replaceChildren();
+  const heading=document.createElement('p');
+  heading.textContent=data.events.length+' recorded decision event(s).';box.append(heading);
+  for(const event of data.events){
+   const row=document.createElement('p');
+   row.textContent=event.happened_at+' · '+event.decision+' · '+event.field+
+    ' · '+event.archive_path;
+   box.append(row);
+  }
+ }catch(error){box.textContent='Metadata history: '+error.message}
+};
+
 async function fetchLocalCollection(){
  const out=document.getElementById('collection-result');
  const headers=requestAuthHeaders('Read local OSCAR collection');if(!headers)return;
@@ -1620,6 +1717,19 @@ async function fetchLocalCollection(){
   const summary=document.createElement('p');
   summary.textContent=data.total+' local archive record(s); showing '+data.items.length+'.';
   out.append(summary);
+  const selected=document.getElementById('archive-scan-album');
+  const oldSelection=selected.value;
+  selected.replaceChildren();
+  const placeholder=document.createElement('option');
+  placeholder.value='';placeholder.textContent='Select a published archive album';
+  selected.append(placeholder);
+  for(const item of data.items){
+   const option=document.createElement('option');
+   option.value=item.archive_path;
+   option.textContent=item.artist+' — '+item.title+' ('+item.year+') · disc '+(item.disc_number||1)+'/'+(item.disc_total||1);
+   selected.append(option);
+  }
+  if([...selected.options].some(option=>option.value===oldSelection))selected.value=oldSelection;
   const table=document.createElement('table');table.style.width='100%';
   const head=document.createElement('tr');
   for(const label of ['Artist','Album','Year','Record label','Catalog','Composer','Conductor','Soloists','Disc','Tracks','Status']){
