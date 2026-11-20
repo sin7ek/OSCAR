@@ -739,6 +739,61 @@ def rip_drives_dashboard(request: Request, x_oscar_rip_token: str | None = Heade
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
+class ArchiveMetadataScanRequest(BaseModel):
+    mode: str = Field(pattern=r"^(additions|changes)$")
+    archive_path: str = Field(min_length=2, max_length=1500)
+
+
+class ArchiveMetadataDecisionRequest(BaseModel):
+    fingerprint: str = Field(min_length=64, max_length=64, pattern=r"^[a-f0-9]{64}$")
+    choice: str = Field(pattern=r"^(accept|ignore)$")
+
+
+@app.post("/api/collection/archive-metadata/scan")
+def scan_archive_metadata(body: ArchiveMetadataScanRequest, request: Request,
+                          x_oscar_rip_token: str | None = Header(default=None)):
+    """Scan one published archive for externally proposed changes, no FLAC writes."""
+    from oscar.archive_metadata_scan import ScanError, scan
+    from oscar.musicbrainz import MusicBrainzError
+    from oscar.collection_catalog import CatalogError
+    _rip_auth(x_oscar_rip_token, request)
+    try:
+        return scan(body.mode, body.archive_path)
+    except (ScanError, CatalogError, MusicBrainzError, ValueError, OSError,
+            KeyError, TypeError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.get("/api/collection/archive-metadata/proposals")
+def archive_metadata_proposals(request: Request, include_decided: bool = False,
+                               x_oscar_rip_token: str | None = Header(default=None)):
+    from oscar.archive_metadata_scan import list_proposals
+    _rip_auth(x_oscar_rip_token, request)
+    return list_proposals(include_decided=include_decided)
+
+
+@app.post("/api/collection/archive-metadata/decision")
+def archive_metadata_decision(body: ArchiveMetadataDecisionRequest, request: Request,
+                              x_oscar_rip_token: str | None = Header(default=None)):
+    from oscar.archive_metadata_scan import ScanError, decide
+    from oscar.musicbrainz import MusicBrainzError
+    from oscar.collection_catalog import CatalogError
+    _rip_auth(x_oscar_rip_token, request)
+    try:
+        return decide(body.fingerprint, body.choice)
+    except (ScanError, CatalogError, MusicBrainzError, ValueError, OSError,
+            KeyError, TypeError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.get("/api/collection/archive-metadata/history")
+def archive_metadata_history(request: Request,
+                             x_oscar_rip_token: str | None = Header(default=None)):
+    from oscar.archive_metadata_scan import decision_history
+    _rip_auth(x_oscar_rip_token, request)
+    return decision_history()
+
+
 # Local collection inventory is separate from Discogs and never writes to /archive.
 @app.get("/api/collection")
 def collection_list(request: Request, search: str = "", sort_by: str = "artist",
