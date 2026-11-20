@@ -3,13 +3,30 @@ from fastapi.responses import HTMLResponse
 
 PAGE = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>OSCAR · Settings</title><style>
-:root{color-scheme:dark}body{font-family:system-ui,-apple-system,sans-serif;background:#10151d;color:#eef2f6;max-width:900px;margin:32px auto;padding:0 18px}
+<title>OSCAR · Go!</title><style>
+:root{color-scheme:dark}body{font-family:system-ui,-apple-system,sans-serif;background:#10151d;color:#eef2f6;max-width:1160px;margin:20px auto;padding:0 20px}
 h1{letter-spacing:.14em}p,small{color:#a9b6c4}section{background:#19222e;border:1px solid #324253;border-radius:14px;padding:20px;margin:16px 0}
 .drive{border-top:1px solid #324253;padding:16px 0;display:grid;gap:8px}
 label{display:block;margin:8px 0}[hidden]{display:none!important}input,select{background:#0c131b;color:white;border:1px solid #516376;border-radius:8px;padding:9px;font:inherit}
 input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;border-radius:9px;padding:11px 18px;cursor:pointer;font-weight:700}
 .note{padding:12px;background:#283342;border-radius:9px}#status{min-height:1.5em}
+.oscar-tabs{display:flex;gap:8px;flex-wrap:wrap;margin:22px 0 16px;border-bottom:1px solid #324253;padding-bottom:12px}
+.oscar-tab{background:#19222e;color:#e5efff;border:1px solid #415269;border-radius:10px;padding:11px 17px}
+.oscar-tab[aria-selected="true"]{background:#bfd5ff;color:#091b35}
+.oscar-tab:focus-visible{outline:3px solid #8fc2ff;outline-offset:3px}
+.oscar-panel[hidden]{display:none!important}
+.oscar-panel h2{margin-top:0}
+.go-drive-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(255px,1fr));gap:14px;margin-top:16px}
+.go-drive-card{border:1px solid #42556b;border-radius:13px;background:#121c28;padding:16px;min-width:0}
+.go-drive-card h3{margin:0 0 8px}.go-drive-card small{display:block;overflow-wrap:anywhere;margin:6px 0}
+.go-drive-card button{width:100%;margin:8px 0 0}
+.go-drive-card .drive-ready{color:#9ce4b3}.go-drive-card .drive-busy{color:#f1d393}
+.go-workflow-row{border:1px solid #3c4b60;border-radius:10px;padding:11px;margin:10px 0;background:#131c29;overflow-wrap:anywhere}
+.go-workflow-row button{padding:7px 12px;margin:6px 8px 0 0}
+.oscar-advanced{border:1px solid #344559;border-radius:12px;padding:12px;margin:14px 0}
+.oscar-advanced>summary{cursor:pointer;font-weight:650;padding:8px}
+.oscar-advanced section{margin:12px 0}
+@media(max-width:750px){.go-drive-grid{grid-template-columns:1fr}.oscar-tab{flex:1 1 40%}}
 
 /* OSCAR responsive review surfaces */
 .oscar-review-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
@@ -35,21 +52,23 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
  .oscar-review-cover{max-width:180px}
 }
 </style></head><body>
-<h1>OSCAR</h1><p>Open Source CD Archiving &amp; Ripping · Device settings</p>
-<div class="note">Configuration preview. Experimental ripping requires explicit opt-in and writes only to staging; archiving and automatic deletion are not implemented. Keep this UI on localhost or behind authentication.</div>
+<h1>OSCAR</h1><p>Open Source CD Archiving &amp; Ripping</p>
+<div class="note">Verified CD archiving · Original ripping files are preserved. Release inference is not proof of the physical pressing. Keep OSCAR on a trusted network or behind authentication.</div>
+<nav id="oscar-tabs" class="oscar-tabs" role="tablist" aria-label="OSCAR sections"></nav>
+<div id="oscar-panels"></div>
 <section><h2>Ripping profile</h2>
 <label for="profile">Default profile</label><select id="profile"><option value="archival">Archival / collectors</option><option value="classical">Classical / works &amp; performers</option></select>
 <p>Profile selection is stored for future processing. Neither profile starts a rip.</p></section>
 <section><h2>Release identification &amp; automation policy</h2>
-<p>Choose how OSCAR should eventually resolve release identity. These preferences are saved now, but <strong>the fully automatic tagging/publishing engine is not implemented yet</strong>. All three modes use the same strict rip/audio verification.</p>
+<p>Choose the identification policy used by newly started Go! jobs. Saved policy is snapshotted per job. Semi Automatic requires release and archive approval; Best Guess automatic publication requires a separate container opt-in; Secure requires physical edition review.</p>
 <label for="identification-mode">Identification mode</label>
 <select id="identification-mode">
 <option value="secure">Secure — evidence-first (default)</option>
 <option value="semi_automatic">Semi Secure — Semi Automatic (release approval required)</option>
-<option value="best_guess">Best Guess — Full Automatic (planned)</option>
+<option value="best_guess">Best Guess — inferred candidate (archive auto-publish requires opt-in)</option>
 </select>
-<div id="best-guess-note" class="oscar-review-note" hidden>Best Guess deliberately accepts the risk of choosing the wrong physical pressing. It will label release identification as inferred, never physically verified. If no credible candidate exists, it must preserve the verified rip for review. Automatic tagging/archiving is not enabled yet.</div>
-<div id="semi-automatic-note" class="oscar-review-note" hidden>Semi Automatic rips and verifies, then lets you explicitly accept a proposed MusicBrainz release, or defer the verified rip. Accepting an inferred candidate does not physically verify your CD. Tagging and archive publication are still manual, separate, and not enabled through Go.</div>
+<div id="best-guess-note" class="oscar-review-note" hidden>Best Guess deliberately accepts the risk of choosing the wrong physical pressing. It will label release identification as inferred, never physically verified. If no credible candidate exists, it must preserve the verified rip for review. Automatic archive publishing requires OSCAR_ENABLE_BEST_GUESS_AUTO_PUBLISH=1, one candidate and zero metadata warnings.</div>
+<div id="semi-automatic-note" class="oscar-review-note" hidden>Semi Automatic rips and verifies, then lets you explicitly accept a proposed MusicBrainz release, or defer the verified rip. Accepting an inferred candidate does not physically verify your CD. A verified tagged staging copy can be prepared by Go; final archive publication still needs explicit approval.</div>
 <div id="secure-review-options">
 <label for="secure-review-level">Secure Mode: level of human review</label>
 <select id="secure-review-level">
@@ -58,7 +77,7 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 <option value="every_step">Full Manual — explicitly review each workflow transition</option>
 </select>
 </div>
-<p>These settings are forward-looking workflow preferences only. They cannot bypass verification, existing manual confirmation, edition safety gates, or publication safeguards.</p>
+<p>These settings cannot bypass verification, physical-edition uncertainty or publication safeguards. Opt-in archive environment flags are configured in your Portainer stack.</p>
 </section>
 <section><h2>Language &amp; names</h2><label for="name-display">Show names</label><select id="name-display"><option value="original_and_english">Original + English (when available)</option><option value="original">Original only</option><option value="english">English preferred (original preserved)</option></select><label for="alias-fallback">When no English alias exists</label><select id="alias-fallback"><option value="original">Use original</option><option value="sort_name">Allow artist sort-name as transliteration (not a translation)</option></select><p>English aliases are fetched on demand from MusicBrainz. Original names and entity IDs are always retained. These settings do not tag audio files.</p></section>
 <section><h2>Optical drives</h2><div id="drives"></div><button id="probe" type="button">Check inserted discs</button><p id="media-status" aria-live="polite"></p><div id="toc-results"></div></section>
@@ -100,15 +119,21 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 </section>
 <section><h2>Go! · rip, verification, metadata and archive (phase 3)</h2>
 <p>Start a new rip and persist your saved Best Guess, Semi Automatic or Secure policy before extraction. Verification automatically starts after ripping. The controller checks MusicBrainz candidates only after verified audio, then can create a <strong>separate, integrity-checked tagged staging copy</strong> for an accepted Semi Automatic release or Best Guess inference. The original FLAC rip remains unchanged. <strong>Semi Automatic always requires separate publication approval. Best Guess may automatically publish only when OSCAR_ENABLE_BEST_GUESS_AUTO_PUBLISH=1, archive publishing is enabled, a unique inferred candidate is present and metadata review raises no warnings. Neither inference nor archived_verified proves the exact physical edition.</strong></p>
-<label for="go-drive">Enabled optical drive</label><select id="go-drive"></select>
-<button type="button" id="go-start">Go! — rip to verified staging</button>
+<p>One independent Go! action per enabled, detected and offset-calibrated optical drive. A busy drive cannot start another rip. The cards show the latest jobs for each drive.</p>
+<div id="go-drive-cards" class="go-drive-grid" aria-live="polite"></div>
+<button type="button" id="go-refresh-drives">Refresh drive status</button>
+<h3>Selected Go! workflow</h3>
+<label for="go-drive">Selected optical drive</label><select id="go-drive"></select>
+<button type="button" id="go-start" hidden>Go! — rip to verified staging</button>
 <label for="go-job">Go job ID</label>
 <input id="go-job" maxlength="32" placeholder="Created automatically or paste existing Go job ID" style="width:350px;max-width:95%">
 <button type="button" id="go-advance">Check next safe step</button>
 <div id="go-result" aria-live="polite"></div>
+<h3>Tracked Go! jobs</h3>
+<div id="go-workflows" aria-live="polite"></div>
 </section>
 <section><h2>Persistent workflow ledger · towards CD in → Go!</h2>
-<p>Register an already saved OSCAR rip in a persistent, restart-safe review ledger. It preserves your identification-mode choice, tracks verified staging and lets you defer/resume physical edition review. <strong>This does not yet rip, tag or publish automatically.</strong></p>
+<p>Advanced recovery for already saved staging rips. Go! jobs are registered automatically; use this form only for manual recovery and historical imports. Nothing is re-ripped or overwritten.</p>
 <label for="workflow-job">Staging rip job ID</label>
 <input id="workflow-job" maxlength="32" placeholder="32-character saved OSCAR job ID" style="width:350px;max-width:95%">
 <button type="button" id="workflow-register">Register saved rip</button>
@@ -233,7 +258,81 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 <div id="multi-output" aria-live="polite"></div></section>
 <button id="save">Save settings</button><p id="status" aria-live="polite"></p>
 <script>
+// Progressive enhancement: retain every existing form, endpoint and event
+// handler; move the legacy specialist surfaces into a collapsible Review area.
+const oscarTabNames=[
+ ['go','Go!'],['review','Review'],['collection','Collection'],['settings','Settings']
+];
+const oscarNav=document.getElementById('oscar-tabs');
+const oscarPanels=document.getElementById('oscar-panels');
+const oscarTabButtons=new Map();
+const oscarPanelsByName=new Map();
+for(const [name,label] of oscarTabNames){
+ const button=document.createElement('button');
+ button.type='button';button.id='tab-'+name;button.className='oscar-tab';
+ button.textContent=label;button.setAttribute('role','tab');
+ button.setAttribute('aria-controls','panel-'+name);
+ button.setAttribute('aria-selected','false');
+ const panel=document.createElement('main');
+ panel.id='panel-'+name;panel.className='oscar-panel';
+ panel.setAttribute('role','tabpanel');panel.setAttribute('aria-labelledby',button.id);
+ panel.hidden=true;
+ button.onclick=()=>{showOscarTab(name);history.replaceState(null,'','#'+name)};
+ oscarNav.append(button);oscarPanels.append(panel);
+ oscarTabButtons.set(name,button);oscarPanelsByName.set(name,panel);
+}
+const oscarAdvanced=document.createElement('details');
+oscarAdvanced.className='oscar-advanced';
+const advancedTitle=document.createElement('summary');
+advancedTitle.textContent='Advanced tools · verification, tagging, physical release checks and manual publishing';
+oscarAdvanced.append(advancedTitle);
+const mainReview=oscarPanelsByName.get('review');
+const reviewIntro=document.createElement('section');
+reviewIntro.innerHTML='<h2>Jobs requiring review</h2><p>Find blocked, uncertain or historical jobs here. Only explicit actions change metadata or publish an archive.</p><div id="review-jobs"></div><button type="button" id="review-refresh">Refresh review queue</button>';
+mainReview.append(reviewIntro,oscarAdvanced);
+const mainGo=oscarPanelsByName.get('go');
+const goIntro=document.createElement('p');
+goIntro.textContent='Per-drive ripping and persistent Go! workflows. No unsafe automatic retry.';
+mainGo.append(goIntro);
+const settingsSectionTitles=new Set(['Ripping profile','Release identification & automation policy',
+ 'Language & names','Optical drives']);
+for(const section of [...document.body.querySelectorAll(':scope > section')]){
+ const title=section.querySelector('h2')?.textContent.trim()||'';
+ if(title.startsWith('Go! ·'))mainGo.append(section);
+ else if(title.startsWith('Collection Library'))oscarPanelsByName.get('collection').append(section);
+ else if(settingsSectionTitles.has(title))oscarPanelsByName.get('settings').append(section);
+ else oscarAdvanced.append(section);
+}
+const saveButton=document.getElementById('save');
+const saveStatus=document.getElementById('status');
+oscarPanelsByName.get('settings').append(saveButton,saveStatus);
+function showOscarTab(name){
+ if(!oscarPanelsByName.has(name))name='go';
+ for(const [key,panel] of oscarPanelsByName){
+  const active=key===name;panel.hidden=!active;
+  oscarTabButtons.get(key).setAttribute('aria-selected',String(active));
+  oscarTabButtons.get(key).tabIndex=active?0:-1;
+ }
+ if(name==='go')refreshGoCards(false);
+ if(name==='review')refreshReviewQueue(false);
+}
+oscarNav.addEventListener('keydown',event=>{
+ if(!['ArrowRight','ArrowLeft','Home','End'].includes(event.key))return;
+ event.preventDefault();
+ const current=[...oscarTabButtons.keys()].find(k=>oscarTabButtons.get(k).getAttribute('aria-selected')==='true')||'go';
+ const names=[...oscarTabButtons.keys()];
+ let index=names.indexOf(current);
+ if(event.key==='ArrowRight')index=(index+1)%names.length;
+ if(event.key==='ArrowLeft')index=(index-1+names.length)%names.length;
+ if(event.key==='Home')index=0;
+ if(event.key==='End')index=names.length-1;
+ showOscarTab(names[index]);oscarTabButtons.get(names[index]).focus();
+ history.replaceState(null,'','#'+names[index]);
+});
+window.addEventListener('hashchange',()=>showOscarTab(location.hash.slice(1)));
 let settings;
+showOscarTab(location.hash.slice(1));
+
 let trustedLocalUI=false;
 fetch('/api/ui/access').then(r=>r.ok?r.json():{}).then(data=>{
  trustedLocalUI=!!data.trusted_local_ui;
@@ -1597,6 +1696,123 @@ document.getElementById('discogs-check').onclick=async()=>{
 
 let goPoll=null;
 let goSessionHeaders=null;
+let goDashboardRefresh=null;
+async function startGoForDrive(stableId){
+ const dropdown=document.getElementById('go-drive');
+ const allowed=[...dropdown.options].some(option=>option.value===stableId);
+ if(!allowed){document.getElementById('go-result').textContent='This drive must be enabled and saved in Settings first.';return}
+ dropdown.value=stableId;
+ showOscarTab('go');
+ document.getElementById('go-start').click();
+}
+function addGoAction(parent,label,handler){
+ const button=document.createElement('button');
+ button.type='button';button.textContent=label;button.onclick=handler;
+ parent.append(button);return button;
+}
+async function refreshGoCards(interactive=true){
+ const target=document.getElementById('go-drive-cards');
+ const workflows=document.getElementById('go-workflows');
+ if(!target||!workflows||!settings)return;
+ let headers;
+ if(interactive)headers=requestAuthHeaders('Read OSCAR drive and Go! status');
+ else if(trustedLocalUI)headers={'X-OSCAR-UI-ACTION':'confirmed'};
+ if(!headers){
+  if(interactive)target.textContent='Authentication required to refresh drive status.';
+  return;
+ }
+ try{
+  const [driveResponse,jobResponse]=await Promise.all([
+    fetch('/api/rip/dashboard',{headers}),
+    fetch('/api/workflow/jobs',{headers})
+  ]);
+  if(!driveResponse.ok||!jobResponse.ok)throw new Error('Drive/workflow status unavailable');
+  const dashboard=await driveResponse.json(), ledger=await jobResponse.json();
+  target.replaceChildren();workflows.replaceChildren();
+  for(const drive of dashboard.drives||[]){
+   const card=document.createElement('article');card.className='go-drive-card';
+   const h=document.createElement('h3');h.textContent=drive.label;card.append(h);
+   const device=document.createElement('small');
+   device.textContent=(drive.device||'Not detected')+
+    ' · '+(drive.offset_set?'offset configured':'offset missing');
+   card.append(device);
+   const state=document.createElement('strong');
+   const ready=drive.status==='ready'&&dashboard.slots_available>0;
+   state.className=ready?'drive-ready':'drive-busy';
+   state.textContent=drive.status==='ripping'?'Ripping in progress':
+      !drive.present?'Drive not detected':
+      !drive.offset_set?'Read offset required':
+      dashboard.slots_available===0?'All ripping slots occupied':'Ready to rip';
+   card.append(state);
+   const last=drive.job;
+   if(last&&last.id){
+    const info=document.createElement('small');
+    info.textContent='Last rip: '+last.id+' · '+(last.status||'unknown');
+    card.append(info);
+    addGoAction(card,'Open last job',()=>{
+     document.getElementById('go-job').value=last.id;
+     showOscarTab('go');goAdvance();
+    });
+   }
+   const start=addGoAction(card,'Go! · '+drive.label,()=>startGoForDrive(drive.stable_id));
+   start.disabled=!ready;
+   if(!ready)start.title='Available only for a detected, enabled, calibrated and idle drive';
+   target.append(card);
+  }
+  if(!(dashboard.drives||[]).length)
+   target.textContent='No enabled optical drives. Configure them under Settings.';
+  const jobs=ledger.jobs||[];
+  for(const job of jobs){
+   const row=document.createElement('div');row.className='go-workflow-row';
+   const label=document.createElement('strong');
+   label.textContent=job.phase+' · '+job.identification_mode;
+   row.append(label);
+   const id=document.createElement('small');
+   id.textContent=job.job_id;row.append(id);
+   addGoAction(row,'Open / Check next safe step',()=>{
+    document.getElementById('go-job').value=job.job_id;
+    showOscarTab('go');goAdvance();
+   });
+   workflows.append(row);
+  }
+  if(!jobs.length)workflows.textContent='No tracked Go! jobs yet.';
+ }catch(error){
+  target.textContent='Drive status unavailable: '+error.message;
+ }
+}
+const reviewPhases=new Set(['RIP_FAILED','RIP_INTERRUPTED','METADATA_REVIEW_REQUIRED',
+ 'ARCHIVE_REVIEW_REQUIRED','VERIFICATION_PENDING','RELEASE_REVIEW_PENDING',
+ 'DEFERRED_REVIEW','METADATA_READY','RELEASE_ACCEPTED']);
+async function refreshReviewQueue(interactive=true){
+ const target=document.getElementById('review-jobs');
+ if(!target)return;
+ let headers;
+ if(interactive)headers=requestAuthHeaders('Review tracked OSCAR jobs');
+ else if(trustedLocalUI)headers={'X-OSCAR-UI-ACTION':'confirmed'};
+ if(!headers)return;
+ try{
+  const response=await fetch('/api/workflow/jobs',{headers});
+  if(!response.ok)throw new Error('Unable to read workflow ledger');
+  const data=await response.json();
+  target.replaceChildren();
+  const matching=(data.jobs||[]).filter(job=>reviewPhases.has(job.phase));
+  for(const job of matching){
+   const row=document.createElement('div');row.className='go-workflow-row';
+   const title=document.createElement('strong');
+   title.textContent=job.phase+' · '+job.identification_mode;
+   const id=document.createElement('small');id.textContent=job.job_id;
+   row.append(title,id);
+   addGoAction(row,'Inspect in Go!',()=>{
+    document.getElementById('go-job').value=job.job_id;
+    showOscarTab('go');goAdvance();
+   });
+   target.append(row);
+  }
+  if(!matching.length)target.textContent='No tracked jobs currently require review.';
+ }catch(error){target.textContent='Review queue unavailable: '+error.message}
+}
+document.getElementById('go-refresh-drives').onclick=()=>refreshGoCards(true);
+document.getElementById('review-refresh').onclick=()=>refreshReviewQueue(true);
 async function goAdvance(){
  const output=document.getElementById('go-result');
  const id=document.getElementById('go-job').value.trim().toLowerCase();
@@ -1811,6 +2027,7 @@ document.getElementById('go-start').onclick=async()=>{
   document.getElementById('go-job').value=data.job.id;
   goSessionHeaders=headers;
   await goAdvance();
+  await refreshGoCards(false);
  }catch(error){output.textContent='Go start blocked safely: '+error.message}
 };
 
@@ -1882,7 +2099,23 @@ document.getElementById('save').onclick=async()=>{
  if(!r.ok)throw new Error(await r.text());status.textContent='Settings saved. No rip started.';}
  catch(e){status.textContent='Could not save: '+e.message}
 };
-init().catch(e=>document.getElementById('status').textContent=e.message);
+init().then(async()=>{
+ // The access capability request and settings request race on first load.
+ // Await a definitive access response before filling the drive cards.
+ try{
+  const access=await fetch('/api/ui/access');
+  if(access.ok)trustedLocalUI=!!(await access.json()).trusted_local_ui;
+ }catch(e){trustedLocalUI=false}
+ if(trustedLocalUI){
+  await refreshGoCards(false);
+  await refreshReviewQueue(false);
+ }else{
+  document.getElementById('go-drive-cards').textContent=
+   'Use Refresh drive status to authenticate and load your drives.';
+  document.getElementById('review-jobs').textContent=
+   'Use Refresh review queue to authenticate and load tracked jobs.';
+ }
+}).catch(e=>document.getElementById('status').textContent=e.message);
 </script></body></html>"""
 
 

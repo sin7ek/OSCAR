@@ -84,5 +84,5 @@ def test_unknown_workflow_cannot_be_advanced(saved):
 def test_workflow_tracking_ui_only_states_supported_capabilities():
     html=TestClient(app).get("/").text
     assert "Persistent workflow ledger" in html
-    assert "This does not yet rip, tag or publish automatically." in html
+    assert "Go! jobs are registered automatically; use this form only for manual recovery" in html
     assert "workflow-register" in html

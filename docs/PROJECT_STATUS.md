@@ -1,3 +1,16 @@
+## PR #71 — Four-tab daily OSCAR UI
+
+The existing one-page technical UI is reorganized into four keyboard-accessible tabs without deleting its tools or changing the secured API contracts:
+
+1. **Go!**: landing tab, all enabled/detected/calibrated optical drives displayed in independent cards with Go! buttons, active ripping status, latest rip, and selectable persistent Go! job list. Starting a rip still requires the existing authenticated and user-confirmed `/api/go/start` call; disabled/busy/uncalibrated drives cannot start a new rip. `Check next safe step` is still available for any tracked job.
+2. **Review**: visible ledger-derived jobs requiring attention with a link to each exact job's Go! review; historical/technical verification, metadata, physical-edition comparisons, classical work review, archive preview/publish, recovery forms and the parallel-drive diagnostics are still available in collapsible **Advanced tools**.
+3. **Collection**: the existing catalog, archived track search/index, exports, and read-only Discogs connection. No Discogs modifications.
+4. **Settings**: profiles, release-identification policy, language/names, optical drive enable/offset tools, and the existing Save settings action.
+
+Navigation is hash-addressable (`#go`, `#review`, `#collection`, `#settings`) and keyboard-operable. Existing element IDs/event handlers remain intact. These are UI improvements only: **no standalone multi-job scheduler is introduced**, and the server still requires an authenticated Go advancement request for each job. Semi Automatic release and publication review remains mandatory. No changes to archives, original ripping files, or persistent workflow semantics.
+
+Unraid smoke-test: pull the latest main image, confirm individual Go! buttons for all enabled calibrated drives, inspect the three current job IDs under Go!, select a job to advance, visit Review/Advanced, verify Collection and Settings/offset/save. Running jobs continue with their existing IDs and source staging. Test browser screen sizes and keyboard tab navigation.
+
 ## PR #70 — Durable Go archive state and opt-in Best Guess publication
 
 Go archive publication is now reserved once in `/config/workflow.sqlite3` before the worker is launched. The persisted workflow phases `ARCHIVE_PUBLISH_RUNNING`, `ARCHIVE_PUBLISHED` and `ARCHIVE_REVIEW_REQUIRED` remain visible across refresh/restart. On a restart, OSCAR **never re-launches** the reserved publisher. Instead it validates the exact archived manifest against the reserved job, metadata copy, release ID, fingerprint and publication ID, and verifies each published FLAC SHA-256 before declaring success. No matching complete archive means manual review; unpublished hidden directories remain for forensic inspection. Archive catalog indexing is recorded independently, with an idempotent single-leaf import if recovery is necessary.

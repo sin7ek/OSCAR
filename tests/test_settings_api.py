@@ -47,4 +47,4 @@ def test_gui_is_available():
     response = TestClient(app).get("/")
     assert response.status_code == 200
     assert "Optical drives" in response.text
-    assert "Experimental ripping requires explicit opt-in" in response.text
+    assert "Original ripping files are preserved" in response.text
