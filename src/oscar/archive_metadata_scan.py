@@ -138,6 +138,20 @@ def _archive_snapshot(archive_path):
     }
 
 
+def _existing_label_values(tags):
+    """LABEL is canonical; RECORDLABEL is a legacy alias, not a new entity.
+
+    A physical release may already carry an equivalent RECORDLABEL tag. Treat
+    it as present rather than repeatedly proposing a missing LABEL. Distinct
+    values in both tags are conflicting provenance and require manual review.
+    """
+    standard = _canonical(tags.get("LABEL", []))
+    legacy = _canonical(tags.get("RECORDLABEL", []))
+    if standard and legacy and standard != legacy:
+        raise ScanError("Conflicting LABEL and RECORDLABEL FLAC tags; review before scanning")
+    return standard or legacy
+
+
 def _fresh_values(snapshot, lookup):
     result = lookup(snapshot["release_id"], snapshot["disc_id"], len(snapshot["tracks"]))
     if result.get("release_id", "").lower() != snapshot["release_id"].lower():
@@ -159,7 +173,7 @@ def _fresh_values(snapshot, lookup):
                              for x in labels if isinstance(x, dict) and x.get("name")))
     candidates = [
         ("release", 0, "CATALOGNUMBER", snapshot["tracks"][0]["tags"].get("CATALOGNUMBER", []), numbers),
-        ("release", 0, "LABEL", snapshot["tracks"][0]["tags"].get("LABEL", []), label_names),
+        ("release", 0, "LABEL", _existing_label_values(snapshot["tracks"][0]["tags"]), label_names),
         ("release", 0, "BARCODE", snapshot["tracks"][0]["tags"].get("BARCODE", []),
          [result["barcode"]] if result.get("barcode") else []),
     ]
