@@ -1,3 +1,11 @@
+## Whole-archive scan implementation (2026-11-20; PR pending validation)
+
+The Collection UI now defaults to scanning **all indexed published archive leaves**, with one-album troubleshooting under Advanced. The server starts a bounded (10,000-leaf maximum) single background scanner job and exposes progress, source/verification failures, already-decided proposals and completion. Each leaf uses the existing exact release/Disc ID and SHA-256 checks. A failed album does not abort the rest. Progress is ephemeral to the worker process; individual proposal decisions persist in SQLite. Import published archive records before scanning if Collection is empty. **No change is automatically applied to archived FLACs.**
+
+The old label enrichment button stays in Advanced until future approved migration can reflect label tags into the local catalog. MusicBrainz release ID is already present as `MUSICBRAINZ_ALBUMID` in FLAC and `release_id` in the immutable manifest. Discogs PAT renamed to `OSCAR_DISCOGS_PAT`. Code/CI and real hardware acceptance pending.
+
+---
+
 ## Decision history UI: current versus historical actions (2026-11-20)
 
 Real Unraid review showed `ignored → reopened → accepted` for Carmen Gomes' CFMusic label, while the old `ignored` history row still offered **Reopen decision**. History must preserve every event, but only the **latest event for a proposal whose current SQLite status is accepted or ignored** should offer an action. Old ignored or accepted events are read-only historical evidence, never a new actionable state. The API supplies `current_status` and `latest_event` so the client can enforce this presentation rule; the server independently validates current state and external evidence. UI correction pending release/Unraid test. Archive remains untouched.

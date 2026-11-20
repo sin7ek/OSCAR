@@ -1,4 +1,4 @@
-"""Read-only Discogs account discovery using local OSCAR_DISCOGS_PAK secret.
+"""Read-only Discogs account discovery using local OSCAR_DISCOGS_PAT secret.
 
 Never log/return token; never persist Discogs Restricted Data. Calls use only
 fixed HTTPS Discogs API host and constant endpoint paths.
@@ -16,15 +16,15 @@ class DiscogsError(RuntimeError):
 
 
 def configured() -> bool:
-    return bool(os.environ.get("OSCAR_DISCOGS_PAK", "").strip())
+    return bool(os.environ.get("OSCAR_DISCOGS_PAT", "").strip())
 
 
 def _get(path: str, *, opener=None):
-    token = os.environ.get("OSCAR_DISCOGS_PAK", "").strip()
+    token = os.environ.get("OSCAR_DISCOGS_PAT", "").strip()
     if not token:
-        raise DiscogsError("Set OSCAR_DISCOGS_PAK in your private Portainer stack environment")
+        raise DiscogsError("Set OSCAR_DISCOGS_PAT in your private Portainer stack environment")
     if not re.fullmatch(r"[A-Za-z0-9_-]{12,200}", token):
-        raise DiscogsError("Invalid OSCAR_DISCOGS_PAK setting")
+        raise DiscogsError("Invalid OSCAR_DISCOGS_PAT setting")
     if not path.startswith("/") or ".." in path or "?" in path:
         raise DiscogsError("Invalid Discogs resource")
     request = urllib.request.Request("https://api.discogs.com" + path, headers={

@@ -749,6 +749,44 @@ class ArchiveMetadataDecisionRequest(BaseModel):
     choice: str = Field(pattern=r"^(accept|ignore)$")
 
 
+class ArchiveBulkScanRequest(BaseModel):
+    mode: str = Field(pattern=r"^(additions|changes)$")
+
+
+@app.post("/api/collection/archive-metadata/scan-all")
+def archive_metadata_scan_all(body: ArchiveBulkScanRequest, request: Request,
+                              x_oscar_rip_token: str | None = Header(default=None)):
+    """Start a background scan over all Collection-indexed published archive leaves."""
+    from oscar.archive_metadata_bulk import start
+    from oscar.archive_metadata_scan import ScanError
+    from oscar.collection_catalog import CatalogError
+    _rip_auth(x_oscar_rip_token, request)
+    try:
+        return start(body.mode)
+    except (ScanError, CatalogError, ValueError, OSError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.get("/api/collection/archive-metadata/scan-all/status")
+def archive_metadata_scan_current(request: Request,
+                                 x_oscar_rip_token: str | None = Header(default=None)):
+    from oscar.archive_metadata_bulk import current
+    _rip_auth(x_oscar_rip_token, request)
+    return current()
+
+
+@app.get("/api/collection/archive-metadata/scan-all/{scan_id}")
+def archive_metadata_scan_status(scan_id: str, request: Request,
+                                 x_oscar_rip_token: str | None = Header(default=None)):
+    from oscar.archive_metadata_bulk import status
+    from oscar.archive_metadata_scan import ScanError
+    _rip_auth(x_oscar_rip_token, request)
+    try:
+        return status(scan_id)
+    except ScanError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @app.post("/api/collection/archive-metadata/scan")
 def scan_archive_metadata(body: ArchiveMetadataScanRequest, request: Request,
                           x_oscar_rip_token: str | None = Header(default=None)):
