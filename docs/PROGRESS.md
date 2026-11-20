@@ -40,6 +40,17 @@ Operator supplied independent **read-only** SQLite queries against the running O
 
 ---
 
+## Second real-Unraid archive revision recorded — Anastacia label-only, same destination (2026-11-20)
+
+The operator's live **View archive revision history** now reports **2 completed operations**:
+
+- **Anastacia — *Freak of Nature* (2001)**, MusicBrainz release prefix `4b370e6c`: `completed`, **source and destination intentionally identical**: `/archive/Anastacia/[504757 2] Freak of Nature (2001) [4b370e6c]`. This is a label-only metadata revision; `504757 2` was already the reviewed catalog number, so no album-directory rename is needed. Original generation retained according to journal at `/archive/.oscar-archive-versions/5ff97661e98742afbf5db690f827d0f1/f5e41eef584c44288cc76a2a8477e635`. Previously approved `LABEL` values were `Daylight` and `Epic`. **Evidence is operator-provided revision-history status only.** Independent new FLAC-tag checks, `flac -t`, original manifest SHA-256 checks, and Collection/proposal SQLite checks have **not yet been reported**; do not call Anastacia fully validated.
+- **Carmen Gomes Inc. — *Desire* (2010)**: `completed`, original `/archive/Carmen Gomes Inc/Desire (2010) [fa89edc1]` → revised `/archive/Carmen Gomes Inc/[CGi2010] Desire (2010) [fa89edc1]`, retained original at `/archive/.oscar-archive-versions/3908eef79f114450b0a7eb76bec44926/f670468afcbb4c168adfdffae1df69bd`. This operation already passed independently verified 12/12 tags, decoder, original FLAC hash and SQLite/decision checks.
+
+**Next:** collect the operator's read-only independent verification results for Anastacia (new FLAC labels `Daylight` and `Epic`, release UUID, `flac -t`, SHA-256 against retained original manifest, and Collection `label`, archive path, `applied` proposal); separately verify post-revision full-archive scan, restart persistence and failure recovery. Never migrate the Boulez 6CD with the current single-CD engine.
+
+---
+
 ## Open-source beginner onboarding — draft only (2026-11-20)
 
 Created an explicitly **unreviewed** commented Unraid/Portainer Compose example: [`compose.unraid.example.yml`](../compose.unraid.example.yml). It is a documentation baseline, **not** a tested/recommended replacement for the operator's existing working stack. Required next steps: review exact Docker/Portainer compatibility, network/access controls, mounting and permissions, drives, token handling, archive revision opt-in and safe defaults. **Planned:** [`docs/GETTING_STARTED.md`](GETTING_STARTED.md) (not yet written), a true beginner guide to Docker concepts, prerequisite checks, selecting bridge vs br0 networking, secure secrets, first rip, first archive publish, maintenance, updates and troubleshooting. See [PROJECT_STATUS.md](PROJECT_STATUS.md) for the full checklist. No maturity percentage increase for an untested documentation draft.
