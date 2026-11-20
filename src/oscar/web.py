@@ -1867,9 +1867,19 @@ document.getElementById('archive-boxset-label-preview').onclick=async()=>{
       method:'POST',headers:{'Content-Type':'application/json',...header},
       body:JSON.stringify({release_id:data.release_id,fingerprint:data.fingerprint,confirmation:typed})
      });
-     const completed=await response.json();
-     if(!response.ok)throw Error(completed.detail||'Boxset migration not completed');
-     const note=document.createElement('p');note.textContent='Group '+completed.operation_id+' · '+completed.status+' · discs '+completed.discs.join(', ')+'. Original generations retained.';out.append(note);
+     const started=await response.json();
+     if(!response.ok)throw Error(started.detail||'Boxset migration could not start');
+     const note=document.createElement('p');note.textContent='Boxset operation running; verifying all candidate FLACs before publication…';out.append(note);
+     let task=started;
+     while(task.status==='running'){
+      await new Promise(resolve=>setTimeout(resolve,1500));
+      const resp=await fetch('/api/collection/archive-revisions/boxset-workers/'+started.task_id,{headers:header});
+      task=await resp.json();
+      if(!resp.ok)throw Error(task.detail||'Worker status unavailable; inspect durable group journal');
+     }
+     if(task.status!=='completed')throw Error(task.error||'Group migration failed');
+     note.textContent='Group '+task.result.operation_id+' · '+task.status+
+      ' · discs '+task.result.discs.join(', ')+'. Original generations retained.';
     }catch(error){const p=document.createElement('p');p.textContent='Group migration stopped: '+error.message+'. Inspect group history; do not manually move/delete archive files.';out.append(p)}
     finally{apply.disabled=false}
    };
