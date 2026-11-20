@@ -29,6 +29,37 @@ When a complete rip ends in `verification.review_required` because some tracks c
 - Second Optiarc attempt `0725bffd859d4208814526f2cbc7fed9`: **5/10** fully confirmed (1, 2, 4, 5, 6). Track 2 CRC changed from `9DE54BC6` to `3F94EC30` and now has full v1/v2 confirmation. Tracks 3, 7, 8, 9 and 10 remained unconfirmed; their EAC CRC32 values differed between attempts. Both attempts reported zero ripping errors and passed FLAC decoding and saved-file SHA-256 checks, which alone do not establish audio accuracy.
 - Thus the second attempt recovered at least **one additional fully verified track**, while the album must remain under review.
 
+### Proposed external-source recovery — RipRepair Source Finder
+
+**Design only; not implemented.** Add a third opt-in recovery lane alongside second/third physical reads and alternate drives: **search for a suitable externally acquired track or album, then independently validate it**. Never treat source filename, user description, shared log, FLAC format, checksum of transfer, or "AccurateRip" wording as proof of an accurate CD extraction.
+
+**Potential adapters (optional, provider-independent):**
+
+- **slskd / Soulseek**: use authenticated slskd search and transfer-status APIs to discover candidates and show them to the operator. Initial implementation should be **read-only discovery / candidate preview**, with an explicit authorized acquisition step later; never silently fetch material or alter another app's queue. Keep the user's existing slskd installation isolated from OSCAR's staging, use least-privilege credentials and no token exposure in the browser/logs.
+- **Lidarr**: optional discovery and acquisition routing through the user's configured Lidarr, whose download clients can include Usenet (SABnzbd, NZBGet), BitTorrent (qBittorrent, Transmission, Deluge) and optional slskd plugins. Lidarr's match is *album metadata*, not independently verified audio. Avoid coupling RipRepair to Lidarr as a required dependency.
+- **Local archive / personal backup import**: first-class candidate discovery against separately stored, operator-owned verified FLAC/CUE/logs. Prefer this source before remote retrieval, with read-only import and evidence preservation.
+- **Authorized lossless download sources**: Qobuz download store, Bandcamp, labels and other sellers where usable downloads can be acquired legitimately. A digital master may differ from the pressed CD even when title, ISRC, duration and bit depth look similar; label/store authenticity does not prove CD-accurate sector identity.
+- **qBittorrent / SABnzbd**: generic transfer engines rather than proof-of-audio systems; treat as optional retrieval adapters only when users have a lawful source. No direct unreviewed import into published OSCAR archives.
+
+**Candidate matching and integrity gates:**
+
+1. Search with release/track metadata and optionally catalog/ISRC/duration, but identify candidates as *unverified*. Avoid claiming a particular pressing from tags or a MusicBrainz Disc ID alone.
+2. Download/import only after explicit operator approval and appropriate access rights. Store as `riprepair-candidates/<candidate_id>` or equivalent separate non-archive staging with provenance: source type, timestamp, track, transfer hash, original filename, codec/sample rate/channels, linked rip job and immutable candidate ID. Do not write into the original rip folder.
+3. Decode and validate lossless audio; ensure 44.1 kHz/16-bit stereo CD PCM compatibility when comparing to CD audio. Handle any resampling, lossy transcodes, different masters, hidden-track/index/pregap boundaries, offsets and track-length differences as review conditions rather than silent normalization.
+4. If a trustworthy, complete CD TOC/CUE/track-boundary reconstruction exists, attempt **independent** AccurateRip or CTDB verification of the candidate using tools such as CUETools. CTDB verification requires compatible CD layout. Log-provided AR/CTDB claims from a remote peer are not a substitute for OSCAR's own check. A transferred file's SHA-256 validates transport stability, not original CD accuracy.
+5. Compare exact decoded samples (with rigorously established boundaries/offset alignment) against the user's rip attempts. Audio fingerprint, track title or duration alone establishes likely musical identity, **not byte-perfect or pressing-equivalent accuracy**.
+6. Only a whole track with independent positive evidence satisfying the existing archive verification policy may be selected into a proposed *derived* repair assembly. Track provenance records which physical drive/rip or external candidate supplied the audio, whether it was independently AccurateRip/CTDB-confirmed, and exactly how. Never splice sectors automatically.
+7. If independent validation is inconclusive, preserve the candidate separately as `external_unverified` and keep the original album `review_required`. Do not promote an official digital download or peer-provided track to `published_verified` merely because it sounds identical. Respect source rights/terms and never automatically distribute uploaded/downloaded files.
+
+**UI and delivery milestones:**
+
+- **RipRepair Source Finder** in the Review tab, initially searching *local backup sources* and offering optional read-only slskd result discovery; show exact match confidence vs audio-verification status as distinct fields.
+- Later explicit user-authorized acquisition and a sandboxed third-party file inspector (FLAC/PCM, metadata, candidate CUE, track duration/TOC, waveform-aligned checks, optional CUETools verification).
+- Finally a separate, operator-approved track selection/derived-copy flow with testable manifest provenance; no automatic publisher bypass. Credentials only via protected server-side settings/Portainer, never checked into the repository.
+- The source finder must preserve the original Go! job and avoid automatic retries, downloading, queue manipulation and archive publication unless those specific capabilities are built and gated.
+
+**Integration research (2026-11-20):** [slskd](https://github.com/slskd/slskd), [slskd API client](https://slskd-api.readthedocs.io/en/latest/api.html), [Lidarr](https://github.com/Lidarr/Lidarr), [Lidarr.Plugin.Slskd](https://github.com/allquiet-hub/Lidarr.Plugin.Slskd), [CUETools verification](https://cue.tools/wiki/CUETools_Settings), [CTDB](https://cue.tools/wiki/CTDB), [Qobuz downloads](https://help.qobuz.com/en/articles/10168-how-to-download-albums-tracks-collections-or-complete-works). Recheck compatibility/licensing and provider APIs when implemented.
+
 ### Product / UI considerations
 
 - In **Review**, offer an opt-in `RipRepair` action for eligible verification failures, with a clear explanation of what is and is not confirmed.
