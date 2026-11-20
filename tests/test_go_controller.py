@@ -209,8 +209,11 @@ def test_semi_automatic_snapshots_candidates_and_requires_explicit_acceptance(ri
     assert ledger.accept_semi_release(job_id,RELEASE2,"ACCEPT_INFERRED_RELEASE")["events"]==accepted["events"]
     with pytest.raises(ledger.WorkflowError):
         ledger.accept_semi_release(job_id,RELEASE1,"ACCEPT_INFERRED_RELEASE")
-    outcome=go.advance(job_id)
-    assert outcome["action"]=="semi_release_accepted"
+    # A successful approval authorizes a *separate* isolated staging copy.
+    # A broken metadata lookup must stop safely without modifying originals.
+    outcome=go.advance(job_id,metadata_preview=lambda job,release: (_ for _ in ()).throw(
+        go.metadata_staging.MetadataError("no exact medium")))
+    assert outcome["action"]=="metadata_review_required"
     assert outcome["release_id"]==RELEASE2
     assert not list(rig[0].rglob("metadata-copy-*"))
 
@@ -251,3 +254,127 @@ def test_secure_and_best_guess_cannot_approve_through_semi_endpoint(rig):
     go.advance(job_id,lookup=lambda disc,toc:{"releases":[{"id":RELEASE1}]})
     with pytest.raises(ledger.WorkflowError):
         ledger.accept_semi_release(job_id,RELEASE1,"ACCEPT_INFERRED_RELEASE")
+
+
+def _fake_metadata_flow(job_id, release_id):
+    calls = []
+    fingerprint = "a" * 64
+    def preview(job, release):
+        calls.append(("preview", job, release))
+        return {"job_id": job, "release_id": release,
+                "fingerprint": fingerprint}
+    def start(job, release, fp, confirmation, **kwargs):
+        calls.append(("start", job, release, fp, confirmation, kwargs))
+        return {"job_id": job, "copy_id": kwargs["reserved_copy_id"], "status": "running"}
+    def status(job, copy_id):
+        calls.append(("status", job, copy_id))
+        return {"job_id": job, "copy_id": copy_id,
+                "status": "tagged_copy_ready_for_review"}
+    def inspect(job, copy_id):
+        calls.append(("inspect", job, copy_id))
+        return {"job_id": job, "copy_id": copy_id,
+                "release_id": release_id, "status": "tags_match_preview"}
+    return calls, {"metadata_preview": preview, "metadata_copy_start": start,
+                   "metadata_copy_status": status, "metadata_copy_inspect": inspect}
+
+
+def test_go_semi_metadata_handoff_is_durable_single_copy(rig):
+    rig[1]["mode"] = "semi_automatic"
+    job_id = _finish(rig)
+    rig[2]["status"] = "checks_passed"
+    go.advance(job_id, lookup=lambda disc, toc: {"releases": [{"id": RELEASE1}]})
+    ledger.accept_semi_release(job_id, RELEASE1, "ACCEPT_INFERRED_RELEASE")
+    calls, adapters = _fake_metadata_flow(job_id, RELEASE1)
+    started = go.advance(job_id, **adapters)
+    assert started["action"] == "metadata_copy_running"
+    copy_id = started["copy_id"]
+    assert started["workflow"]["metadata_release_id"] == RELEASE1
+    assert started["workflow"]["metadata_fingerprint"] == "a" * 64
+    assert started["workflow"]["release_match_status"] == "INFERRED_OPERATOR_ACCEPTED"
+    assert calls[-1][0] == "start"
+    assert calls[-1][-1]["reserved_copy_id"] == copy_id
+    assert calls[-1][-1]["identification_status"] == "INFERRED_OPERATOR_ACCEPTED"
+    # No new worker can be launched on a repeat poll.
+    result = go.advance(job_id, **adapters)
+    assert result["action"] == "metadata_ready"
+    assert result["copy_id"] == copy_id
+    assert sum(item[0] == "start" for item in calls) == 1
+    assert result["workflow"]["phase"] == "METADATA_READY"
+    assert go.advance(job_id, **adapters)["action"] == "metadata_ready"
+    assert sum(item[0] == "start" for item in calls) == 1
+    assert not list(rig[0].rglob("metadata-copy-*"))
+    assert len([e for e in result["workflow"]["events"]
+                if e["reason"] == "metadata_copy_reserved_before_worker"]) == 1
+
+
+def test_go_best_guess_handoff_only_uses_snapshotted_release(rig):
+    job_id = _finish(rig)
+    rig[2]["status"] = "checks_passed"
+    go.advance(job_id, lookup=lambda disc, toc: {"releases": [{"id": RELEASE1}]})
+    calls, adapters = _fake_metadata_flow(job_id, RELEASE1)
+    started = go.advance(job_id, **adapters)
+    assert started["action"] == "metadata_copy_running"
+    assert started["workflow"]["release_match_status"] == "INFERRED_NOT_PHYSICALLY_VERIFIED"
+    assert calls[-1][-1]["identification_status"] == "INFERRED_NOT_PHYSICALLY_VERIFIED"
+    with pytest.raises(ledger.WorkflowError):
+        ledger.reserve_metadata_copy(job_id, RELEASE2, "b" * 64)
+
+
+def test_secure_mode_never_starts_inferred_metadata_handoff(rig):
+    rig[1]["mode"] = "secure"
+    job_id = _finish(rig)
+    rig[2]["status"] = "checks_passed"
+    go.advance(job_id, lookup=lambda disc, toc: {"releases": [{"id": RELEASE1}]})
+    with pytest.raises(ledger.WorkflowError):
+        ledger.reserve_metadata_copy(job_id, RELEASE1, "a" * 64)
+    assert not list(rig[0].rglob("metadata-copy-*"))
+
+
+def test_metadata_handoff_interrupted_or_failed_never_retries(rig):
+    rig[1]["mode"] = "semi_automatic"
+    job_id = _finish(rig)
+    rig[2]["status"] = "checks_passed"
+    go.advance(job_id, lookup=lambda disc, toc: {"releases": [{"id": RELEASE1}]})
+    ledger.accept_semi_release(job_id, RELEASE1, "ACCEPT_INFERRED_RELEASE")
+    calls, adapters = _fake_metadata_flow(job_id, RELEASE1)
+    started = go.advance(job_id, **adapters)
+    assert started["action"] == "metadata_copy_running"
+    # Emulate lost async process after restart, with its durable reservation intact.
+    adapters["metadata_copy_status"] = lambda job, copy: (_ for _ in ()).throw(
+        go.metadata_staging.MetadataError("no complete manifest"))
+    failed = go.advance(job_id, **adapters)
+    assert failed["action"] == "metadata_review_required"
+    assert failed["workflow"]["phase"] == "METADATA_REVIEW_REQUIRED"
+    assert failed["copy_id"] == started["copy_id"]
+    assert go.advance(job_id, **adapters)["action"] == "metadata_review_required"
+    assert sum(item[0] == "start" for item in calls) == 1
+    assert not list(rig[0].rglob("metadata-copy-*"))
+
+
+def test_bad_tagged_copy_inspection_requires_review(rig):
+    rig[1]["mode"] = "semi_automatic"
+    job_id = _finish(rig)
+    rig[2]["status"] = "checks_passed"
+    go.advance(job_id, lookup=lambda disc, toc: {"releases": [{"id": RELEASE1}]})
+    ledger.accept_semi_release(job_id, RELEASE1, "ACCEPT_INFERRED_RELEASE")
+    calls, adapters = _fake_metadata_flow(job_id, RELEASE1)
+    go.advance(job_id, **adapters)
+    adapters["metadata_copy_inspect"] = lambda job, copy: {
+        "release_id": RELEASE1, "status": "review_required"}
+    result = go.advance(job_id, **adapters)
+    assert result["action"] == "metadata_review_required"
+    assert result["workflow"]["phase"] == "METADATA_REVIEW_REQUIRED"
+
+
+def test_go_metadata_preview_failure_never_reserves_copy(rig):
+    rig[1]["mode"] = "semi_automatic"
+    job_id = _finish(rig)
+    rig[2]["status"] = "checks_passed"
+    go.advance(job_id, lookup=lambda disc, toc: {"releases": [{"id": RELEASE1}]})
+    ledger.accept_semi_release(job_id, RELEASE1, "ACCEPT_INFERRED_RELEASE")
+    error = go.advance(job_id, metadata_preview=lambda job, release: (_ for _ in ()).throw(
+        go.metadata_staging.MetadataError("ambiguous medium")))
+    assert error["action"] == "metadata_review_required"
+    state = ledger.refresh(job_id)
+    assert state["phase"] == "RELEASE_ACCEPTED"
+    assert state["metadata_copy_id"] == ""
