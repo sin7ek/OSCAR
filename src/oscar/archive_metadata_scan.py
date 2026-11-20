@@ -282,6 +282,56 @@ def decide(fingerprint, choice, *, lookup=None):
                          "for a future separate archive migration; archive and FLACs untouched.")}
 
 
+
+def reopen_decision(fingerprint, *, lookup=None):
+    """Reopen an ignored/accepted proposal, preserving immutable decision history.
+
+    A previous decision is NOT erased. The same archived revision and latest
+    provider value must still support the proposal before it becomes pending.
+    No archive or FLAC files are modified.
+    """
+    if not isinstance(fingerprint, str) or not _ID.fullmatch(fingerprint):
+        raise ScanError("Invalid metadata proposal fingerprint")
+    if not musicbrainz.lookup_enabled() and lookup is None:
+        raise ScanError("MusicBrainz lookups are disabled")
+    with _db() as db:
+        db.execute("BEGIN IMMEDIATE")
+        row = db.execute(
+            "SELECT * FROM metadata_proposals WHERE fingerprint=?", (fingerprint,)
+        ).fetchone()
+        if row is None or row["status"] not in {"ignored", "accepted"}:
+            raise ScanError("Only an accepted or ignored proposal can be reopened")
+        archived = _archive_snapshot(row["archive_path"])
+        if (archived["manifest_sha256"] != row["archive_revision"]
+                or archived["publish_id"] != row["publish_id"]
+                or archived["release_id"] != row["release_id"]):
+            raise ScanError("Published archive revision changed; rescan before reopening")
+        candidates = _fresh_values(archived, lookup or lookup_release_medium)
+        before, after = json.loads(row["before_json"]), json.loads(row["after_json"])
+        matches = [
+            item for item in candidates
+            if item[0] == row["scope"] and item[1] == row["track"]
+            and item[2] == row["field"]
+            and _canonical(item[3]) == before and _canonical(item[4]) == after
+        ]
+        if len(matches) != 1:
+            raise ScanError("MusicBrainz data changed; rescan instead of reopening stale proposal")
+        now = datetime.now(timezone.utc).isoformat()
+        db.execute(
+            "UPDATE metadata_proposals SET status='pending', decided_at='' WHERE fingerprint=? AND status IN ('ignored','accepted')",
+            (fingerprint,),
+        )
+        db.execute(
+            "INSERT INTO metadata_decision_events "
+            "(fingerprint,decision,happened_at,archive_revision) VALUES (?,?,?,?)",
+            (fingerprint, "reopened", now, archived["manifest_sha256"]),
+        )
+    return {
+        "fingerprint": fingerprint, "status": "pending", "applied": False,
+        "note": "Decision reopened; previous Ignore/Accept remains in history. Archive unchanged.",
+    }
+
+
 def decision_history(limit=200):
     with _db() as db:
         rows = db.execute("""SELECT e.id,e.fingerprint,e.decision,e.happened_at,
