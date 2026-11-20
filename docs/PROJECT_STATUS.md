@@ -1,3 +1,13 @@
+## Archive Metadata Scanner — first real Unraid observation (2026-11-20)
+
+**User-reported OSCAR Collection output for PR #89:** the published archive selection lists Anastacia *Freak of Nature* (disc 1/1), Carmen Gomes Inc. *Desire* (disc 1/1), and Boulez/Stravinsky boxset discs 4/6 and 6/6. A scan reported **2 value differences, 0 already accepted/ignored** for the selected Carmen Gomes archive, and the global pending queue displayed **3 proposals** in total:
+- Carmen Gomes Inc. *Desire* (archived path `/archive/Carmen Gomes Inc/Desire (2010) [fa89edc1]`): missing FLAC `CATALOGNUMBER` → MusicBrainz `CGi2010`; missing FLAC `LABEL` → `CFMusic`.
+- Anastacia *Freak of Nature* (archived path `/archive/Anastacia/[504757 2] Freak of Nature (2001) [4b370e6c]`): missing FLAC `LABEL` → MusicBrainz multi-label values `Daylight`, `Epic`.
+
+**Accepted evidence:** first real archive-backed detection and pending-proposal UI work on the operator's Unraid installation, including cross-album persistent queue display. Original archive bytes were reported unchanged. **Still pending:** real Unraid Accept/Ignore persistence/repeated-scan suppression/restart verification, full field coverage, and archive application/migration. Do not mistake the scanner's FLAC `LABEL` comparison for the separately curated/enriched SQLite Collection label field; multiple MusicBrainz labels must remain distinct, and manual curator values must not be silently overwritten. Label identity is valuable for edition review but does not alone prove mastering or physical pressing. No maturity percent increase for this bounded test.
+
+---
+
 ## Archive metadata scanner and durable decisions — 2026-11-20 (PR #89 merged; Unraid test pending)
 
 Implemented in a new feature branch: staging-independent **Scan archive for metadata additions**, **Scan archive for metadata changes**, permanent per-value **Accept/Ignore** proposal decisions and decision history in Collection. Each scan validates the existing published manifest and per-file FLAC SHA-256 and uses saved archive release, Disc ID and recording identities to query MusicBrainz via the shared rate limiter. Changes are only proposed when external values are nonempty and verified against the exact CD medium. The current supported comparisons are release catalog number/label/barcode and track title/artist; complex changed release/recording identities are blocked pending explicit higher-risk design.
