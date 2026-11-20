@@ -182,10 +182,36 @@ def _advance(entries):
         _validate_leaf(source, entry, new=True)
 
 
+def _verify_audio_pair(entry):
+    """Check independent decoded-audio identity of retained and new generations."""
+    from mutagen.flac import FLAC
+    from oscar.metadata_staging import _streaminfo_md5_hex
+    old = Path(entry["backup"])
+    new = Path(entry["source"])
+    original_manifest = json.loads((old / "manifest.json").read_text(encoding="utf-8"))
+    new_manifest = json.loads((new / "manifest.json").read_text(encoding="utf-8"))
+    if ((original_manifest.get("release_id"), original_manifest.get("disc_number"),
+         original_manifest.get("disc_total")) !=
+        (new_manifest.get("release_id"), new_manifest.get("disc_number"),
+         new_manifest.get("disc_total"))):
+        raise BoxsetApplyError("Physical release/medium identity changed in revised generation")
+    original_files = {x["filename"]: x for x in original_manifest.get("files") or []}
+    revised_files = {x["filename"]: x for x in new_manifest.get("files") or []}
+    if not original_files or set(original_files) != set(revised_files):
+        raise BoxsetApplyError("Published track count/names differ from original CD")
+    for filename in original_files:
+        original_audio = _streaminfo_md5_hex(FLAC(str(old / filename)).info.md5_signature)
+        revised_audio = _streaminfo_md5_hex(FLAC(str(new / filename)).info.md5_signature)
+        if original_audio != revised_audio:
+            raise BoxsetApplyError("Decoded-audio STREAMINFO MD5 differs from retained CD rip")
+    return True
+
+
 def _finalize(operation_id, entries):
     for entry in entries:
         _validate_leaf(Path(entry["backup"]), entry, new=False)
         _validate_leaf(Path(entry["source"]), entry, new=True)
+        _verify_audio_pair(entry)
     with _db() as db:
         db.execute("BEGIN IMMEDIATE")
         operation = db.execute(
