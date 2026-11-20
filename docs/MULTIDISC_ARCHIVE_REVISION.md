@@ -1,6 +1,6 @@
 # Coordinated multidisc archive revision — implementation contract
 
-Status: engineering design for a dedicated implementation branch; **no boxset Apply route is enabled yet**.
+Status: PR #110 development branch now contains a **first opt-in group Apply, background worker, durable group journal, and explicit reconcile implementation**, plus synthetic journal/failure-injection tests. This remains **draft / not merged / not Unraid accepted**. Revisit CI and run a sacrificial archive acceptance before real Boulez use.
 
 ## Problem and scope
 
@@ -37,3 +37,17 @@ Independent CTDB verification in staging and read-only post-publication review (
 ## Safety
 
 Never mutate, re-encode, rename or delete original Unraid archive audio without explicit operator approval. This document specifies behavior; it is not evidence that multi-disc Apply is implemented.
+
+
+## Current implementation notes (PR #110 draft)
+
+- Module: `src/oscar/archive_revision_boxset_apply.py`. Uses the existing archive lock and single-disc verified FLAC copy/retag helper, but does **not** run single-disc Apply.
+- Enable using the distinct `OSCAR_ENABLE_BOXSET_ARCHIVE_REVISIONS=1` setting **only in a controlled test environment initially**. Existing single-disc and cleanup flags are separate.
+- REST: `boxset-preview`, `boxset-apply`, `boxset-workers/{task_id}`, `boxset-operations`, and `boxset-reconcile`, all authenticated.
+- UI: preview presents Apply only for all-present-disc-approved groups when explicitly enabled, and has separate history/recovery controls.
+- The group DB transaction is atomic. The cross-directory filesystem rename sequence **is not atomic**; interrupted groups are reported as `prepared` and must be reconciled. It may temporarily expose mixed publication generations.
+- Candidate copies are verified before any original move. All retained originals remain intact after a successful operation. Reconciliation must verify original+new and audio STREAMINFO MD5 identity before committing Collection.
+- Initial limitation: only exactly one accepted release-scope `LABEL` proposal on **every** present archived disc. No other metadata fields, no mixed already-correct discs, no album rename, no automated rollback or cleanup. These restrictions intentionally fail closed.
+- Worker progress state is in-memory; the durable group journal survives restarts. If worker status is lost, inspect group history.
+- Tests presently include synthetic fake-FLAC journal transitions for partial failures and stale plans. They are **not a substitute for real-FLAC end-to-end tests**.
+- **Next gates before merge:** Python+Docker CI green at final head, real FLAC tests with interruption injection, careful Unraid/FUSE validation on sacrificial albums, then operator-reviewed Boulez preview and explicit Apply. Archive originals must never be deleted automatically.
