@@ -146,3 +146,56 @@ def test_boxset_preview_api_requires_auth_and_ui_is_explicitly_read_only(prepare
     no_auth = client.post("/api/collection/archive-revisions/boxset-preview",
                           json={"release_id": RELEASE})
     assert no_auth.status_code == 403
+
+
+def test_five_of_six_preview_includes_newly_published_discs_and_invalidates_old_plan(
+    prepared, monkeypatch
+):
+    """If the owner rips three more discs, the old two-disc plan must be stale."""
+    paths, originals, lookup = prepared
+    for leaf in paths.values():
+        proposal = scan.scan("additions", str(leaf), lookup=lookup)["pending"][0]
+        scan.decide(proposal["fingerprint"], "accept", lookup=lookup)
+    before = boxset.preview(RELEASE, lookup=lookup)
+    assert before["present_disc_numbers"] == [4, 6]
+    monkeypatch.setattr(
+        __import__(__name__, fromlist=["DISCS"]), "DISCS",
+        {**DISCS,
+         1: "fixture-disc-1", 2: "fixture-disc-2", 3: "fixture-disc-3"},
+    )
+    root = paths[4].parent
+    for n in (1, 2, 3):
+        leaf = root / f"Disc {n:02d}"
+        leaf.mkdir()
+        audio = leaf / "01 - Track.flac"
+        audio.write_bytes(b"fake flac disc" + str(n).encode())
+        manifest = {
+            "status": "published_verified", "publish_id": f"{n:032x}",
+            "release_id": RELEASE, "disc_number": n, "disc_total": 6,
+            "files": [{
+                "track": 1, "filename": audio.name,
+                "sha256": hashlib.sha256(audio.read_bytes()).hexdigest(),
+            }],
+        }
+        (leaf / "manifest.json").write_text(json.dumps(manifest))
+        with catalog._connect() as db:
+            db.execute(
+                "INSERT INTO archive_items "
+                "(archive_path,artist,title,year,musicbrainz_release_id,track_count,"
+                "disc_number,disc_total,archive_status,imported_at,catalog_number) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                (str(leaf), "Stravinsky; Pierre Boulez",
+                 "Boulez Conducts Stravinsky", "2010", RELEASE,
+                 1, n, 6, "published_verified", "2026", "6CD 477 8730 GB6"),
+            )
+        proposal = scan.scan("additions", str(leaf), lookup=lookup)["pending"][0]
+        scan.decide(proposal["fingerprint"], "accept", lookup=lookup)
+    after = boxset.preview(RELEASE, lookup=lookup)
+    assert after["present_disc_numbers"] == [1, 2, 3, 4, 6]
+    assert after["missing_disc_numbers"] == [5]
+    assert after["all_present_discs_reviewed"] is True
+    assert after["fingerprint"] != before["fingerprint"]
+    assert after["apply_supported"] is False
+    for n, leaf in paths.items():
+        assert ((leaf / "01 - Track.flac").read_bytes(),
+                (leaf / "manifest.json").read_bytes()) == originals[n]
