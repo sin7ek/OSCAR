@@ -602,3 +602,45 @@ def test_secure_cannot_reserve_inferred_archive(rig, monkeypatch):
                    (job_id,))
     with pytest.raises(ledger.WorkflowError, match="Secure"):
         ledger.reserve_archive_publish(job_id, copy, RELEASE1, "a"*64, "Artist/Album")
+
+
+def test_reconciler_requires_exact_persisted_manifest_and_every_flac_hash(rig, monkeypatch):
+    import hashlib
+    from oscar import archive_publish
+    job_id, copy = _prepare_verified_go_archive(rig, monkeypatch)
+    relative = "Artist/Album/Disc 01"
+    reserved = ledger.reserve_archive_publish(
+        job_id, copy, RELEASE1, "a"*64, relative)
+    dest = rig[0] / relative
+    dest.mkdir(parents=True)
+    file = dest / "01.flac"
+    file.write_bytes(b"verified archive content")
+    sha = hashlib.sha256(file.read_bytes()).hexdigest()
+    manifest = {"status": "published_verified",
+                "publish_id": reserved["archive_publish_id"],
+                "job_id": job_id, "copy_id": copy,
+                "release_id": RELEASE1,
+                "archive_plan_fingerprint": "a"*64,
+                "files": [{"filename": "01.flac", "sha256": sha}]}
+    (dest / "manifest.json").write_text(json.dumps(manifest))
+    monkeypatch.setattr(archive_publish, "archive_root", lambda: rig[0])
+    assert go._read_published_archive(job_id, reserved) == manifest
+    file.write_bytes(b"tampered content")
+    assert go._read_published_archive(job_id, reserved) is None
+    file.write_bytes(b"verified archive content")
+    manifest["publish_id"] = "f"*32
+    (dest / "manifest.json").write_text(json.dumps(manifest))
+    assert go._read_published_archive(job_id, reserved) is None
+
+
+def test_reconciler_refuses_symlinked_archive_parent(rig, monkeypatch, tmp_path):
+    import hashlib
+    from oscar import archive_publish
+    job_id, copy = _prepare_verified_go_archive(rig, monkeypatch)
+    reserved = ledger.reserve_archive_publish(
+        job_id, copy, RELEASE1, "a"*64, "Linked/Album")
+    elsewhere = tmp_path / "elsewhere"
+    (elsewhere / "Album").mkdir(parents=True)
+    (rig[0] / "Linked").symlink_to(elsewhere, target_is_directory=True)
+    monkeypatch.setattr(archive_publish, "archive_root", lambda: rig[0])
+    assert go._read_published_archive(job_id, reserved) is None
