@@ -477,8 +477,11 @@ def start(job_id, copy_id, kind, profile, fingerprint, confirmation,
                 try:
                     from oscar.collection_catalog import import_published
                     dest = archive_root() / result["relative_directory"]
-                    result["catalog"] = {"status": "indexed",
-                                         **import_published(only_path=dest)}
+                    imported = import_published(only_path=dest)
+                    result["catalog"] = {
+                        **imported,
+                        "status": "indexed" if imported["indexed"] else "index_required",
+                    }
                 except Exception as catalog_exc:
                     result["catalog"] = {"status": "index_required",
                                          "error": f"{type(catalog_exc).__name__}: {catalog_exc}"[:350]}
