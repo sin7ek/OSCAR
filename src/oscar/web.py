@@ -95,7 +95,10 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 <section><h2>Collection Library (local)</h2>
 <p>Import existing published OSCAR archive manifests into a separate local SQLite catalog. Original FLACs, CUEs and manifests remain untouched. Local records are not Discogs collection entries.</p>
 <button type="button" id="collection-import">Import published archive records</button>
-<button type="button" id="collection-enrich-labels">Fill missing labels from exact MusicBrainz release</button>
+<details class="oscar-advanced"><summary>Legacy Collection label enrichment (advanced)</summary>
+<p>This older action fills missing label fields in the local Collection only, without approving or changing archived FLAC tags. Archive-wide metadata review is now preferred. Keep this tool for historical catalogs until archive migrations are supported.</p>
+<button type="button" id="collection-enrich-labels">Fill missing labels from exact MusicBrainz release (Collection only)</button>
+</details>
 <button type="button" id="collection-refresh">Refresh collection</button>
 <label for="collection-search">Find in collection</label>
 <input id="collection-search" placeholder="Artist, album, label, composer, conductor or soloist" maxlength="150" style="width:350px;max-width:90%">
@@ -110,9 +113,14 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 <button type="button" id="collection-csv">Export CSV</button>
 <div id="collection-result" aria-live="polite"></div>
 <h3>Archive metadata maintenance (staging-independent)</h3>
-<p>Compare a verified published album against current MusicBrainz. Scans never change FLACs or existing archives. Accepted proposals are saved for a future separately approved migration, not applied now.</p>
-<label for="archive-scan-album">Published archive to scan</label>
+<p>Scan the entire indexed published archive against MusicBrainz, without staging files. Each album is independently verified; errors are reported without interrupting the remaining albums. Accepted proposals remain pending migration, not applied to FLACs.</p>
+<details class="oscar-advanced"><summary>Advanced · scan only one archive album</summary>
+<label for="archive-scan-album">Published archive to scan (optional)</label>
 <select id="archive-scan-album"><option value="">Import/refresh Collection and select an album</option></select>
+<p>Choose an album here only for troubleshooting. The two main scan buttons below scan the entire Collection.</p>
+<button type="button" id="archive-scan-one-additions">Scan selected album for additions</button>
+<button type="button" id="archive-scan-one-changes">Scan selected album for changes</button>
+</details>
 <button type="button" id="archive-scan-additions">Scan archive for metadata additions</button>
 <button type="button" id="archive-scan-changes">Scan archive for metadata changes</button>
 <button type="button" id="archive-scan-review">Review pending metadata proposals</button>
@@ -133,7 +141,7 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 <button type="button" id="track-search-btn">Find tracks</button>
 <div id="tracks-output" aria-live="polite"></div>
 <h3>Discogs connection (read-only)</h3>
-<p>Your personal token is read only from the Portainer OSCAR_DISCOGS_PAK environment variable. Check account identity and collection folder names without modifying Discogs. The token is never shown or saved to the local catalog.</p>
+<p>Your personal token is read only from the Portainer OSCAR_DISCOGS_PAT environment variable. Check account identity and collection folder names without modifying Discogs. The token is never shown or saved to the local catalog.</p>
 <button type="button" id="discogs-check">Check Discogs account and folders</button>
 <div id="discogs-result" aria-live="polite"></div>
 </section>
@@ -1677,8 +1685,59 @@ async function runArchiveScan(mode){
   box.prepend(info);
  }catch(error){box.textContent='Archive scan safely stopped: '+error.message}
 }
-document.getElementById('archive-scan-additions').onclick=()=>runArchiveScan('additions');
-document.getElementById('archive-scan-changes').onclick=()=>runArchiveScan('changes');
+let archiveBulkPoll=null;
+async function updateArchiveBulkProgress(scanId, headers){
+ const box=document.getElementById('archive-scan-result');
+ try{
+  const response=await fetch('/api/collection/archive-metadata/scan-all/'+scanId,{headers});
+  const data=await response.json();
+  if(!response.ok)throw new Error(data.detail||'Scan status unavailable');
+  box.replaceChildren();
+  const summary=document.createElement('p');
+  summary.textContent='Archive '+data.mode+' scan · '+data.processed+'/'+data.total+
+   ' albums checked · '+data.detected+' differences · '+data.suppressed+
+   ' already decided · '+data.failed+' failed · status: '+data.status;
+  box.append(summary);
+  const bar=document.createElement('progress');
+  bar.max=data.total;bar.value=data.processed;bar.style.width='100%';box.append(bar);
+  for(const failure of data.errors){
+   const row=document.createElement('p');
+   row.textContent='Skipped '+failure.archive_path+' · '+failure.error;
+   box.append(row);
+  }
+  if(data.status==='running'){
+   archiveBulkPoll=window.setTimeout(()=>updateArchiveBulkProgress(scanId,headers),1500);
+  }else{
+   archiveBulkPoll=null;
+   const button=document.createElement('button');
+   button.type='button';button.textContent='Review pending metadata proposals';
+   box.append(button);button.onclick=()=>showArchiveProposals();
+  }
+ }catch(error){
+  archiveBulkPoll=null;
+  box.textContent='Scan progress unavailable: '+error.message+
+    '. Previously saved metadata decisions and proposals remain in SQLite.';
+ }
+}
+async function runArchiveBulkScan(mode){
+ const box=document.getElementById('archive-scan-result');
+ const headers=requestAuthHeaders('Scan entire OSCAR archive');if(!headers)return;
+ if(archiveBulkPoll){window.clearTimeout(archiveBulkPoll);archiveBulkPoll=null}
+ box.textContent='Starting archive-wide metadata scan…';
+ try{
+  const response=await fetch('/api/collection/archive-metadata/scan-all',{
+   method:'POST',headers:{'Content-Type':'application/json',...headers},
+   body:JSON.stringify({mode})
+  });
+  const data=await response.json();
+  if(!response.ok)throw new Error(data.detail||'Could not start full archive scan');
+  await updateArchiveBulkProgress(data.scan_id,headers);
+ }catch(error){box.textContent='Archive scan safely stopped: '+error.message}
+}
+document.getElementById('archive-scan-additions').onclick=()=>runArchiveBulkScan('additions');
+document.getElementById('archive-scan-changes').onclick=()=>runArchiveBulkScan('changes');
+document.getElementById('archive-scan-one-additions').onclick=()=>runArchiveScan('additions');
+document.getElementById('archive-scan-one-changes').onclick=()=>runArchiveScan('changes');
 document.getElementById('archive-scan-review').onclick=async()=>{
  try{await showArchiveProposals()}catch(error){
   document.getElementById('archive-scan-result').textContent='Metadata review: '+error.message}
