@@ -256,6 +256,7 @@ def _approved_group(prepared, monkeypatch):
 
     monkeypatch.setattr(single, "_copy_and_retag", fake_copy)
     monkeypatch.setattr(engine, "_validate_leaf", synthetic_validation)
+    monkeypatch.setattr(engine, "_verify_audio_pair", lambda entry: True)
     return paths, lookup, engine
 
 
