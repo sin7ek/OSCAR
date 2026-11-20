@@ -7,6 +7,14 @@
 
 > This dashboard tracks implementation maturity toward the eventual **insert CD → Go** experience. The percentages are subjective progress estimates, not test pass rates, promises or objective milestones. Passing CI does not mean a feature has been accepted on real Unraid hardware. Do not calculate a single overall project completion percentage from these different domains.
 
+## Real Unraid publication milestone — Carmen Gomes Inc. *Desire* (2026-11-20)
+
+After the successful MusicBrainz match refresh and manual archive review, the operator reported OSCAR `ARCHIVE_PUBLISHED` and `catalog: indexed` for durable publication `3908eef79f114450b0a7eb76bec44926` (12-track Carmen Gomes Inc. *Desire*, accepted release `fa89edc1-32f9-4290-8788-bbac2e366a46`). The result demonstrates a completed operator-approved publish and local catalog registration on the real Unraid installation. It does not separately establish a post-publication disk audit or physical pressing identity. Source archive safety and provenance distinctions remain unchanged.
+
+The qualitative dashboard estimates below are retained pending broader repeated hardware tests; this single additional album is evidence of maturity, not a reason to claim completed automation.
+
+---
+
 ## Latest engineering change — MusicBrainz match refresh (2026-11-20)
 
 PR #79 merged to `main` after passing GitHub Tests and Docker build (commit `ca0239a`); Unraid acceptance for read-only refresh confirmed by operator on Carmen Gomes Inc. *Desire* job. Implemented: operator-triggered, authenticated read-only refresh of an accepted MusicBrainz release's current Disc ID medium association. The saved TOC, disc ID, and completed verification are checked before the network lookup. Historical `INFERRED_OPERATOR_ACCEPTED` is never upgraded, and no audio, tagging, or archive operation is triggered. See [MUSICBRAINZ_MATCH_REFRESH.md](MUSICBRAINZ_MATCH_REFRESH.md) and [PROJECT_STATUS.md](PROJECT_STATUS.md).

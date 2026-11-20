@@ -1,3 +1,22 @@
+## Carmen Gomes Inc. — Desire publication completed (2026-11-20; operator-reported OSCAR UI)
+
+Following the successful MusicBrainz match refresh and explicit human archive publication approval, the OSCAR UI reported:
+
+- **Durable publication ID:** `3908eef79f114450b0a7eb76bec44926`
+- **Workflow phase:** `ARCHIVE_PUBLISHED`
+- **Local Collection catalog status:** `indexed`
+- **Original Go job:** `b68488f667cc492d8dd94f90717cdb28`
+- **Previously accepted MusicBrainz release:** `fa89edc1-32f9-4290-8788-bbac2e366a46`
+- **Disc ID:** `VxfLacbEsNFCv5Ua4bvIeBIQ3jQ-`, now reported attached to MusicBrainz CD medium 1
+- **12 tracks** in the preceding metadata/archive preview, staging copy `9af8f01c736843ff8f53a1d7e8af2b56`
+- **Proposed path before publication:** `Carmen Gomes Inc/Desire (2010) [fa89edc1]`
+
+This is an operator-observed **completed durable publication and catalog indexing** result. The pasted final status does **not** independently show a post-publication file-system audit, the final manifest paths, or a separate post-publication checksum comparison. The prior provenance remains `INFERRED_OPERATOR_ACCEPTED`; MusicBrainz Disc ID association does not prove a precise physical pressing. Do not claim archive deletion or rewriting, or promote edition verification automatically.
+
+**Next OSCAR work:** factual MusicBrainz edit-note preview/copy, then secure MusicBrainz OAuth collection read access and read-only cross-platform comparison. Keep all existing Go!/Review/Collection features unchanged.
+
+---
+
 ## Unraid acceptance result — MusicBrainz Match Refresh (2026-11-20)
 
 **Observed directly in the operator's OSCAR UI:** PR #79's read-only refresh succeeded on historical staging job `b68488f667cc492d8dd94f90717cdb28` for Carmen Gomes Inc. *Desire* (2010), accepted MusicBrainz release `fa89edc1-32f9-4290-8788-bbac2e366a46`, Disc ID `VxfLacbEsNFCv5Ua4bvIeBIQ3jQ-`. OSCAR reported **"Saved Disc ID is now attached to the accepted release · medium 1"** while preserving `INFERRED_OPERATOR_ACCEPTED`. The workflow was `METADATA_READY`, `semi_automatic`, with tagged staging copy `9af8f01c736843ff8f53a1d7e8af2b56`; archive preview listed 12 tracks and proposed `Carmen Gomes Inc/Desire (2010) [fa89edc1]`.
