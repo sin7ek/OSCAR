@@ -1,11 +1,11 @@
-"""Read-only coordinated label review for archived multidisc MusicBrainz releases.
+"""Coordinated preview for archived multidisc MusicBrainz releases.
 
-This is a planning and provenance check only. It deliberately cannot apply a
-partial boxset: multiple disc folders need one journaled all-or-none revision.
+Preview is read-only. A separate opt-in, journaled group engine handles Apply.
 """
 from __future__ import annotations
 
 import hashlib
+import os
 import json
 from pathlib import Path
 import re
@@ -120,6 +120,8 @@ def preview(release_id, *, lookup=None):
                 )
     missing = sorted(set(range(1, total + 1)) - set(present))
     ready = all(d["label_status"] != "needs_operator_approval" for d in result)
+    actionable = bool(result) and all(d["label_status"] == "approved_for_review" for d in result)
+    enabled = os.environ.get("OSCAR_ENABLE_BOXSET_ARCHIVE_REVISIONS") == "1"
     fingerprint = hashlib.sha256(json.dumps({
         "release_id": release_id, "discs": result, "missing": missing,
     }, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
@@ -134,11 +136,12 @@ def preview(release_id, *, lookup=None):
         "disc_reviews": result,
         "all_present_discs_reviewed": ready,
         "fingerprint": fingerprint,
-        "apply_supported": False,
+        "apply_supported": bool(actionable and enabled),
         "note": (
             "Read-only group preview; no FLAC, manifest or Collection changes. "
-            "Coordinated all-or-none multidisc apply is NOT implemented. "
-            "Absent physical CDs will not be invented or silently updated. "
-            "Do not use the single-disc archive revision Apply button for this release."
+            "A separate opt-in group engine can migrate only explicitly approved present discs; "
+            "missing physical CDs will never be fabricated. "
+            "The group promotion is recoverable but not multi-directory filesystem atomic. "
+            "Never use the single-disc archive revision Apply button for this boxset."
         ),
     }
