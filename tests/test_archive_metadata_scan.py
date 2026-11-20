@@ -225,3 +225,32 @@ def test_history_reopen_action_only_on_latest_current_decision(archive):
     ]
     html = TestClient(app).get("/").text
     assert "event.latest_event && event.current_status===event.decision" in html
+
+
+def test_recordlabel_alias_prevents_duplicate_missing_label_proposal(archive, monkeypatch):
+    album, lookup = archive
+    base = scan.FLAC
+    class LegacyLabel(base):
+        def items(self):
+            values = dict(super().items())
+            values["RECORDLABEL"] = ["CFMusic"]
+            return values.items()
+    monkeypatch.setattr(scan, "FLAC", LegacyLabel)
+    result = scan.scan("additions", str(album), lookup=lookup)
+    assert result["detected"] == 1
+    assert {p["field"] for p in result["pending"]} == {"CATALOGNUMBER"}
+
+
+def test_conflicting_label_and_recordlabel_requires_manual_review(archive, monkeypatch):
+    album, lookup = archive
+    base = scan.FLAC
+    class ConflictingLabel(base):
+        def items(self):
+            values = dict(super().items())
+            values["LABEL"] = ["Decca"]
+            values["RECORDLABEL"] = ["Deutsche Grammophon"]
+            return values.items()
+    monkeypatch.setattr(scan, "FLAC", ConflictingLabel)
+    with pytest.raises(scan.ScanError, match="Conflicting LABEL and RECORDLABEL"):
+        scan.scan("additions", str(album), lookup=lookup)
+    assert scan.list_proposals()["count"] == 0

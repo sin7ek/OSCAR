@@ -330,3 +330,30 @@ def test_real_flac_audio_integrity_through_metadata_revision(fixture, monkeypatc
         assert obj["LABEL"] == ["CFMusic"]
         assert _digest(new / item["filename"]) == item["sha256"]
     assert Path(completed["original_retained_at"]).is_dir()
+
+
+def test_revision_updates_existing_recordlabel_alias_on_approved_label_change(fixture):
+    """Approved LABEL changes may not leave contradictory legacy RECORDLABEL tags."""
+    _, old, _, lookup = fixture
+    manifest_path = old / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    for entry in manifest["files"]:
+        source = old / entry["filename"]
+        tags = json.loads(source.read_text())
+        tags["RECORDLABEL"] = ["Older Record Label"]
+        source.write_text(json.dumps(tags, sort_keys=True))
+        entry["sha256"] = _digest(source)
+    manifest_path.write_text(json.dumps(manifest))
+    proposal = scanner.scan("changes", str(old), lookup=lookup)["pending"]
+    label = next(item for item in proposal if item["field"] == "LABEL")
+    assert label["before"] == ["Older Record Label"]
+    assert label["after"] == ["CFMusic"]
+    scanner.decide(label["fingerprint"], "accept", lookup=lookup)
+    plan = revision.preview(str(old))
+    done = revision.apply(str(old), plan["fingerprint"], "APPLY_VERIFIED_ARCHIVE_REVISION")
+    migrated = Path(done["archive_path"])
+    for entry in json.loads((migrated / "manifest.json").read_text())["files"]:
+        tags = FakeFlac(migrated / entry["filename"])
+        assert tags.get("LABEL") == ["CFMusic"]
+        assert tags.get("RECORDLABEL") == ["CFMusic"]
+    assert scanner.scan("changes", str(migrated), lookup=lookup)["detected"] == 0

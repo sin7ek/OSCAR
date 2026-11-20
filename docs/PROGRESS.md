@@ -13,6 +13,12 @@ Created an explicitly **unreviewed** commented Unraid/Portainer Compose example:
 
 ---
 
+## Developer handoff and exact label handling (2026-11-20)
+
+Added a dedicated [developer handoff](DEVELOPER_HANDOFF.md) for OSCAR chat 5, separate from chronological project status and progress scores: concise source map, verified status vs untested claims, 7 Unraid decision events, blockers, migration safety contracts and explicit next tasks. The latest operator report includes separate accepted Deutsche Grammophon labels on Boulez discs 4 and 6; these are **not applied archive changes**. A focused code branch addresses missing initial `LABEL` tags and `RECORDLABEL` alias detection; a safe coordinated boxset migration still remains future work. GitHub tests and actual Unraid validation for these new changes pending. No maturity percent increase.
+
+---
+
 ## Operator-reviewed archive metadata revision (2026-11-20; PR #95 merged, Unraid acceptance pending)
 
 PR #95 was merged into main after successful GitHub Python Tests and Docker build; it implements a separately enabled, **staging-independent** archive migration for one CD leaf at a time: preview all accepted proposals, explicitly confirm, create and verify a new tagged generation, preserve untouched original under hidden `.oscar-archive-versions`, update catalog-based folder naming and Collection SQLite row, and journal the transaction with an explicit recovery pathway. Applies only verified proposed values; `applied` history is distinct from approval. The bulk scanner now discovers published manifest paths directly rather than relying only on an indexed Collection row. Multidisc/boxset migration is blocked and remains a future milestone. Real Unraid validation and integration tests with actual FLACs remain necessary. No maturity percentage increase yet.

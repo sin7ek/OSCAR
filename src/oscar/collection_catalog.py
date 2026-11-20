@@ -201,7 +201,7 @@ def _archive_tag_metadata(album: Path, manifest: dict) -> dict:
             classical = True
         for dest, tag in (("composer", "COMPOSER"), ("conductor", "CONDUCTOR"),
                           ("orchestra", "ORCHESTRA"), ("works", "WORK"),
-                          ("performers", "PERFORMER"), ("label", "LABEL")):
+                          ("performers", "PERFORMER"), ("label", "LABEL"), ("label", "RECORDLABEL")):
             for value in tags.get(tag, []):
                 add(dest, value)
         for value in tags.get("PERFORMER", []):

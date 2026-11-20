@@ -233,6 +233,12 @@ def _copy_and_retag(plan, temp, source, *, flac_factory=None, runner=None):
         for item in changes:
             if item["scope"] == "track" and item["track"] == number:
                 modifications[item["field"]] = item["after"]
+        # RECORDLABEL is a legacy alias of LABEL. If an approved LABEL
+        # change applies to an archive that also carries RECORDLABEL, keep
+        # both consistent in the NEW reviewed generation only. Otherwise
+        # the next scan would rightly reject contradictory label evidence.
+        if "LABEL" in modifications and flac.get("RECORDLABEL"):
+            modifications["RECORDLABEL"] = modifications["LABEL"]
         for field, values in modifications.items():
             flac[field] = values
         if modifications:
