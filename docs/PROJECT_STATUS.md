@@ -1,3 +1,32 @@
+## Open-source onboarding — draft Compose and planned Getting Started (2026-11-20)
+
+**Documentation draft created, NOT validated for publication:** [`compose.unraid.example.yml`](../compose.unraid.example.yml). This is a thoroughly commented **Unraid/Portainer-specific example** inspired by the operator's own working Compose. The operator intentionally keeps **their existing production Compose unchanged**. Do not assume this sample is deployment-ready or use it to alter their current paths, mounted optical drives, UID/GID, br0 IP or security settings.
+
+**Mandatory follow-up: thoroughly review the example together before treating it as recommended documentation.** The audit must cover:
+- Docker Compose syntax via `docker compose -f compose.unraid.example.yml config` using test-only environment values and Portainer stack interpolation compatibility (including `${...}` required/default values);
+- the correct current OSCAR environment flags, ports and runtime UID/GID, read-only root filesystem, tmpfs size, group/device access and Unraid shfs filesystem permissions;
+- dedicated, nonoverlapping staging vs archive host paths; persistent Collection SQLite location, backups, release history and safety of destructive actions;
+- secure external/private br0 networking, static IP and trusted-local-UI implications; a separate basic-bridge example for general Linux/Docker users;
+- source-supported Discogs Personal Access Token `OSCAR_DISCOGS_PAT` instructions, secure storage, accurate MusicBrainz OAuth future-only status;
+- opt-in `OSCAR_ENABLE_ARCHIVE_REVISIONS=0`, `OSCAR_ENABLE_BEST_GUESS_AUTO_PUBLISH=0` safety defaults and the fact that `:main` is a development image;
+- verify actual optical-drive behavior on Unraid and explicitly check beginner-readability and copy/paste outcomes with a clean test environment.
+
+**Planned deliverable: `docs/GETTING_STARTED.md`**, written for people with no Docker experience, covering:
+1. Plain-language image/container/stack/volume/bind mount/environment variable/network definitions and why OSCAR needs them.
+2. Prerequisites (Unraid or Linux host, Portainer optional, Docker/Compose, sufficient disk space, CD drive, permissions, safe backup strategy).
+3. Decide between simple default bridge with local published port and the advanced Unraid br0 network; explain network exposure and lack of an OSCAR user login.
+4. Create host config/staging/archive directories and keep staging completely separate from archive; check owner UID/GID and CD-device access.
+5. Generate/store a local RIP token, optionally connect Discogs PAT, explain MusicBrainz metadata lookup vs unimplemented OAuth.
+6. Select the correct Compose, understand every placeholder, validate configuration and deploy through Portainer or Docker Compose.
+7. Open OSCAR, identify the optical drive, inspect a disc, run a safe first verified staging rip, review metadata, publish only after explicit approval.
+8. Verify the published archive/Collection, explain read-only metadata scans and the reviewed opt-in archive-revision path, backups and restore.
+9. Beginner troubleshooting (missing `/dev/sr0`, permissions, disabled features, failing mounts, empty archive scan, MusicBrainz rate-limits, network/Portainer errors).
+10. Update and roll back the image without deleting persistent data; where to ask for community support and how to file a useful GitHub issue.
+
+**Open-source release principle:** make OSCAR reproducible by others, not just its original Unraid operator. Publish a conservative beginner-friendly bridge example and a separate power-user Unraid example only after review. Respect third-party credits/licenses and the repository's remaining distribution/licence acceptance work. Documentation work alone does not increase implementation progress percentages.
+
+---
+
 ## Staging-independent Archive Metadata Migration — 2026-11-20 (PR #95 merged; real Unraid acceptance pending)
 
 An opt-in, single-CD **archive revision** implementation was merged from `feature/archive-revision-migration` in PR #95 (commit `9250586`) after GitHub Python Tests and Docker CI passed. It previews exactly the existing `accepted` metadata proposals against the original published archive and current MusicBrainz CD medium, and calculates the new album directory (e.g. `/archive/Carmen Gomes Inc/[CGi2010] Desire (2010) [fa89edc1]`). Upon explicit confirmation and with `OSCAR_ENABLE_ARCHIVE_REVISIONS=1`, a background worker creates an isolated, newly tagged archive copy; checks original and new FLAC hashes, audio STREAMINFO MD5, `flac -t`, the original CUE and extraction evidence; adds a child manifest with fresh publish ID and full parent evidence; promotes the new archive and retains the untouched previous generation under `.oscar-archive-versions`. A durable journal supports explicit recovery after a crash between filesystem changes and SQLite updates. The existing Collection row is rebound transactionally to the new path, preserving user-curated fields; approved proposal states change from `accepted` to `applied`, with audit events.
