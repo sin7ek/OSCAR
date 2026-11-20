@@ -87,6 +87,9 @@ def parse_release_media(payload: dict, disc_id: str, track_count: int) -> dict:
         "status": status,
         "requires_review": True,
         "matched_media": matched,
+        # Preserve full server-derived media for a separately operator-approved,
+        # unambiguous single-CD fallback. Never infer multi-disc position by count.
+        "all_media": results,
         "all_media_summary": [
             {
                 "position": m["position"], "title": m["title"],

@@ -110,6 +110,56 @@ def test_preview_maps_unpadded_source_names_without_changing_rip(setup):
     assert before == {p.name: p.read_bytes() for p in audio.iterdir()}
 
 
+def test_operator_accepted_single_cd_without_discid_can_prepare_reviewed_preview(setup):
+    info = medium_payload()
+    medium = info["matched_media"][0]
+    medium.update({"disc_id_attached": False, "format": "CD"})
+    info.update({"status": "no_exact_medium_match", "matched_media": [],
+                 "all_media": [medium]})
+
+    def accepted_lookup(release, disc, count):
+        assert (release, disc, count) == (RELEASE, DISC, 2)
+        return info
+
+    with pytest.raises(metadata.MetadataError, match="exact Disc ID"):
+        metadata.preview(JOB, RELEASE, lookup=accepted_lookup)
+    plan = metadata.preview(JOB, RELEASE, lookup=accepted_lookup,
+                            operator_accepted=True)
+    assert plan["disc_number"] == 1
+    assert plan["medium_match_method"] == "single_cd_operator_accepted_track_count_only"
+    assert "NO attached matching Disc ID" in plan["source"]
+    assert any("not Disc ID or physical-edition verification" in warning
+               for warning in plan["warnings"])
+    assert plan["requires_review"] and not plan["approved"]
+
+
+def test_operator_acceptance_cannot_guess_boxset_medium_from_count(setup):
+    info = medium_payload()
+    medium = info["matched_media"][0]
+    medium.update({"disc_id_attached": False, "format": "CD"})
+    info.update({"status": "no_exact_medium_match", "matched_media": [],
+                 "total_media": 2, "all_media": [medium]})
+    with pytest.raises(metadata.MetadataError, match="exact Disc ID"):
+        metadata.build_preview(info, JOB, DISC, 2, operator_accepted=True)
+
+
+def test_operator_acceptance_rejects_wrong_count_or_format_or_multiple_media(setup):
+    for invalid in ("wrong_count", "wrong_format", "duplicates"):
+        info = medium_payload()
+        medium = info["matched_media"][0]
+        medium.update({"disc_id_attached": False, "format": "CD"})
+        info.update({"status": "no_exact_medium_match", "matched_media": [],
+                     "all_media": [medium]})
+        if invalid == "wrong_count":
+            medium["track_count"] = 99
+        elif invalid == "wrong_format":
+            medium["format"] = "Digital Media"
+        else:
+            info["all_media"].append(dict(medium))
+        with pytest.raises(metadata.MetadataError, match="compatible CD medium"):
+            metadata.build_preview(info, JOB, DISC, 2, operator_accepted=True)
+
+
 def test_reject_ambiguous_release(setup):
     info=medium_payload()
     info["status"]="review_disc_id_or_count_ambiguity"

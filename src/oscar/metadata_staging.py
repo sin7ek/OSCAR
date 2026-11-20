@@ -117,12 +117,26 @@ def _track_data(track, position, total, disc_number, disc_total, album):
             "works": works, "provenance": "musicbrainz_explicit_release_and_relationships"}
 
 
-def build_preview(info, job_id, disc_id, track_count):
-    if info.get("status") != "exact_disc_id_and_track_count" or len(info.get("matched_media") or []) != 1:
+def build_preview(info, job_id, disc_id, track_count, *, operator_accepted=False):
+    exact = (info.get("status") == "exact_disc_id_and_track_count"
+             and len(info.get("matched_media") or []) == 1)
+    if exact:
+        medium = info["matched_media"][0]
+        if not medium.get("disc_id_attached") or medium.get("track_count") != track_count:
+            raise MetadataError("Exact medium match is required")
+    elif (operator_accepted and info.get("status") == "no_exact_medium_match"
+          and info.get("total_media") == 1):
+        # Only a saved Semi Automatic operator acceptance may use this path.
+        # A multi-disc boxset is NEVER identified using track count alone.
+        media = info.get("all_media") or []
+        matches = [m for m in media if m.get("track_count") == track_count
+                   and m.get("format") == "CD"
+                   and m.get("position") == 1 and not m.get("disc_id_attached")]
+        if len(media) != 1 or len(matches) != 1:
+            raise MetadataError("Operator-accepted release has no unique compatible CD medium")
+        medium = matches[0]
+    else:
         raise MetadataError("Release does not have one exact Disc ID + track-count medium")
-    medium = info["matched_media"][0]
-    if not medium.get("disc_id_attached") or medium.get("track_count") != track_count:
-        raise MetadataError("Exact medium match is required")
     tracks = medium.get("tracks") or []
     if len(tracks) != track_count:
         raise MetadataError("MusicBrainz release has an incomplete or missing tracklist")
@@ -144,7 +158,11 @@ def build_preview(info, job_id, disc_id, track_count):
         raise MetadataError("Missing physical disc position")
     output = {
         "job_id": job_id, "release_id": info["release_id"],
-        "source": "MusicBrainz (exact matching Disc ID; edition selection requires human review)",
+        "source": ("MusicBrainz (exact Disc ID + track count; physical edition requires review)"
+                   if exact else
+                   "MusicBrainz (operator-accepted release; NO attached matching Disc ID)"),
+        "medium_match_method": ("exact_disc_id_and_track_count" if exact
+                                else "single_cd_operator_accepted_track_count_only"),
         "requires_review": True, "approved": False,
         "album": album, "disc_number": medium["position"],
         "disc_total": info["total_media"], "track_count": track_count,
@@ -153,7 +171,9 @@ def build_preview(info, job_id, disc_id, track_count):
             for i, t in enumerate(tracks, 1)
         ],
         "warnings": [
-            "MusicBrainz Disc ID matches a medium but does not prove a physical edition; review catalog number and packaging.",
+            ("MusicBrainz Disc ID matches a medium but does not prove a physical edition; review catalog number and packaging."
+             if exact else
+             "CAUTION: No matching Disc ID is attached to this MusicBrainz medium. This is an operator-accepted INFERRED edition, not Disc ID or physical-edition verification; confirm the physical catalog, track titles, ordering and durations before publishing."),
             "Classical composers, works and performers are tagged only where explicitly linked in MusicBrainz.",
             "Original names are preserved. English aliases and artwork are not automatically added in this first version.",
             "No source FLAC, CUE, original rip log, verification report, or archive is changed."
@@ -164,14 +184,15 @@ def build_preview(info, job_id, disc_id, track_count):
     return output
 
 
-def preview(job_id, release_id, *, lookup=lookup_release_medium):
+def preview(job_id, release_id, *, lookup=lookup_release_medium, operator_accepted=False):
     directory, state, report = _source(job_id)
     if not RELEASE_ID.fullmatch(release_id):
         raise MetadataError("Valid MusicBrainz release UUID required")
     disc_id = state.get("disc_id") or json.loads((directory / "plan.json").read_text())["disc_id"]
     count = report["expected_tracks"]
     info = lookup(release_id, disc_id, count)
-    result = build_preview(info, job_id, disc_id, count)
+    result = build_preview(info, job_id, disc_id, count,
+                           operator_accepted=operator_accepted)
     # Actual original files may have non-unknown names in future cyanrip versions:
     # map track numbers to the manifest instead of assuming names.
     manifest = state.get("files_sha256") or {}
@@ -201,7 +222,8 @@ def _tagged_copy(job_id, release_id, fingerprint, copy_id, *, lookup=lookup_rele
         from mutagen.flac import FLAC
         flac_factory = FLAC
     source, state, _ = _source(job_id)
-    plan = preview(job_id, release_id, lookup=lookup)
+    plan = preview(job_id, release_id, lookup=lookup,
+                   operator_accepted=(identification_status == "INFERRED_OPERATOR_ACCEPTED"))
     if plan["fingerprint"] != fingerprint:
         raise MetadataError("Metadata preview changed; review the current MusicBrainz data again")
     root = source / ("metadata-copy-" + copy_id)
