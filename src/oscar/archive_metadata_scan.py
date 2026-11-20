@@ -335,7 +335,12 @@ def reopen_decision(fingerprint, *, lookup=None):
 def decision_history(limit=200):
     with _db() as db:
         rows = db.execute("""SELECT e.id,e.fingerprint,e.decision,e.happened_at,
-                             p.archive_path,p.field,p.scope,p.track
+                             p.archive_path,p.field,p.scope,p.track,
+                             p.status AS current_status,
+                             CASE WHEN e.id = (
+                                 SELECT MAX(recent.id) FROM metadata_decision_events recent
+                                 WHERE recent.fingerprint=e.fingerprint
+                             ) THEN 1 ELSE 0 END AS latest_event
                              FROM metadata_decision_events e
                              JOIN metadata_proposals p ON p.fingerprint=e.fingerprint
                              ORDER BY e.id DESC LIMIT ?""", (min(500,max(1,limit)),)).fetchall()
