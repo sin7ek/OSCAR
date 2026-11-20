@@ -1,4 +1,4 @@
-## Initial approved archive migration implementation (2026-11-20 — PR under validation)
+## Initial approved archive migration implementation (2026-11-20 — PR #95 merged; Unraid acceptance pending)
 
 An opt-in, **staging-independent** Archive Metadata Migration v1 is now implemented for **one single-CD archive leaf per operation**. The Collection UI provides **Preview approved archive migration for selected album** (read-only) and **Apply approved archive revision** with explicit confirmation. Actual writes are disabled unless the operator sets `OSCAR_ENABLE_ARCHIVE_REVISIONS=1` in the Portainer environment. No automatic migration is triggered by Accept, scan or container startup.
 
