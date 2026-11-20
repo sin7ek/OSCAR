@@ -409,6 +409,9 @@ def test_go_archive_preview_only_after_verified_copy(rig, monkeypatch):
     rig[2]["status"] = "checks_passed"
     with pytest.raises(go.GoError, match="METADATA_READY"):
         go.archive_preview(job_id)
+    # The shared fixture tracks verification callbacks for each mocked rip.
+    # Reset its list before starting the independent verified-copy scenario.
+    rig[3].clear()
     prepared_job, copy = _prepare_verified_go_archive(rig, monkeypatch)
     review = lambda *a, **kw: {"release_id": RELEASE1, "tracks": [
         {"number": 1, "work_ids": ["work-1"], "conductor": ["Boulez"]}]}
