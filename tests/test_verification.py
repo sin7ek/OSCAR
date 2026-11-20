@@ -258,7 +258,7 @@ def test_unpadded_cyanrip_tracks_pass_strict_checks_without_modifying_source(sta
 
 
 @pytest.mark.parametrize("bad", [
-    "audio/0 - Unknown track.flac", "audio/001 - Unknown track.flac",
+    "audio/0 - Unknown track.flac", "audio/000 - Unknown track.flac",
     "audio/1 - ../escape.flac", "audio/1 - bad\\\\name.flac",
     "audio/subfolder/1 - Unknown track.flac", "../audio/1 - Unknown track.flac",
 ])
