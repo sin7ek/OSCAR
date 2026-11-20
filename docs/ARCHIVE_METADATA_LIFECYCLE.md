@@ -43,7 +43,7 @@ Persist in a separate SQLite catalog-compatible schema (or dedicated DB), indepe
 
 ### Suppression and rediscovery contract
 
-- `Ignore` suppresses that **exact semantic proposal** across subsequent scans; `Accept` also prevents repeating the same operation once applied. Keep ignored decisions inspectable and reversible.
+- `Ignore` suppresses that **exact semantic proposal** across subsequent scans; `Accept` also prevents repeating the same operation once applied. Keep ignored decisions inspectable and **reversible via Reopen decision**. The earlier `ignored` or `accepted` event is never deleted; a `reopened` event restores `pending` only after verifying the published archive revision and the still-current MusicBrainz value.
 - If the source proposes a different value for the same item/field, or if the underlying archive value/revision changes, reevaluate and offer a new proposal as appropriate. A source fetch that is semantically identical must not reappear because its timestamp or serialization changed.
 - For multi-value tags, canonicalize equivalent order only when the field is semantically unordered; retain meaningful sequence for tracklists and credits.
 - When a newer value supersedes an older pending/ignored proposal, preserve historical decisions and link the new proposal to the former one, not overwrite the past.
@@ -65,7 +65,7 @@ Approval should be bound to the precise, freshly verified proposed change and ar
 - Generate a new manifest revision, parent/child relation and explicit change log. Preserve all immutable extraction evidence and old published manifests; never forge their original file hashes.
 - Check the whole new album/boxset leaf (including CUE references, disc indices, cover choices, track count, all files, paths and metadata readback) and reject collisions/path traversal/symlinks.
 - Make Collection SQLite changes transactionally only after the new on-disk generation is durably verified. Handle crash-before/after promotion through a recovery record; never claim success just because the worker returned.
-- Archive-folder rename due to new catalog prefix (e.g. `Carmen Gomes Inc/Desire (2010) [fa89edc1]` → `Carmen Gomes Inc/[CGi2010] Desire (2010) [fa89edc1]`) is a distinct, explicitly reviewed migration, not a side effect of scan or accept. Do not clobber the original path or leave stale Collection links.
+- **Required on applying an accepted physical-release CATALOGNUMBER change:** include a reviewed archive-folder naming migration, e.g. `/archive/Carmen Gomes Inc/Desire (2010) [fa89edc1]` → `/archive/Carmen Gomes Inc/[CGi2010] Desire (2010) [fa89edc1]`. This must be part of the separately approved versioned archive migration, never an automatic side effect of Scan or Accept. Refuse destination collisions, verify old/new audio and manifest hashes, retain the original archive generation for rollback, and transactionally update every Collection archive-path/index reference only once the new generation is confirmed. No stale Collection links, lost original publication evidence, or manual folder renames.
 - Require a verified rollback path and separate operator consent before any retirement/deletion of old versions. Keep original source-integrity evidence throughout.
 
 ## Robustness / boundaries
@@ -74,6 +74,12 @@ Approval should be bound to the precise, freshly verified proposed change and ar
 - Preserve operator-curated Collection columns and local values. Distinguish source-proposed updates from human edits. Never let a catalog import silently overwrite manual curation.
 - Make archive scanning incremental and bounded, with on-demand album or whole Collection scans; no continuous mandatory provider polling.
 - Avoid mass edits when provider responses are incomplete or ambiguous. No destructive archive cleanup without a separately audited retention policy.
+
+## Real-world decision correction — Carmen Gomes *Desire* (2026-11-20)
+
+The operator accepted `CATALOGNUMBER = CGi2010` at 2026-11-20T20:46:53.576873+00:00 and accidentally ignored `LABEL = CFMusic` at 2026-11-20T20:49:27.220609+00:00. The accepted catalog proposal is still **approval only**, not a tag or archive-folder update. `Reopen decision` should make the label proposal pending again, without deleting the historical ignore event, so it can then be accepted. No archive file changes occur. Verify this on real Unraid after the new release is deployed.
+
+---
 
 ## First acceptance fixture
 
