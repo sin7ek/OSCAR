@@ -555,3 +555,34 @@ def test_explicit_reconciliation_preserves_unknown_nonempty_label_provenance(fix
     assert report["labels_updated"] == 0
     assert report["manual_values_preserved"] == 1
     assert catalog.list_items()["items"][0]["label"] == "Legacy manually curated value"
+
+
+def test_verify_and_clean_api_require_auth_and_opt_in(fixture, monkeypatch):
+    from oscar import archive_revision_verify as verify_engine
+    from oscar import archive_revision_cleanup as cleanup
+    monkeypatch.setattr(verify_engine, "FLAC", FakeFlac)
+    monkeypatch.setenv("OSCAR_ENABLE_RIPPING", "1")
+    _, old, _, _ = fixture
+    plan = _approve(fixture)
+    done = revision.apply(str(old), plan["fingerprint"], "APPLY_VERIFIED_ARCHIVE_REVISION")
+    client = TestClient(app)
+    payload = {"operation_id": done["operation_id"]}
+    assert client.post("/api/collection/archive-revisions/verify", json=payload).status_code == 403
+    headers = {"X-OSCAR-RIP-TOKEN": TOKEN}
+    result = client.post("/api/collection/archive-revisions/verify",
+                         json=payload, headers=headers)
+    assert result.status_code == 200
+    assert result.json()["status"] == "verified"
+    clean_request = {
+        **payload,
+        "verification_fingerprint": result.json()["verification_fingerprint"],
+        "confirmation": cleanup.CONFIRM,
+        "external_backup_confirmed": True,
+    }
+    assert client.post("/api/collection/archive-revisions/clean",
+                       json=clean_request).status_code == 403
+    monkeypatch.delenv("OSCAR_ENABLE_ARCHIVE_HISTORY_CLEANUP", raising=False)
+    response = client.post("/api/collection/archive-revisions/clean",
+                           json=clean_request, headers=headers)
+    assert response.status_code == 409
+    assert Path(done["original_retained_at"]).exists()
