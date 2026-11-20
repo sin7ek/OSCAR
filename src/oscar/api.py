@@ -843,6 +843,52 @@ def go_accept_semi_release(job_id: str, body: GoSemiReleaseApproval,
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
+class GoArchivePublishApproval(BaseModel):
+    fingerprint: str = Field(min_length=64, max_length=64, pattern=r"^[a-f0-9]{64}$")
+    confirmation: str
+    acknowledge_metadata_observations: bool = False
+
+
+@app.post("/api/go/jobs/{job_id}/archive/preview")
+def go_archive_preview(job_id: str, request: Request,
+                       x_oscar_rip_token: str | None = Header(default=None)):
+    """Read-only classical/track/CUE review of precisely this verified Go copy."""
+    from oscar.go_controller import GoError, archive_preview
+    from oscar.workflow_ledger import WorkflowError
+    from oscar.archive_review import ReviewError
+    from oscar.archive_publish import PublishError
+    from oscar.metadata_staging import MetadataError
+    from oscar.ripping import RipError
+    _rip_auth(x_oscar_rip_token, request)
+    _archive_publish_enabled()
+    try:
+        return archive_preview(job_id)
+    except (GoError, WorkflowError, ReviewError, PublishError, MetadataError,
+            RipError, OSError, ValueError, KeyError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/go/jobs/{job_id}/archive/publish")
+def go_archive_publish(job_id: str, body: GoArchivePublishApproval, request: Request,
+                       x_oscar_rip_token: str | None = Header(default=None)):
+    """Only after explicit operator confirmation of a fresh exact Go preview."""
+    from oscar.go_controller import GoError, archive_publish_start
+    from oscar.workflow_ledger import WorkflowError
+    from oscar.archive_review import ReviewError
+    from oscar.archive_publish import PublishError
+    from oscar.metadata_staging import MetadataError
+    from oscar.ripping import RipError
+    _rip_auth(x_oscar_rip_token, request)
+    _archive_publish_enabled()
+    try:
+        return archive_publish_start(
+            job_id, body.fingerprint, body.confirmation,
+            acknowledge_observations=body.acknowledge_metadata_observations)
+    except (GoError, WorkflowError, ReviewError, PublishError, MetadataError,
+            RipError, OSError, ValueError, KeyError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
 @app.post("/api/go/start")
 def go_start(request: RipRequest, http_request: Request,
              x_oscar_rip_token: str | None = Header(default=None)):
