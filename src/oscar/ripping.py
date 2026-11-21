@@ -177,7 +177,8 @@ def _run(job, device, offset, workdir, runner, on_completed=None):
                 plan_file = workdir / "plan.json"
                 plan_data = json.loads(plan_file.read_text(encoding="utf-8"))
                 record_rip(_snapshot(job), plan_data.get("track_count"))
-            except (OSError, ValueError, KeyError, TypeError, ImportError):
+            except Exception:
+                # Diagnostics must never affect ripping success or preserve-state writes.
                 pass
             if on_completed is not None:
                 try:
