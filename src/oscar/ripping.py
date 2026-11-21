@@ -170,6 +170,15 @@ def _run(job, device, offset, workdir, runner, on_completed=None):
         job["finished_at"] = time.time()
         try:
             _atomic_json(workdir / "state.json", _snapshot(job))
+            # This small metrics ledger persists independently of staging cleanup.
+            # A database outage must NEVER turn a successful extraction into failure.
+            try:
+                from oscar.drivefit_history import record_rip
+                plan_file = workdir / "plan.json"
+                plan_data = json.loads(plan_file.read_text(encoding="utf-8"))
+                record_rip(_snapshot(job), plan_data.get("track_count"))
+            except (OSError, ValueError, KeyError, TypeError, ImportError):
+                pass
             if on_completed is not None:
                 try:
                     on_completed(_snapshot(job))
