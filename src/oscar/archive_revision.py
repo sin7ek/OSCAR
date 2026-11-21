@@ -26,7 +26,7 @@ from oscar import archive_publish, collection_catalog as catalog
 from oscar.archive_naming import safe_component
 from oscar.metadata_staging import _streaminfo_md5_hex
 
-_ALLOWED_FIELDS = {"CATALOGNUMBER", "LABEL", "BARCODE", "TITLE", "ARTIST"}
+_ALLOWED_FIELDS = {"CATALOGNUMBER", "LABEL", "BARCODE", "TITLE", "ARTIST", "GENRE"}
 _CONFIRM = "APPLY_VERIFIED_ARCHIVE_REVISION"
 _WORKER_LOCK = threading.Lock()
 _RUNNING = set()
@@ -126,7 +126,7 @@ def _plan(archive_path, *, lookup=None):
         ]
         if len(matches) != 1 or not isinstance(after, list) or not after:
             raise RevisionError("Accepted metadata differs from current MusicBrainz; rescan and review")
-        if row["scope"] == "release" and row["field"] not in {"CATALOGNUMBER", "LABEL", "BARCODE"}:
+        if row["scope"] == "release" and row["field"] not in {"CATALOGNUMBER", "LABEL", "BARCODE", "GENRE"}:
             raise RevisionError("Unsupported release-scope metadata change")
         if row["scope"] == "track" and (row["field"] not in {"TITLE", "ARTIST"}
                 or not 1 <= row["track"] <= len(snapshot["tracks"])):
@@ -136,6 +136,13 @@ def _plan(archive_path, *, lookup=None):
             "track": row["track"], "field": row["field"],
             "before": before, "after": after,
         })
+    genre_changes = [item for item in accepted if item["field"] == "GENRE"]
+    if len(genre_changes) > 1:
+        raise RevisionError("Multiple conflicting genre proposals")
+    if genre_changes:
+        from oscar.archive_genres import normalize_genres
+        if scanner._canonical(normalize_genres(genre_changes[0]["after"])) != scanner._canonical(genre_changes[0]["after"]):
+            raise RevisionError("Unreviewed or unsupported GENRE values")
     parsed = catalog._metadata_from_path(album_path, source_manifest)
     catalog_now = parsed["catalog_number"]
     values = [item["after"] for item in accepted if item["field"] == "CATALOGNUMBER"]
@@ -342,6 +349,32 @@ def _finalize(db, row, *, snapshot_verified=True):
         )
     elif db.execute("SELECT 1 FROM archive_items WHERE archive_path=?", (dest,)).fetchone() is None:
         raise RevisionError("Neither old nor new Collection archive entry exists")
+    # The journal's durable approved proposal fingerprints, rather than a
+    # mutable provider response, determine the Collection genre update.
+    # Keep genre navigation index in sync with the newly published FLACs.
+    genre_proposals = db.execute(
+        "SELECT field,after_json FROM metadata_proposals "
+        "WHERE fingerprint IN (" + ",".join("?" for _ in fingerprints) + ")",
+        tuple(fingerprints),
+    ).fetchall()
+    selected_genre = [entry for entry in genre_proposals if entry["field"] == "GENRE"]
+    if len(selected_genre) > 1:
+        raise RevisionError("Conflicting genre approvals in archive journal")
+    if selected_genre:
+        from oscar.archive_genres import classify
+        genre_values = json.loads(selected_genre[0]["after_json"])
+        # Read the actual promoted FLAC tags to anchor the derived Collection
+        # classification in publication evidence (not a cached provider value).
+        manifest = json.loads((Path(dest) / "manifest.json").read_text(encoding="utf-8"))
+        first = manifest["files"][0]["filename"]
+        actual = scanner._canonical(FLAC(str(Path(dest) / first)).get("GENRE") or [])
+        if actual != scanner._canonical(genre_values):
+            raise RevisionError("Promoted GENRE differs from accepted proposal")
+        classification = classify(genre_values, profile=manifest.get("profile"))
+        db.execute(
+            "UPDATE archive_items SET genres=?,library_section=? WHERE archive_path=?",
+            (classification["genres"], classification["library_section"], dest),
+        )
     for fp in fingerprints:
         item = db.execute("SELECT status,archive_revision FROM metadata_proposals WHERE fingerprint=?", (fp,)).fetchone()
         if item is None or item["status"] not in {"accepted", "applied"}:

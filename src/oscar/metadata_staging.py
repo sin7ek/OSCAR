@@ -94,6 +94,11 @@ def _track_data(track, position, total, disc_number, disc_total, album):
     ))
     if labels:
         tag["LABEL"] = labels
+    # These are curated MusicBrainz release/release-group suggestions.
+    # Staging tagging is only performed after the operator confirms the
+    # exact metadata preview. Store independent multivalue Vorbis comments.
+    if album.get("genres"):
+        tag["GENRE"] = list(album["genres"])
     if track.get("recording_id"):
         tag["MUSICBRAINZ_TRACKID"] = track["recording_id"]
     if track.get("release_track_id"):
@@ -163,7 +168,9 @@ def build_preview(info, job_id, disc_id, track_count, *, operator_accepted=False
     album = {"title": title, "artist": artist, "date": date, "country": info.get("country"),
              "barcode": info.get("barcode"), "labels": labels, "catalog_numbers": catalog,
              "musicbrainz_release_id": info["release_id"],
-             "musicbrainz_disc_id": disc_id}
+             "musicbrainz_disc_id": disc_id,
+             "genres": list(info.get("genres") or []),
+             "genre_source": info.get("genre_source") or ""}
     if not isinstance(medium.get("position"), int) or not 1 <= medium["position"] <= info["total_media"]:
         raise MetadataError("Missing physical disc position")
     output = {
@@ -185,6 +192,7 @@ def build_preview(info, job_id, disc_id, track_count, *, operator_accepted=False
              if exact else
              "CAUTION: No matching Disc ID is attached to this MusicBrainz medium. This is an operator-accepted INFERRED edition, not Disc ID or physical-edition verification; confirm the physical catalog, track titles, ordering and durations before publishing."),
             "Classical composers, works and performers are tagged only where explicitly linked in MusicBrainz.",
+            "Genre values are curated MusicBrainz release/release-group suggestions and require this preview's explicit approval; no artist genres or free-form tags are used.",
             "Original names are preserved. English aliases and artwork are not automatically added in this first version.",
             "No source FLAC, CUE, original rip log, verification report, or archive is changed."
         ],
