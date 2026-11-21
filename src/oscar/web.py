@@ -907,6 +907,10 @@ document.getElementById('metadata-preview-btn').onclick=async()=>{
   output.append(metadataElement('p','Labels: '+(result.album.labels||[]).map(x=>
     (x.name||'?')+' ['+(x.catalog_number||'no catalogue number')+']').join(', ')+
     ' · Barcode: '+(result.album.barcode||'unknown')));
+  output.append(metadataElement('p','Proposed FLAC GENRE tags: '+
+   ((result.album.genres||[]).join(' · ')||'none available')+
+   ' · Source: '+(result.album.genre_source||'no verified genre evidence')+
+   '. These genres are included only in the reviewed tagged staging copies.'));
   const link=document.createElement('a');
   link.href='https://musicbrainz.org/release/'+encodeURIComponent(result.release_id);
   link.rel='noopener noreferrer';link.target='_blank';link.textContent='Review exact MusicBrainz release';
