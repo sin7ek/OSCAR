@@ -141,7 +141,7 @@ def _plan(archive_path, *, lookup=None):
         raise RevisionError("Multiple conflicting genre proposals")
     if genre_changes:
         from oscar.archive_genres import normalize_genres
-        if normalize_genres(genre_changes[0]["after"]) != genre_changes[0]["after"]:
+        if scanner._canonical(normalize_genres(genre_changes[0]["after"])) != scanner._canonical(genre_changes[0]["after"]):
             raise RevisionError("Unreviewed or unsupported GENRE values")
     parsed = catalog._metadata_from_path(album_path, source_manifest)
     catalog_now = parsed["catalog_number"]
