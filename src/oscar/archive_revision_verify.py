@@ -58,15 +58,36 @@ def _verify_locked(operation_id):
             if proposal is None or proposal["status"] != "applied":
                 raise ArchiveVerifyError("A reviewed metadata decision was not marked applied")
             proposals.append(proposal)
+        chain = [row]
+        seen = {row["operation_id"]}
+        while True:
+            previous = chain[-1]
+            successors = db.execute(
+                "SELECT * FROM archive_revision_operations "
+                "WHERE source_publish_id=? AND source_path=?",
+                (previous["new_publish_id"], previous["dest_path"]),
+            ).fetchall()
+            if not successors:
+                break
+            if len(successors) != 1 or successors[0]["status"] != "completed":
+                raise ArchiveVerifyError("Ambiguous or unfinished archive revision successor")
+            successor = successors[0]
+            if successor["operation_id"] in seen:
+                raise ArchiveVerifyError("Cycle in archive revision journal")
+            seen.add(successor["operation_id"])
+            chain.append(successor)
+            if len(chain) > 100:
+                raise ArchiveVerifyError("Unreasonably long archive revision chain")
+        latest = chain[-1]
         linked = db.execute(
             "SELECT archive_path,catalog_number,label,label_provenance FROM archive_items "
-            "WHERE archive_path IN (?,?)", (row["source_path"], row["dest_path"])
+            "WHERE archive_path=?", (latest["dest_path"],)
         ).fetchall()
-    if len(linked) != 1 or linked[0]["archive_path"] != row["dest_path"]:
-        raise ArchiveVerifyError("Collection is not uniquely linked to new publication")
-    if linked[0]["catalog_number"] != row["target_catalog"]:
-        raise ArchiveVerifyError("Collection catalog number differs from approved revision")
-    if (row["target_label"] and linked[0]["label"] != row["target_label"]
+    if len(linked) != 1:
+        raise ArchiveVerifyError("Collection is not uniquely linked to latest publication")
+    if linked[0]["catalog_number"] != latest["target_catalog"]:
+        raise ArchiveVerifyError("Collection catalog number differs from latest revision")
+    if (latest["target_label"] and linked[0]["label"] != latest["target_label"]
             and linked[0]["label_provenance"] not in ("manual", "operator_curated")):
         raise ArchiveVerifyError(
             "Collection Label is stale; synchronize applied labels before verifying"
