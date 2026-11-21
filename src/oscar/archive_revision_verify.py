@@ -142,8 +142,14 @@ def _verify_locked(operation_id):
     # Historical versions are intentionally hidden under a 4-level archive
     # history path, not the regular /artist/album layout understood by the
     # live archive scanner. Verify their original hashes directly instead.
-    new_snapshot = scan._archive_snapshot(str(new))
-    if original.get("release_id") != new_snapshot["release_id"]:
+    # A historical generation has a hidden path and cannot be scanned as a
+    # live /Artist/Album publication. Its own manifest and the successor
+    # journal's source SHA-256 authenticate it instead.
+    latest_snapshot = scan._archive_snapshot(str(Path(latest["dest_path"])))
+    if latest_snapshot["publish_id"] != latest["new_publish_id"]:
+        raise ArchiveVerifyError("Current publication differs from latest journal")
+    if (original.get("release_id") != latest_snapshot["release_id"]
+            or current.get("release_id") != latest_snapshot["release_id"]):
         raise ArchiveVerifyError("Original/new MusicBrainz release identity differs")
     old_files = original.get("files") or []
     new_files = current.get("files") or []
@@ -165,13 +171,17 @@ def _verify_locked(operation_id):
     checked = 0
     for index, (before, after) in enumerate(zip(old_files, new_files), 1):
         original_file = old / before["filename"]
+        revised_file = new / after["filename"]
+        if (revised_file.is_symlink() or not revised_file.is_file()
+                or scan._digest(revised_file) != after["sha256"]):
+            raise ArchiveVerifyError("Revised FLAC SHA-256 mismatch")
         if (original_file.is_symlink() or not original_file.is_file()
                 or scan._digest(original_file) != before["sha256"]):
             raise ArchiveVerifyError("Retained original FLAC SHA-256 mismatch")
         source = FLAC(str(original_file))
         target = FLAC(str(new / after["filename"]))
-        if ((source.get("MUSICBRAINZ_ALBUMID") or []) != [new_snapshot["release_id"]]
-                or (source.get("MUSICBRAINZ_DISCID") or []) != [new_snapshot["disc_id"]]):
+        if ((source.get("MUSICBRAINZ_ALBUMID") or []) != [latest_snapshot["release_id"]]
+                or (source.get("MUSICBRAINZ_DISCID") or []) != [latest_snapshot["disc_id"]]):
             raise ArchiveVerifyError("Original/new MusicBrainz CD identity differs")
         if (_streaminfo_md5_hex(source.info.md5_signature)
                 != _streaminfo_md5_hex(target.info.md5_signature)):
