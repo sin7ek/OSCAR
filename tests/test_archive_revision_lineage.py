@@ -49,12 +49,15 @@ def test_verify_old_generation_after_second_approved_revision(fixture, monkeypat
     assert historical["verified_generation_path"] == second["original_retained_at"]
     assert historical["original_flacs_verified"] == 2
     assert latest["historical_revision"] is False
-    assert latest["cleanup_eligible"] is True
-    assert latest["verification_fingerprint"]
+    assert latest["cleanup_eligible"] is False
+    assert latest["verification_fingerprint"] is None
 
     monkeypatch.setenv("OSCAR_ENABLE_ARCHIVE_HISTORY_CLEANUP", "1")
     with pytest.raises(cleanup.ArchiveCleanupError, match="Historical revision"):
         cleanup.clean(first["operation_id"], first_receipt, cleanup.CONFIRM,
+                      external_backup_confirmed=True)
+    with pytest.raises(cleanup.ArchiveCleanupError, match="previous revision"):
+        cleanup.clean(second["operation_id"], "f" * 64, cleanup.CONFIRM,
                       external_backup_confirmed=True)
     assert Path(first["original_retained_at"]).is_dir()
     assert Path(second["original_retained_at"]).is_dir()
