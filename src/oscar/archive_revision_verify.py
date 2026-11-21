@@ -206,7 +206,9 @@ def _verify_locked(operation_id):
         checked += 1
     # This content-bound receipt can be submitted for an explicitly opted-in
     # cleanup. Cleanup MUST run this entire verification again under the lock.
-    fingerprint = hashlib.sha256(json.dumps({
+    # Historical verification is informative, not a cleanup authorization.
+    # No receipt may be issued while a successor uses this generation.
+    fingerprint = None if historical else hashlib.sha256(json.dumps({
         "operation_id": operation_id,
         "old_manifest": row["source_manifest_sha256"],
         "new_manifest": scan._digest(new / "manifest.json"),
@@ -218,6 +220,9 @@ def _verify_locked(operation_id):
     }, sort_keys=True).encode()).hexdigest()
     return {
         "verification_fingerprint": fingerprint,
+        "historical_revision": historical,
+        "cleanup_eligible": not historical,
+        "verified_generation_path": str(new),
         "operation_id": operation_id, "status": "verified",
         "original_flacs_verified": checked,
         "revised_flacs_verified": checked,
@@ -226,7 +231,9 @@ def _verify_locked(operation_id):
         "collection_verified": True,
         "original_retained": True,
         "verified_at": datetime.now(timezone.utc).isoformat(),
-        "note": "Read-only; neither the revised archive nor retained originals were modified.",
+        "note": ("Read-only historical verification of a superseded generation; "
+                 "no cleanup authorization issued." if historical else
+                 "Read-only; neither the revised archive nor retained originals were modified."),
     }
 
 
