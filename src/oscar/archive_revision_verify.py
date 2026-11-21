@@ -79,6 +79,11 @@ def _verify_locked(operation_id):
             if len(chain) > 100:
                 raise ArchiveVerifyError("Unreasonably long archive revision chain")
         latest = chain[-1]
+        predecessor = db.execute(
+            "SELECT 1 FROM archive_revision_operations "
+            "WHERE new_publish_id=? AND dest_path=? AND status='completed' LIMIT 1",
+            (row["source_publish_id"], row["source_path"]),
+        ).fetchone()
         linked = db.execute(
             "SELECT archive_path,catalog_number,label,label_provenance FROM archive_items "
             "WHERE archive_path=?", (latest["dest_path"],)
@@ -208,7 +213,8 @@ def _verify_locked(operation_id):
     # cleanup. Cleanup MUST run this entire verification again under the lock.
     # Historical verification is informative, not a cleanup authorization.
     # No receipt may be issued while a successor uses this generation.
-    fingerprint = None if historical else hashlib.sha256(json.dumps({
+    cleanup_eligible = not historical and predecessor is None
+    fingerprint = None if not cleanup_eligible else hashlib.sha256(json.dumps({
         "operation_id": operation_id,
         "old_manifest": row["source_manifest_sha256"],
         "new_manifest": scan._digest(new / "manifest.json"),
@@ -221,7 +227,7 @@ def _verify_locked(operation_id):
     return {
         "verification_fingerprint": fingerprint,
         "historical_revision": historical,
-        "cleanup_eligible": not historical,
+        "cleanup_eligible": cleanup_eligible,
         "verified_generation_path": str(new),
         "operation_id": operation_id, "status": "verified",
         "original_flacs_verified": checked,
@@ -231,8 +237,8 @@ def _verify_locked(operation_id):
         "collection_verified": True,
         "original_retained": True,
         "verified_at": datetime.now(timezone.utc).isoformat(),
-        "note": ("Read-only historical verification of a superseded generation; "
-                 "no cleanup authorization issued." if historical else
+        "note": ("Read-only revision chain verification; cleanup prohibited because "
+                 "the generation belongs to a multi-step history." if not cleanup_eligible else
                  "Read-only; neither the revised archive nor retained originals were modified."),
     }
 
