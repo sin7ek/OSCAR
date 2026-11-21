@@ -133,10 +133,14 @@ def lookup_release_medium(release_id: str, disc_id: str, track_count: int, opene
             group_request = urllib.request.Request(group_url, headers={
                 "User-Agent": mb._UA, "Accept": "application/json",
             })
-            group_data = fetch_json(group_request, opener=opener, timeout=18, max_bytes=1_000_000)
-            if group_data.get("id", "").lower() != group_id.lower():
-                raise mb.MusicBrainzError("Unexpected release-group ID in genre response")
-            result["genres"] = musicbrainz_genres(group_data)
-            if result["genres"]:
-                result["genre_source"] = "musicbrainz_release_group"
+            try:
+                group_data = fetch_json(group_request, opener=opener, timeout=18, max_bytes=1_000_000)
+                if group_data.get("id", "").lower() == group_id.lower():
+                    result["genres"] = musicbrainz_genres(group_data)
+                    if result["genres"]:
+                        result["genre_source"] = "musicbrainz_release_group"
+            except mb.MusicBrainzError:
+                # Genre enrichment is optional; transient MusicBrainz 503/429
+                # must not prevent accurate core rip/release identification.
+                pass
     return result
