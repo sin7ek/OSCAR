@@ -362,7 +362,6 @@ def _finalize(db, row, *, snapshot_verified=True):
         raise RevisionError("Conflicting genre approvals in archive journal")
     if selected_genre:
         from oscar.archive_genres import classify
-        from mutagen.flac import FLAC
         genre_values = json.loads(selected_genre[0]["after_json"])
         # Read the actual promoted FLAC tags to anchor the derived Collection
         # classification in publication evidence (not a cached provider value).
