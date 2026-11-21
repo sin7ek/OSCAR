@@ -103,7 +103,9 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 <button type="button" id="collection-sync-approved-labels">Synchronize applied labels (Collection only)</button>
 <p>Synchronize previously approved album labels after a completed archive revision, including multiple labels such as Daylight; Epic. Actual archived FLACs are independently checked first. Locally curated values stay unchanged.</p>
 <label for="collection-search">Find in collection</label>
-<input id="collection-search" placeholder="Artist, album, label, composer, conductor or soloist" maxlength="150" style="width:350px;max-width:90%">
+<input id="collection-search" placeholder="Artist, album, genre, label, composer, conductor or soloist" maxlength="150" style="width:350px;max-width:90%">
+<label for="collection-section">Library</label>
+<select id="collection-section"><option value="">All libraries</option><option value="Classical">Classical</option><option value="Popular">Pop / Rock / Dance &amp; other popular</option><option value="Unclassified">Unclassified</option></select>
 <label for="collection-sort">Sort collection</label>
 <select id="collection-sort">
 <option value="artist">Artist</option><option value="title">Album title</option>
@@ -2092,7 +2094,8 @@ async function fetchLocalCollection(){
  try{
   const query=new URLSearchParams({
    search:document.getElementById('collection-search').value.trim(),
-   sort_by:document.getElementById('collection-sort').value,limit:'250'
+   sort_by:document.getElementById('collection-sort').value,
+   section:document.getElementById('collection-section').value,limit:'250'
   });
   const response=await fetch('/api/collection?'+query,{headers});
   const data=await response.json();
@@ -2117,13 +2120,13 @@ async function fetchLocalCollection(){
   if([...selected.options].some(option=>option.value===oldSelection))selected.value=oldSelection;
   const table=document.createElement('table');table.style.width='100%';
   const head=document.createElement('tr');
-  for(const label of ['Artist','Album','Year','Label','Catalog','Composer','Conductor','Soloists','Disc','Tracks','Status']){
+  for(const label of ['Artist','Album','Year','Label','Catalog','Genres','Library','Composer','Conductor','Soloists','Disc','Tracks','Status']){
     const th=document.createElement('th');th.textContent=label;head.append(th);
   }
   table.append(head);
   for(const item of data.items){
     const row=document.createElement('tr');
-    for(const value of [item.artist,item.title,item.year,item.label,item.catalog_number,item.composer,item.conductor,item.soloists,(item.disc_number||1)+'/'+(item.disc_total||1),item.track_count,item.archive_status]){
+    for(const value of [item.artist,item.title,item.year,item.label,item.catalog_number,item.genres,item.library_section,item.composer,item.conductor,item.soloists,(item.disc_number||1)+'/'+(item.disc_total||1),item.track_count,item.archive_status]){
       const td=document.createElement('td');td.textContent=String(value);td.style.padding='5px';
       row.append(td);
     }
@@ -2164,6 +2167,7 @@ document.getElementById('collection-sync-approved-labels').onclick=async()=>{
 };
 document.getElementById('collection-refresh').onclick=fetchLocalCollection;
 document.getElementById('collection-sort').onchange=fetchLocalCollection;
+document.getElementById('collection-section').onchange=fetchLocalCollection;
 document.getElementById('collection-search').onchange=fetchLocalCollection;
 document.getElementById('collection-import').onclick=async()=>{
  const out=document.getElementById('collection-result');
