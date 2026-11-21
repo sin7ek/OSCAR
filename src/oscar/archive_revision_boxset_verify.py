@@ -65,6 +65,7 @@ def verify(operation_id):
         disc = entry["disc"]
         original, revised = Path(entry["backup"]), Path(entry["source"])
         errors = []
+        track_count = None
         try:
             group._validate_leaf(original, entry, new=False)
             group._validate_leaf(revised, entry, new=True)
@@ -73,6 +74,7 @@ def verify(operation_id):
             old_manifest = json.loads((original / "manifest.json").read_text(encoding="utf-8"))
             new_manifest = json.loads((revised / "manifest.json").read_text(encoding="utf-8"))
             old_files = {x["filename"]: x for x in old_manifest["files"]}
+            track_count = len(old_files)
             new_files = {x["filename"]: x for x in new_manifest["files"]}
             if old_manifest.get("release_id") != row["release_id"]:
                 errors.append("Journal release differs from retained original")
@@ -110,7 +112,7 @@ def verify(operation_id):
         if len(decisions) != 1 or decisions[0]["status"] != "applied":
             errors.append("Approved metadata decision is not marked applied")
         results.append({
-            "disc": disc, "tracks": len(old_files) if "old_files" in locals() else None,
+            "disc": disc, "tracks": track_count,
             "status": "pass" if not errors else "failed",
             "observations": errors,
         })
