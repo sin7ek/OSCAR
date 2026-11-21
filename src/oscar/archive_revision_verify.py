@@ -94,11 +94,36 @@ def _verify_locked(operation_id):
         )
     root = catalog.archive_root()
     old = Path(row["backup_path"])
-    new = Path(row["dest_path"])
+    historical = len(chain) > 1
+    # A superseded revision's output is the next revision's retained input.
+    new = Path(chain[1]["backup_path"] if historical else row["dest_path"])
     expected = root / ".oscar-archive-versions" / row["source_publish_id"] / operation_id
     if (old != expected or not old.is_relative_to(root)
             or not new.is_relative_to(root) or new == root):
         raise ArchiveVerifyError("Unsafe retained archive history path")
+    for parent, successor in zip(chain, chain[1:]):
+        successor_backup = Path(successor["backup_path"])
+        required = (root / ".oscar-archive-versions" /
+                    successor["source_publish_id"] / successor["operation_id"])
+        if (successor_backup != required or
+                not successor_backup.is_relative_to(root) or
+                not successor_backup.is_dir() or successor_backup.is_symlink() or
+                successor_backup.resolve(strict=True) != successor_backup or
+                successor_backup.parent.is_symlink() or
+                successor_backup.parent.parent.is_symlink()):
+            raise ArchiveVerifyError("Unsafe or missing successor retained generation")
+        manifest_path = successor_backup / "manifest.json"
+        if (manifest_path.is_symlink() or not manifest_path.is_file() or
+                scan._digest(manifest_path) != successor["source_manifest_sha256"]):
+            raise ArchiveVerifyError("Successor original manifest SHA-256 differs from journal")
+        version = json.loads(manifest_path.read_text(encoding="utf-8"))
+        ancestry = version.get("revision") or {}
+        if (successor["source_publish_id"] != parent["new_publish_id"] or
+                successor["source_path"] != parent["dest_path"] or
+                version.get("publish_id") != parent["new_publish_id"] or
+                ancestry.get("parent_publish_id") != parent["source_publish_id"] or
+                ancestry.get("parent_manifest_sha256") != parent["source_manifest_sha256"]):
+            raise ArchiveVerifyError("Archive revision chain ancestry differs from journal")
     for album in (old, new):
         if not album.is_dir() or album.is_symlink() or album.resolve(strict=True) != album:
             raise ArchiveVerifyError("Archived original or revised directory missing or unsafe")
