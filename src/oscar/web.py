@@ -133,6 +133,7 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 <button type="button" id="archive-revision-preview">Preview approved archive migration for selected album</button>
 <button type="button" id="archive-revision-operations">View archive revision history and recovery status</button>
 <button type="button" id="archive-boxset-label-preview">Preview coordinated multidisc labels (read-only)</button>
+<button type="button" id="archive-boxset-history">View multidisc revision history / recovery</button>
 <p>Verify checks new and original FLACs, manifests, CUE/source evidence and Collection. Clean permanently removes only the verified retained original of one operation, destroys OSCAR's internal rollback, and requires OSCAR_ENABLE_ARCHIVE_HISTORY_CLEANUP=1 plus an independent backup and double confirmation. Prefer excluding hidden archive history from media-server scans. Never Clean if you need the original archive for recovery.</p>
 <div id="archive-revision-output" aria-live="polite"></div>
 <h3>Track-level catalog (classical &amp; other music)</h3>
@@ -1850,7 +1851,75 @@ document.getElementById('archive-boxset-label-preview').onclick=async()=>{
     ' · FLAC LABEL: '+(disc.existing_flac_labels.join('; ')||'(missing)')+
     ' · '+disc.archive_path;out.append(p);
   }
+  if(data.apply_supported){
+   const apply=document.createElement('button');
+   apply.type='button';apply.textContent='Apply coordinated boxset revision (opt-in; originals retained)';
+   out.append(apply);
+   apply.onclick=async()=>{
+    const header=requestAuthHeaders('Apply coordinated boxset migration');if(!header)return;
+    const agreed=window.confirm('This changes ALL reviewed present discs as one recoverable group. Original versions remain retained. A partial filesystem promotion may require explicit recovery. Proceed?');
+    if(!agreed)return;
+    const typed=window.prompt('To approve the coordinated, versioned group migration, type APPLY_COORDINATED_BOXSET_REVISION');
+    if(typed!=='APPLY_COORDINATED_BOXSET_REVISION')return;
+    apply.disabled=true;
+    try{
+     const response=await fetch('/api/collection/archive-revisions/boxset-apply',{
+      method:'POST',headers:{'Content-Type':'application/json',...header},
+      body:JSON.stringify({release_id:data.release_id,fingerprint:data.fingerprint,confirmation:typed})
+     });
+     const started=await response.json();
+     if(!response.ok)throw Error(started.detail||'Boxset migration could not start');
+     const note=document.createElement('p');note.textContent='Boxset operation running; verifying all candidate FLACs before publication…';out.append(note);
+     let task=started;
+     while(task.status==='running'){
+      await new Promise(resolve=>setTimeout(resolve,1500));
+      const resp=await fetch('/api/collection/archive-revisions/boxset-workers/'+started.task_id,{headers:header});
+      task=await resp.json();
+      if(!resp.ok)throw Error(task.detail||'Worker status unavailable; inspect durable group journal');
+     }
+     if(task.status!=='completed')throw Error(task.error||'Group migration failed');
+     note.textContent='Group '+task.result.operation_id+' · '+task.status+
+      ' · discs '+task.result.discs.join(', ')+'. Original generations retained.';
+    }catch(error){const p=document.createElement('p');p.textContent='Group migration stopped: '+error.message+'. Inspect group history; do not manually move/delete archive files.';out.append(p)}
+    finally{apply.disabled=false}
+   };
+  }
  }catch(error){out.textContent='Read-only boxset preview blocked: '+error.message}
+};
+document.getElementById('archive-boxset-history').onclick=async()=>{
+ const out=document.getElementById('archive-revision-output');
+ const headers=requestAuthHeaders('Boxset migration journal');if(!headers)return;
+ try{
+  const response=await fetch('/api/collection/archive-revisions/boxset-operations',{headers});
+  const data=await response.json();
+  if(!response.ok)throw Error(data.detail||'Could not load group history');
+  out.replaceChildren();
+  const heading=document.createElement('h4');heading.textContent='Coordinated multidisc revision journal';out.append(heading);
+  for(const operation of data.items){
+   const text=document.createElement('p');
+   text.textContent=operation.operation_id+' · '+operation.status+
+    ' · release '+operation.release_id+(operation.error?' · '+operation.error:'');
+   out.append(text);
+   if(operation.status==='prepared'){
+    const reconcile=document.createElement('button');reconcile.type='button';
+    reconcile.textContent='Reconcile interrupted group (opt-in)';out.append(reconcile);
+    reconcile.onclick=async()=>{
+     const auth=requestAuthHeaders('Recover interrupted group');if(!auth)return;
+     if(!window.confirm('Inspect the original, staging and promoted disc generations before proceeding. Reconcile only this interrupted group?'))return;
+     try{
+      const resp=await fetch('/api/collection/archive-revisions/boxset-reconcile',{
+       method:'POST',headers:{'Content-Type':'application/json',...auth},
+       body:JSON.stringify({operation_id:operation.operation_id})
+      });
+      const result=await resp.json();
+      if(!resp.ok)throw Error(result.detail||'Reconciliation blocked');
+      text.textContent=operation.operation_id+' · '+result.status;
+     }catch(error){text.textContent='Reconciliation blocked: '+error.message}
+    };
+   }
+  }
+  if(!data.items.length){const p=document.createElement('p');p.textContent='No coordinated boxset operations recorded.';out.append(p)}
+ }catch(error){out.textContent='Boxset history unavailable: '+error.message}
 };
 document.getElementById('archive-revision-operations').onclick=showArchiveRevisionOperations;
 document.getElementById('archive-revision-preview').onclick=async()=>{
