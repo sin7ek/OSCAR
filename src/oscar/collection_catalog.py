@@ -20,7 +20,8 @@ from zipfile import ZipFile, ZIP_DEFLATED, ZIP_STORED
 _COLUMNS = ("artist", "title", "year", "label", "catalog_number", "musicbrainz_release_id",
             "composer", "conductor", "orchestra", "soloists", "performers", "works",
             "archive_path", "track_count", "disc_number", "disc_total", "archive_status", "identification_status",
-            "media_condition", "sleeve_condition", "folder", "notes", "label_provenance")
+            "media_condition", "sleeve_condition", "folder", "notes", "label_provenance",
+            "genres", "library_section")
 _ENRICHED = ("label", "composer", "conductor", "orchestra", "soloists", "performers", "works")
 _SORT = frozenset(_COLUMNS)
 _MAX_MANIFEST = 3_000_000
@@ -50,7 +51,9 @@ CREATE TABLE IF NOT EXISTS archive_items (
   soloists TEXT NOT NULL DEFAULT '',
   performers TEXT NOT NULL DEFAULT '',
   works TEXT NOT NULL DEFAULT '',
-  label_provenance TEXT NOT NULL DEFAULT ''
+  label_provenance TEXT NOT NULL DEFAULT '',
+  genres TEXT NOT NULL DEFAULT '',
+  library_section TEXT NOT NULL DEFAULT 'Unclassified'
 );
 CREATE INDEX IF NOT EXISTS idx_archive_artist ON archive_items(artist, title);
 """
@@ -83,12 +86,15 @@ def _connect() -> sqlite3.Connection:
     db.row_factory = sqlite3.Row
     db.executescript(_SCHEMA)
     existing = {row[1] for row in db.execute("PRAGMA table_info(archive_items)")}
-    for name in (*_ENRICHED, "label_provenance", "disc_number", "disc_total"):
+    for name in (*_ENRICHED, "label_provenance", "disc_number", "disc_total", "genres", "library_section"):
         if name not in existing:
             if name in {"disc_number", "disc_total"}:
                 db.execute(f"ALTER TABLE archive_items ADD COLUMN {name} INTEGER NOT NULL DEFAULT 1")
             else:
-                db.execute(f"ALTER TABLE archive_items ADD COLUMN {name} TEXT NOT NULL DEFAULT ''")
+                if name == "library_section":
+                    db.execute("ALTER TABLE archive_items ADD COLUMN library_section TEXT NOT NULL DEFAULT 'Unclassified'")
+                else:
+                    db.execute(f"ALTER TABLE archive_items ADD COLUMN {name} TEXT NOT NULL DEFAULT ''")
     return db
 
 
@@ -167,7 +173,7 @@ def _legacy_bad_multidisc_row(row, album: Path) -> bool:
 def _archive_tag_metadata(album: Path, manifest: dict) -> dict:
     """Read actual archived FLAC Vorbis comments; never infer absent artists."""
     from mutagen.flac import FLAC
-    groups = {key: [] for key in (*_ENRICHED, "legacy_soloists")}
+    groups = {key: [] for key in (*_ENRICHED, "legacy_soloists", "raw_genres")}
     seen = {key: set() for key in groups}
     # The publishing profile is an explicit reviewed metadata decision.
     # A GENRE=Classical tag is also explicit evidence, unlike a guessed
@@ -204,6 +210,8 @@ def _archive_tag_metadata(album: Path, manifest: dict) -> dict:
                           ("performers", "PERFORMER"), ("label", "LABEL"), ("label", "RECORDLABEL")):
             for value in tags.get(tag, []):
                 add(dest, value)
+        for value in tags.get("GENRE", []):
+            add("raw_genres", value)
         for value in tags.get("PERFORMER", []):
             # Reconstruct the historical (incorrectly broad) computed value,
             # so a re-import can safely clear the original Anastacia row.
@@ -219,6 +227,8 @@ def _archive_tag_metadata(album: Path, manifest: dict) -> dict:
     if not classical:
         result["soloists"] = ""
     result["legacy_soloists"] = "; ".join(groups["legacy_soloists"])
+    from oscar.archive_genres import classify
+    result.update(classify(groups["raw_genres"], profile=manifest.get("profile")))
     return result
 
 
@@ -265,10 +275,10 @@ def import_published(*, only_path: Path | None = None) -> dict:
               (archive_path, artist, title, year, catalog_number, musicbrainz_release_id,
                track_count, disc_number, disc_total, archive_status, imported_at, label, composer, conductor,
                orchestra, soloists, performers, works, label_provenance, identification_status,
-               media_condition, sleeve_condition, folder, notes)
+               media_condition, sleeve_condition, folder, notes, genres, library_section)
               VALUES (:archive_path,:artist,:title,:year,:catalog_number,:musicbrainz_release_id,
                       :track_count,:disc_number,:disc_total,:archive_status,:imported_at,:label,:composer,:conductor,
-                      :orchestra,:soloists,:performers,:works,:label_provenance,:identification_status,'','','','')""",
+                      :orchestra,:soloists,:performers,:works,:label_provenance,:identification_status,'','','','',:genres,:library_section)""",
                        {**fields, "imported_at": datetime.now(timezone.utc).isoformat()})
             inserted += db.total_changes - before
             # Older catalog rows can gain *missing* sourced metadata from
@@ -298,7 +308,9 @@ def import_published(*, only_path: Path | None = None) -> dict:
                    soloists=CASE WHEN soloists='' OR soloists=:legacy_soloists
                                  THEN :soloists ELSE soloists END,
                    performers=CASE WHEN performers='' THEN :performers ELSE performers END,
-                   works=CASE WHEN works='' THEN :works ELSE works END
+                   works=CASE WHEN works='' THEN :works ELSE works END,
+                   genres=CASE WHEN genres='' THEN :genres ELSE genres END,
+                   library_section=CASE WHEN library_section='Unclassified' THEN :library_section ELSE library_section END
                    WHERE archive_path=:archive_path""", fields)
         # An importer may skip a manifest because its metadata is invalid.
         # A completed run is NOT proof that a particular release was indexed.
@@ -313,21 +325,32 @@ def import_published(*, only_path: Path | None = None) -> dict:
 
 
 def list_items(*, search: str = "", sort_by: str = "artist", descending: bool = False,
-               limit: int = 250, offset: int = 0) -> dict:
-    if sort_by not in _SORT or len(search) > 150 or not 1 <= limit <= 1000 or not 0 <= offset <= 1000000:
+               limit: int = 250, offset: int = 0, section: str = "") -> dict:
+    if (sort_by not in _SORT or len(search) > 150 or section not in
+            ("", "Classical", "Popular", "Unclassified") or not 1 <= limit <= 1000
+            or not 0 <= offset <= 1000000):
         raise CatalogError("Invalid catalog search or sort request")
     with _connect() as db:
         search_keys = ("artist", "title", "label", "catalog_number", "composer",
-                       "conductor", "orchestra", "soloists", "performers", "works")
-        where = " WHERE " + " OR ".join(k + " LIKE ?" for k in search_keys) if search else ""
-        args = (f"%{search}%",) * len(search_keys) if search else ()
+                       "conductor", "orchestra", "soloists", "performers", "works", "genres")
+        filters = []
+        args = []
+        if search:
+            filters.append("(" + " OR ".join(k + " LIKE ?" for k in search_keys) + ")")
+            args.extend([f"%{search}%"] * len(search_keys))
+        if section:
+            filters.append("library_section=?")
+            args.append(section)
+        where = " WHERE " + " AND ".join(filters) if filters else ""
+        args = tuple(args)
         total = db.execute("SELECT count(*) FROM archive_items" + where, args).fetchone()[0]
         order = "DESC" if descending else "ASC"
         rows = db.execute("SELECT " + ", ".join(_COLUMNS) + " FROM archive_items" +
                           where + f" ORDER BY {sort_by} {order}, archive_path ASC LIMIT ? OFFSET ?",
                           (*args, limit, offset)).fetchall()
     return {"total": total, "items": [dict(row) for row in rows],
-            "sort_by": sort_by, "descending": descending, "limit": limit, "offset": offset}
+            "sort_by": sort_by, "descending": descending, "limit": limit,
+            "offset": offset, "section": section}
 
 
 def _safe_spreadsheet_text(value: object) -> str:
