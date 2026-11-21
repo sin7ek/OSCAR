@@ -17,3 +17,7 @@ MusicBrainz has official `genres` separate from free-form `tags`, available via 
 ## Future logical vs physical split
 
 Use only library views / optional separate read-only media-server projections first. Physical paths still follow `/archive/Artist/Album/Disc NN` to preserve existing immutable manifests, CUE and version chains. A physical `/archive/Classical` move would require a dedicated journaled path migration with explicit consent, backup and Unraid testing; **not part of genre indexing**.
+
+## Open decision — optional separation of physical libraries (2026-11-21)
+
+**Operator decision: deferred.** Whether to physically split Classical and Pop/Rock/Dance archives, and how that should be exposed, is **not yet decided**. Do not interpret current logical Collection categories as authorization for a physical split or a mandatory workflow. Any future partition, new directory hierarchy or genre-based routing must be **opt-in**, reversible where possible, and reviewed separately with a path-migration plan, retained generations, backups, and Unraid acceptance. The current default physical layout remains untouched. The current Collection library dropdown is optional and defaults to **All libraries**; it is a view/filter, not a file move. No auto-migration, no forced classification, and no compulsory genre tagging. Revisit only after the operator explicitly chooses a design.
