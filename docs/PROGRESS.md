@@ -1,3 +1,9 @@
+## Unraid acceptance — coordinated Boulez archive revision (2026-11-21)
+
+**Operator-reported real Unraid verification: PASS.** The operator ran **Verify original, audio, metadata and Collection (read-only)** for the completed *Boulez Conducts Stravinsky* (MusicBrainz release `423f636d-742d-47b0-9ba2-51515a6fdfd2`) group operation `7e20981bad8a4145bc7e3ad6d9cecd61`. OSCAR returned `Integrity PASS`; **Disc 4: pass (7 tracks)** and **Disc 6: pass (32 tracks)**. The read-only verifier checks retained originals and revised generations, decoded-audio identity, manifest and FLAC hashes, non-audio evidence, every Vorbis comment against the approved LABEL-only change, and Collection state/decisions. Earlier operator checks reported 90/90 correct LABEL across six discs and 39/39 decoder tests for the revised CDs, with all six group preview statuses `already_correct`.
+
+**Scope:** this is genuine operator-reported Unraid acceptance of this specific completed multidisc metadata migration and its read-only integrity verification; it is **not** a guarantee that all failure/recovery paths or other releases have been hardware-tested. The exact physical MusicBrainz edition is **not** independently authenticated by archive-integrity Verify. PRs #112/#113 were merged and had green PR Python/Docker CI, but genre search and library section UI still await Unraid acceptance. A physical Classical/Popular archive split is deferred and may only be opt-in (PR #115 documentation decision pending). Retained generations must not be cleaned or moved as part of this test.
+
 # OSCAR — Development progress dashboard
 
 **Last assessed:** 2026-11-20  
