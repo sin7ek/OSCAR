@@ -92,3 +92,51 @@ def test_genre_review_rejects_conflicting_track_tags(fixture, monkeypatch):
     import pytest
     with pytest.raises(scan.ScanError, match="Inconsistent GENRE"):
         scan.scan("additions", str(old), lookup=genre_lookup)
+
+
+def test_release_genres_preferred_and_release_group_fallback(monkeypatch):
+    from test_boxsets import fixture as sample, DISC_ID, RELEASE_ID
+    from oscar import mb_client
+    group_id = "11111111-2222-3333-4444-555555555555"
+    queries = []
+    def response(request, **kwargs):
+        url = request.full_url
+        queries.append(url)
+        if "/release-group/" in url:
+            return {"id": group_id, "genres": [
+                {"name": "baroque", "count": 3},
+                {"name": "random unofficial style", "count": 9},
+            ]}
+        payload = sample()
+        payload["release-group"] = {"id": group_id}
+        return payload
+    monkeypatch.setattr(mb_client, "fetch_json", response)
+    result = boxsets.lookup_release_medium(RELEASE_ID, DISC_ID, 32)
+    assert result["genres"] == ["Classical", "Baroque"]
+    assert result["genre_source"] == "musicbrainz_release_group"
+    assert len(queries) == 2
+    assert "inc=genres" in queries[-1]
+    def release_response(request, **kwargs):
+        payload = sample()
+        payload["release-group"] = {"id": group_id}
+        payload["genres"] = [{"name": "classical", "count": 2}]
+        return payload
+    monkeypatch.setattr(mb_client, "fetch_json", release_response)
+    output = boxsets.lookup_release_medium(RELEASE_ID, DISC_ID, 32)
+    assert output["genres"] == ["Classical"]
+    assert output["genre_source"] == "musicbrainz_release"
+
+
+def test_genre_fallback_outage_does_not_block_cd_matching(monkeypatch):
+    from test_boxsets import fixture as sample, DISC_ID, RELEASE_ID
+    from oscar import mb_client, musicbrainz
+    def response(request, **kwargs):
+        if "/release-group/" in request.full_url:
+            raise musicbrainz.MusicBrainzError("MusicBrainz HTTP 503")
+        result = sample()
+        result["release-group"] = {"id": "11111111-2222-3333-4444-555555555555"}
+        return result
+    monkeypatch.setattr(mb_client, "fetch_json", response)
+    result = boxsets.lookup_release_medium(RELEASE_ID, DISC_ID, 32)
+    assert result["status"] == "exact_disc_id_and_track_count"
+    assert result["genres"] == []
