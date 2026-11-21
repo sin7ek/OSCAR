@@ -1747,11 +1747,13 @@ async function showArchiveRevisionOperations(){
       });
       const result=await response.json();
       if(!response.ok)throw Error(result.detail||'Archive verification failed');
-      verifiedReceipt=result.verification_fingerprint;
+      verifiedReceipt=result.cleanup_eligible ? result.verification_fingerprint : null;
       verification.textContent='VERIFIED: '+result.revised_flacs_verified+' new FLACs + '+
        result.original_flacs_verified+' originals, '+result.approved_fields_verified+
-       ' approved change(s); CUE/evidence and Collection OK. No archive bytes changed.';
-      cleanButton.disabled=false;
+       ' approved change(s); CUE/evidence and Collection OK. No archive bytes changed.'+
+       (result.historical_revision ?
+        ' Historical generation (superseded by a later revision); cleanup prohibited.' : '');
+      cleanButton.disabled=!result.cleanup_eligible;
       return verifiedReceipt;
      }catch(error){
       verification.textContent='VERIFY FAILED: '+error.message+

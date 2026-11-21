@@ -58,26 +58,77 @@ def _verify_locked(operation_id):
             if proposal is None or proposal["status"] != "applied":
                 raise ArchiveVerifyError("A reviewed metadata decision was not marked applied")
             proposals.append(proposal)
+        chain = [row]
+        seen = {row["operation_id"]}
+        while True:
+            previous = chain[-1]
+            successors = db.execute(
+                "SELECT * FROM archive_revision_operations "
+                "WHERE source_publish_id=? AND source_path=?",
+                (previous["new_publish_id"], previous["dest_path"]),
+            ).fetchall()
+            if not successors:
+                break
+            if len(successors) != 1 or successors[0]["status"] != "completed":
+                raise ArchiveVerifyError("Ambiguous or unfinished archive revision successor")
+            successor = successors[0]
+            if successor["operation_id"] in seen:
+                raise ArchiveVerifyError("Cycle in archive revision journal")
+            seen.add(successor["operation_id"])
+            chain.append(successor)
+            if len(chain) > 100:
+                raise ArchiveVerifyError("Unreasonably long archive revision chain")
+        latest = chain[-1]
+        predecessor = db.execute(
+            "SELECT 1 FROM archive_revision_operations "
+            "WHERE new_publish_id=? AND dest_path=? AND status='completed' LIMIT 1",
+            (row["source_publish_id"], row["source_path"]),
+        ).fetchone()
         linked = db.execute(
             "SELECT archive_path,catalog_number,label,label_provenance FROM archive_items "
-            "WHERE archive_path IN (?,?)", (row["source_path"], row["dest_path"])
+            "WHERE archive_path=?", (latest["dest_path"],)
         ).fetchall()
-    if len(linked) != 1 or linked[0]["archive_path"] != row["dest_path"]:
-        raise ArchiveVerifyError("Collection is not uniquely linked to new publication")
-    if linked[0]["catalog_number"] != row["target_catalog"]:
-        raise ArchiveVerifyError("Collection catalog number differs from approved revision")
-    if (row["target_label"] and linked[0]["label"] != row["target_label"]
+    if len(linked) != 1:
+        raise ArchiveVerifyError("Collection is not uniquely linked to latest publication")
+    if linked[0]["catalog_number"] != latest["target_catalog"]:
+        raise ArchiveVerifyError("Collection catalog number differs from latest revision")
+    if (latest["target_label"] and linked[0]["label"] != latest["target_label"]
             and linked[0]["label_provenance"] not in ("manual", "operator_curated")):
         raise ArchiveVerifyError(
             "Collection Label is stale; synchronize applied labels before verifying"
         )
     root = catalog.archive_root()
     old = Path(row["backup_path"])
-    new = Path(row["dest_path"])
+    historical = len(chain) > 1
+    # A superseded revision's output is the next revision's retained input.
+    new = Path(chain[1]["backup_path"] if historical else row["dest_path"])
     expected = root / ".oscar-archive-versions" / row["source_publish_id"] / operation_id
     if (old != expected or not old.is_relative_to(root)
             or not new.is_relative_to(root) or new == root):
         raise ArchiveVerifyError("Unsafe retained archive history path")
+    for parent, successor in zip(chain, chain[1:]):
+        successor_backup = Path(successor["backup_path"])
+        required = (root / ".oscar-archive-versions" /
+                    successor["source_publish_id"] / successor["operation_id"])
+        if (successor_backup != required or
+                not successor_backup.is_relative_to(root) or
+                not successor_backup.is_dir() or successor_backup.is_symlink() or
+                successor_backup.resolve(strict=True) != successor_backup or
+                successor_backup.parent.is_symlink() or
+                successor_backup.parent.parent.is_symlink()):
+            raise ArchiveVerifyError("Unsafe or missing successor retained generation")
+        manifest_path = successor_backup / "manifest.json"
+        if (manifest_path.is_symlink() or not manifest_path.is_file() or
+                scan._digest(manifest_path) != successor["source_manifest_sha256"]):
+            raise ArchiveVerifyError("Successor original manifest SHA-256 differs from journal")
+        version = json.loads(manifest_path.read_text(encoding="utf-8"))
+        ancestry = version.get("revision") or {}
+        if (successor["source_publish_id"] != parent["new_publish_id"] or
+                successor["source_path"] != parent["dest_path"] or
+                version.get("publish_id") != parent["new_publish_id"] or
+                ancestry.get("parent_publish_id") != parent["source_publish_id"] or
+                ancestry.get("parent_manifest_sha256") != parent["source_manifest_sha256"]):
+            raise ArchiveVerifyError("Archive revision chain ancestry differs from journal")
     for album in (old, new):
         if not album.is_dir() or album.is_symlink() or album.resolve(strict=True) != album:
             raise ArchiveVerifyError("Archived original or revised directory missing or unsafe")
@@ -96,8 +147,14 @@ def _verify_locked(operation_id):
     # Historical versions are intentionally hidden under a 4-level archive
     # history path, not the regular /artist/album layout understood by the
     # live archive scanner. Verify their original hashes directly instead.
-    new_snapshot = scan._archive_snapshot(str(new))
-    if original.get("release_id") != new_snapshot["release_id"]:
+    # A historical generation has a hidden path and cannot be scanned as a
+    # live /Artist/Album publication. Its own manifest and the successor
+    # journal's source SHA-256 authenticate it instead.
+    latest_snapshot = scan._archive_snapshot(str(Path(latest["dest_path"])))
+    if latest_snapshot["publish_id"] != latest["new_publish_id"]:
+        raise ArchiveVerifyError("Current publication differs from latest journal")
+    if (original.get("release_id") != latest_snapshot["release_id"]
+            or current.get("release_id") != latest_snapshot["release_id"]):
         raise ArchiveVerifyError("Original/new MusicBrainz release identity differs")
     old_files = original.get("files") or []
     new_files = current.get("files") or []
@@ -119,13 +176,17 @@ def _verify_locked(operation_id):
     checked = 0
     for index, (before, after) in enumerate(zip(old_files, new_files), 1):
         original_file = old / before["filename"]
+        revised_file = new / after["filename"]
+        if (revised_file.is_symlink() or not revised_file.is_file()
+                or scan._digest(revised_file) != after["sha256"]):
+            raise ArchiveVerifyError("Revised FLAC SHA-256 mismatch")
         if (original_file.is_symlink() or not original_file.is_file()
                 or scan._digest(original_file) != before["sha256"]):
             raise ArchiveVerifyError("Retained original FLAC SHA-256 mismatch")
         source = FLAC(str(original_file))
         target = FLAC(str(new / after["filename"]))
-        if ((source.get("MUSICBRAINZ_ALBUMID") or []) != [new_snapshot["release_id"]]
-                or (source.get("MUSICBRAINZ_DISCID") or []) != [new_snapshot["disc_id"]]):
+        if ((source.get("MUSICBRAINZ_ALBUMID") or []) != [latest_snapshot["release_id"]]
+                or (source.get("MUSICBRAINZ_DISCID") or []) != [latest_snapshot["disc_id"]]):
             raise ArchiveVerifyError("Original/new MusicBrainz CD identity differs")
         if (_streaminfo_md5_hex(source.info.md5_signature)
                 != _streaminfo_md5_hex(target.info.md5_signature)):
@@ -150,7 +211,10 @@ def _verify_locked(operation_id):
         checked += 1
     # This content-bound receipt can be submitted for an explicitly opted-in
     # cleanup. Cleanup MUST run this entire verification again under the lock.
-    fingerprint = hashlib.sha256(json.dumps({
+    # Historical verification is informative, not a cleanup authorization.
+    # No receipt may be issued while a successor uses this generation.
+    cleanup_eligible = not historical and predecessor is None
+    fingerprint = None if not cleanup_eligible else hashlib.sha256(json.dumps({
         "operation_id": operation_id,
         "old_manifest": row["source_manifest_sha256"],
         "new_manifest": scan._digest(new / "manifest.json"),
@@ -162,6 +226,9 @@ def _verify_locked(operation_id):
     }, sort_keys=True).encode()).hexdigest()
     return {
         "verification_fingerprint": fingerprint,
+        "historical_revision": historical,
+        "cleanup_eligible": cleanup_eligible,
+        "verified_generation_path": str(new),
         "operation_id": operation_id, "status": "verified",
         "original_flacs_verified": checked,
         "revised_flacs_verified": checked,
@@ -170,7 +237,9 @@ def _verify_locked(operation_id):
         "collection_verified": True,
         "original_retained": True,
         "verified_at": datetime.now(timezone.utc).isoformat(),
-        "note": "Read-only; neither the revised archive nor retained originals were modified.",
+        "note": ("Read-only revision chain verification; cleanup prohibited because "
+                 "the generation belongs to a multi-step history." if not cleanup_eligible else
+                 "Read-only; neither the revised archive nor retained originals were modified."),
     }
 
 

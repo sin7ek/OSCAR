@@ -98,6 +98,31 @@ def clean(operation_id, verification_fingerprint, confirmation,
                 raise ArchiveCleanupError(
                     "Archive revision incomplete or another interrupted operation needs reconciliation"
                 )
+            # A superseded revision's published output is retained as the
+            # original of its successor. Never delete its history through
+            # an old verification receipt or a manually crafted API request.
+            with _db() as db:
+                successor = db.execute(
+                    "SELECT 1 FROM archive_revision_operations "
+                    "WHERE source_publish_id=? AND source_path=? LIMIT 1",
+                    (row["new_publish_id"], row["dest_path"]),
+                ).fetchone()
+            if successor:
+                raise ArchiveCleanupError(
+                    "Historical revision is part of a later archive chain; "
+                    "cleanup is prohibited"
+                )
+            with _db() as db:
+                predecessor = db.execute(
+                    "SELECT 1 FROM archive_revision_operations "
+                    "WHERE new_publish_id=? AND dest_path=? AND status='completed' LIMIT 1",
+                    (row["source_publish_id"], row["source_path"]),
+                ).fetchone()
+            if predecessor:
+                raise ArchiveCleanupError(
+                    "This retained original is a previous revision's output; "
+                    "cleanup would break archived ancestry and is prohibited"
+                )
             expected = root / ".oscar-archive-versions" / row["source_publish_id"] / operation_id
             backup = Path(row["backup_path"])
             if (backup != expected or not backup.is_relative_to(root)
