@@ -135,6 +135,7 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 <button type="button" id="archive-revision-preview">Preview approved archive migration for selected album</button>
 <button type="button" id="archive-revision-operations">View archive revision history and recovery status</button>
 <button type="button" id="archive-boxset-label-preview">Preview coordinated multidisc labels (read-only)</button>
+<button type="button" id="archive-boxset-genre-preview">Preview coordinated multidisc genres (read-only)</button>
 <button type="button" id="archive-boxset-history">View multidisc revision history / recovery</button>
 <p>Verify checks new and original FLACs, manifests, CUE/source evidence and Collection. Clean permanently removes only the verified retained original of one operation, destroys OSCAR's internal rollback, and requires OSCAR_ENABLE_ARCHIVE_HISTORY_CLEANUP=1 plus an independent backup and double confirmation. Prefer excluding hidden archive history from media-server scans. Never Clean if you need the original archive for recovery.</p>
 <div id="archive-revision-output" aria-live="polite"></div>
@@ -1826,35 +1827,36 @@ async function showArchiveRevisionOperations(){
   }
  }catch(error){out.textContent='Revision journal: '+error.message}
 }
-document.getElementById('archive-boxset-label-preview').onclick=async()=>{
+async function previewCoordinatedBoxset(field){
  const out=document.getElementById('archive-revision-output');
  const selected=document.getElementById('archive-scan-album');
  const release=selected.selectedOptions[0]?.dataset.releaseId;
  if(!release){out.textContent='Select a disc in Advanced · scan only one archive album first.';return}
  const headers=requestAuthHeaders('Read-only coordinated boxset metadata review');
  if(!headers)return;
- out.textContent='Verifying all available archived CD media and reviewed MusicBrainz release labels…';
+ out.textContent='Verifying all archived CD media and reviewed MusicBrainz '+field+' values…';
  try{
   const response=await fetch('/api/collection/archive-revisions/boxset-preview',{
    method:'POST',headers:{'Content-Type':'application/json',...headers},
-   body:JSON.stringify({release_id:release})
+   body:JSON.stringify({release_id:release,field})
   });
   const data=await response.json();
   if(!response.ok)throw Error(data.detail||'Boxset review unavailable');
   out.replaceChildren();
-  const h=document.createElement('h4');h.textContent='Multidisc release label review (read-only)';out.append(h);
+  const h=document.createElement('h4');h.textContent='Multidisc release '+(field==='GENRE'?'genre':'label')+' review (read-only)';out.append(h);
   for(const line of [
    'MusicBrainz release: '+data.release_id,
    'Archived discs: '+data.present_disc_numbers.join(', ')+' of '+data.disc_total,
    'Missing discs: '+(data.missing_disc_numbers.join(', ')||'none'),
-   'Reviewed label(s): '+data.reviewed_labels.join('; '),
+   'Reviewed '+field+': '+(field==='GENRE'?data.reviewed_genres:data.reviewed_labels).join('; '),
    'All existing discs reviewed: '+(data.all_present_discs_reviewed?'yes':'no'),
    data.note
   ]){const p=document.createElement('p');p.textContent=line;out.append(p)}
   for(const disc of data.disc_reviews){
    const p=document.createElement('p');
-   p.textContent='Disc '+disc.disc+' · '+disc.track_count+' tracks · '+disc.label_status+
-    ' · FLAC LABEL: '+(disc.existing_flac_labels.join('; ')||'(missing)')+
+   p.textContent='Disc '+disc.disc+' · '+disc.track_count+' tracks · '+
+    (field==='GENRE'?disc.genre_status:disc.label_status)+
+    ' · FLAC '+field+': '+((field==='GENRE'?disc.existing_flac_genres:disc.existing_flac_labels).join('; ')||'(missing)')+
     ' · '+disc.archive_path;out.append(p);
   }
   if(data.apply_supported){
@@ -1871,7 +1873,7 @@ document.getElementById('archive-boxset-label-preview').onclick=async()=>{
     try{
      const response=await fetch('/api/collection/archive-revisions/boxset-apply',{
       method:'POST',headers:{'Content-Type':'application/json',...header},
-      body:JSON.stringify({release_id:data.release_id,fingerprint:data.fingerprint,confirmation:typed})
+      body:JSON.stringify({release_id:data.release_id,field,fingerprint:data.fingerprint,confirmation:typed})
      });
      const started=await response.json();
      if(!response.ok)throw Error(started.detail||'Boxset migration could not start');
@@ -1891,7 +1893,9 @@ document.getElementById('archive-boxset-label-preview').onclick=async()=>{
    };
   }
  }catch(error){out.textContent='Read-only boxset preview blocked: '+error.message}
-};
+}
+document.getElementById('archive-boxset-label-preview').onclick=()=>previewCoordinatedBoxset('LABEL');
+document.getElementById('archive-boxset-genre-preview').onclick=()=>previewCoordinatedBoxset('GENRE');
 document.getElementById('archive-boxset-history').onclick=async()=>{
  const out=document.getElementById('archive-revision-output');
  const headers=requestAuthHeaders('Boxset migration journal');if(!headers)return;
