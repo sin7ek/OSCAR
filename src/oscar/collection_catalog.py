@@ -266,6 +266,10 @@ def import_published(*, only_path: Path | None = None) -> dict:
                           **_archive_tag_metadata(album, data)}
                 fields["label_provenance"] = ("archive_manifest_label_info" if data.get("label_info") and fields["label"] else
                                                "archived_flac_label_tag" if fields["label"] else "")
+                # Compatibility with existing import hooks and historical archive
+                # records that predate the genre index.
+                fields.setdefault("genres", "")
+                fields.setdefault("library_section", "Unclassified")
                 fields["identification_status"] = _identification_status(data)
             except (OSError, ValueError, json.JSONDecodeError, CatalogError):
                 skipped += 1
