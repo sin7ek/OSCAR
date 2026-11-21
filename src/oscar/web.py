@@ -298,7 +298,7 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 // Progressive enhancement: retain every existing form, endpoint and event
 // handler; move the legacy specialist surfaces into a collapsible Review area.
 const oscarTabNames=[
- ['go','Go!'],['review','Review'],['collection','Collection'],['settings','Settings']
+ ['go','Go!'],['review','Review'],['collection','Collection'],['diagnostics','Diagnostics'],['settings','Settings']
 ];
 const oscarNav=document.getElementById('oscar-tabs');
 const oscarPanels=document.getElementById('oscar-panels');
@@ -340,6 +340,63 @@ for(const section of [...document.body.querySelectorAll(':scope > section')]){
  else if(settingsSectionTitles.has(title))oscarPanelsByName.get('settings').append(section);
  else oscarAdvanced.append(section);
 }
+const diagnosticsPanel=oscarPanelsByName.get('diagnostics');
+const drivefitSection=document.createElement('section');
+drivefitSection.id='drivefit';
+const drivefitHeading=document.createElement('h2');
+drivefitHeading.textContent='DriveFit · optical drive diagnostics';
+const drivefitIntro=document.createElement('p');
+drivefitIntro.textContent='Read-only rip history for each configured drive. Slow or failed rips do not by themselves show hardware wear. No test disc is spun up and no media is changed.';
+const drivefitRefresh=document.createElement('button');
+drivefitRefresh.type='button';drivefitRefresh.id='drivefit-refresh';
+drivefitRefresh.textContent='Refresh DriveFit';
+const drivefitOutput=document.createElement('div');
+drivefitOutput.id='drivefit-output';drivefitOutput.setAttribute('aria-live','polite');
+drivefitSection.append(drivefitHeading,drivefitIntro,drivefitRefresh,drivefitOutput);
+diagnosticsPanel.append(drivefitSection);
+async function refreshDriveFit(){
+ const out=document.getElementById('drivefit-output');
+ const auth=requestAuthHeaders('DriveFit diagnostics');if(!auth)return;
+ out.textContent='Reading saved rip and verification history…';
+ try{
+  const response=await fetch('/api/diagnostics/drivefit',{headers:auth});
+  const data=await response.json();
+  if(!response.ok)throw Error(data.detail||'DriveFit unavailable');
+  out.replaceChildren();
+  for(const item of data.drives||[]){
+   const section=document.createElement('section');
+   const name=document.createElement('h3');name.textContent=item.label+' · '+item.stable_id;section.append(name);
+   const facts=[
+    'Connected: '+(item.present?'yes':'no')+' · firmware: '+(item.firmware||'unknown'),
+    'History: '+item.sample_count+' saved jobs · '+item.extractions_completed+' completed extractions',
+    'Verification: '+item.verified_jobs+' passed · '+item.review_required_jobs+' review required',
+    'Rip interruptions or failures: '+item.failed_or_interrupted_jobs+
+      ' · reports with ripping errors: '+item.ripping_error_reports,
+    'Median full-rip duration: '+(item.median_duration_seconds===null?
+      'not available':Math.round(item.median_duration_seconds/60*10)/10+' min')+
+      ' (not normalized for CD duration)',
+    item.assessment==='insufficient_data'?
+      'Evidence: too few complete rips for a useful baseline':'Evidence: history available; benchmark with the same known-good CD'
+   ];
+   for(const fact of facts){const p=document.createElement('p');p.textContent=fact;section.append(p)}
+   const details=document.createElement('details');
+   const summary=document.createElement('summary');summary.textContent='Recent rip observations';
+   details.append(summary);
+   for(const job of item.recent_jobs){
+    const row=document.createElement('p');
+    row.textContent=job.job_id.slice(0,8)+' · '+job.status+
+      ' · '+(job.duration_seconds===null?'time unknown':Math.round(job.duration_seconds/60*10)/10+' min')+
+      ' · '+(job.tracks||'?')+' tracks · '+job.verification_status;
+    details.append(row);
+   }
+   section.append(details);out.append(section);
+  }
+  const note=document.createElement('p');
+  note.textContent='History: '+data.history_scope+' These are observations, not a hardware-health score. AccurateRip misses may reflect database coverage; compare the same known-good disc across drives.';
+  out.append(note);
+ }catch(error){out.textContent='DriveFit diagnostics unavailable: '+error.message}
+}
+drivefitRefresh.onclick=refreshDriveFit;
 const saveButton=document.getElementById('save');
 const saveStatus=document.getElementById('status');
 oscarPanelsByName.get('settings').append(saveButton,saveStatus);
@@ -352,6 +409,7 @@ function showOscarTab(name){
  }
  if(name==='go')refreshGoCards(false);
  if(name==='review')refreshReviewQueue(false);
+ if(name==='diagnostics')refreshDriveFit();
 }
 oscarNav.addEventListener('keydown',event=>{
  if(!['ArrowRight','ArrowLeft','Home','End'].includes(event.key))return;

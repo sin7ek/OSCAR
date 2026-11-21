@@ -320,6 +320,11 @@ def start(job_id):
                     output.flush()
                     os.fsync(output.fileno())
             os.replace(tmp, destination)
+            try:
+                from oscar.drivefit_history import record_verification
+                record_verification(job_id, result)
+            except Exception:
+                pass  # No verification verdict depends on DriveFit availability.
         except OSError:
             pass
         finally:
