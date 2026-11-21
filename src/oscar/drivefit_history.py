@@ -107,7 +107,7 @@ def record_verification(job_id, report):
 
 def read_history(stable_ids, *, limit=5000):
     """Per-drive lightweight metrics, no user supplied SQL identifiers."""
-    if not stable_ids:
+    if not stable_ids or not database_path().exists():
         return []
     with _db() as db:
         rows = db.execute(
