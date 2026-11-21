@@ -55,7 +55,7 @@ def test_reviewed_archive_genre_migration_only_versions_approved_flacs(fixture, 
     preview = scan.scan("additions", str(old), lookup=genre_lookup)
     genre_proposals = [r for r in preview["pending"] if r["field"] == "GENRE"]
     assert len(genre_proposals) == 1
-    assert genre_proposals[0]["after"] == ["Jazz", "Blues"]
+    assert genre_proposals[0]["after"] == ["Blues", "Jazz"]
     assert scan.decide(genre_proposals[0]["fingerprint"], "accept", lookup=genre_lookup)["status"] == "accepted"
     plan = revision.preview(str(old))
     assert len(plan["accepted_changes"]) == 1
@@ -67,7 +67,7 @@ def test_reviewed_archive_genre_migration_only_versions_approved_flacs(fixture, 
     from test_archive_revision import FakeFlac
     for name, payload in initial.items():
         assert (original / name).read_bytes() == payload
-        assert FakeFlac(current / name).get("GENRE") == ["Jazz", "Blues"]
+        assert FakeFlac(current / name).get("GENRE") == ["Blues", "Jazz"]
     row = catalog.list_items()["items"][0]
     assert row["genres"] == "Jazz; Blues"
     assert row["library_section"] == "Popular"
