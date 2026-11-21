@@ -1,3 +1,5 @@
+> **DriveFit draft PR #111 (2026-11-21):** User requested a new Diagnostics tab to understand relative optical-drive condition (notably slow HL-DT-ST GH24NS95 despite near-mint CDs). Branch `feat/drivefit-readonly-diagnostics` adds a separate **Diagnostics → DriveFit** UI and authenticated read-only `/api/diagnostics/drivefit` that summarizes existing retained staging job duration, verification, recorded ripping errors and drive identity. Does **not** spin discs, claim a drive is failing, estimate remaining drive lifespan, or distinguish a disc with no AccurateRip entry from drive faults. A future benchmark must use the same known-good disc in different drives with sample-size controls. Draft / not merged / no real Unraid acceptance. See `docs/DRIVEFIT.md` and PR #111. **Keep this independent of draft multidisc PR #110**.
+
 # OSCAR — Developer handoff for the next chat
 
 > **Purpose:** make it possible to resume the OSCAR engineering project in a fresh ChatGPT conversation (e.g. "OSCAR chat 5") with minimal reconstruction, without confusing prior intentions with verified implementation.
