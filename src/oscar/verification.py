@@ -323,7 +323,7 @@ def start(job_id):
             try:
                 from oscar.drivefit_history import record_verification
                 record_verification(job_id, result)
-            except (OSError, ValueError, ImportError):
+            except Exception:
                 pass  # No verification verdict depends on DriveFit availability.
         except OSError:
             pass
