@@ -4,7 +4,7 @@ from pathlib import Path
 
 from oscar import archive_genres, boxsets, metadata_staging
 
-from test_archive_revision import fixture as archival_fixture
+from test_archive_revision import fixture  # existing isolated archive+SQLite fixture
 from oscar import archive_metadata_scan as scan
 from oscar import archive_revision as revision
 from oscar import collection_catalog as catalog
