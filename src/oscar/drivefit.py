@@ -13,7 +13,7 @@ from pathlib import Path
 import statistics
 import time
 
-from oscar import ripping
+from oscar import ripping, drivefit_history
 from oscar.settings import discover_settings, inspect_drives
 
 _MAX_JOBS = 1000
@@ -97,6 +97,13 @@ def report():
             "finished_at": finished,
         })
 
+    # Historical measurements survive staging cleanup. Deduplicate by job ID.
+    # A surviving staging report takes precedence over persisted summary data.
+    persisted = drivefit_history.read_history(set(configured))
+    for item in persisted:
+        key = item["stable_id"]
+        if not any(entry["job_id"] == item["job_id"] for entry in records[key]):
+            records[key].append(item)
     results = []
     for key, drive in configured.items():
         jobs = sorted(records[key], key=lambda j: j["finished_at"] or 0, reverse=True)
@@ -129,9 +136,9 @@ def report():
             ),
         })
     return {
-        "version": 1, "mode": "read_only_retrospective",
+        "version": 2, "mode": "read_only_retrospective",
         "drives": results, "jobs_scanned": scanned,
-        "history_scope": "Existing staging folders only; removed jobs are not counted.",
+        "history_scope": "Existing staging and persistent DriveFit SQLite history. Older jobs only survive if their staging is still available.",
         "limitations": [
             "No direct hardware wear sensor or dependable end-of-life estimate exists here.",
             "AccurateRip misses can reflect database coverage, not bad hardware.",
