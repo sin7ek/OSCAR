@@ -887,6 +887,19 @@ def archive_revision_boxset_operations(request: Request,
     return operations()
 
 
+@app.post("/api/collection/archive-revisions/boxset-verify")
+def archive_revision_boxset_verify(body: ArchiveBoxsetReconcileRequest, request: Request,
+                                   x_oscar_rip_token: str | None = Header(default=None)):
+    """Read-only integrity audit of an already completed group migration."""
+    from oscar.archive_revision_boxset_verify import verify
+    from oscar.archive_revision_boxset_apply import BoxsetApplyError
+    _rip_auth(x_oscar_rip_token, request)
+    try:
+        return verify(body.operation_id)
+    except (BoxsetApplyError, OSError, ValueError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
 class ArchiveRevisionVerifyRequest(BaseModel):
     operation_id: str = Field(pattern=r"^[a-f0-9]{32}$")
 

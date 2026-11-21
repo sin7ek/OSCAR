@@ -1900,6 +1900,31 @@ document.getElementById('archive-boxset-history').onclick=async()=>{
    text.textContent=operation.operation_id+' · '+operation.status+
     ' · release '+operation.release_id+(operation.error?' · '+operation.error:'');
    out.append(text);
+   if(operation.status==='completed'){
+    const verify=document.createElement('button');verify.type='button';
+    verify.textContent='Verify original, audio, metadata and Collection (read-only)';
+    out.append(verify);
+    verify.onclick=async()=>{
+     const auth=requestAuthHeaders('Verify completed multidisc revision');if(!auth)return;
+     verify.disabled=true;
+     const report=document.createElement('pre');report.textContent='Verifying both generations…';
+     out.append(report);
+     try{
+      const resp=await fetch('/api/collection/archive-revisions/boxset-verify',{
+       method:'POST',headers:{'Content-Type':'application/json',...auth},
+       body:JSON.stringify({operation_id:operation.operation_id})
+      });
+      const result=await resp.json();
+      if(!resp.ok)throw Error(result.detail||'Unable to verify group');
+      report.textContent='Integrity '+result.status.toUpperCase()+
+       '\\n'+result.verified_discs.map(d=>'Disc '+d.disc+': '+d.status+
+        ' ('+d.tracks+' tracks)'+
+        (d.observations.length?' · '+d.observations.join('; '):'')).join('\\n')+
+       '\\n'+result.note;
+     }catch(error){report.textContent='Verification unavailable: '+error.message}
+     finally{verify.disabled=false}
+    };
+   }
    if(operation.status==='prepared'){
     const reconcile=document.createElement('button');reconcile.type='button';
     reconcile.textContent='Reconcile interrupted group (opt-in)';out.append(reconcile);
