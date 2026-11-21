@@ -1066,12 +1066,13 @@ def archive_metadata_history(request: Request,
 @app.get("/api/collection")
 def collection_list(request: Request, search: str = "", sort_by: str = "artist",
                     descending: bool = False, limit: int = 250, offset: int = 0,
+                    section: str = "",
                     x_oscar_rip_token: str | None = Header(default=None)):
     from oscar.collection_catalog import CatalogError, list_items
     _rip_auth(x_oscar_rip_token, request)
     try:
         return list_items(search=search, sort_by=sort_by, descending=descending,
-                          limit=limit, offset=offset)
+                          limit=limit, offset=offset, section=section)
     except (CatalogError, OSError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
