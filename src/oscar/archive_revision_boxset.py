@@ -20,7 +20,9 @@ class BoxsetReviewError(ValueError):
     pass
 
 
-def preview(release_id, *, lookup=None):
+def preview(release_id, *, lookup=None, field="LABEL"):
+    if field not in {"LABEL", "GENRE"}:
+        raise BoxsetReviewError("Only LABEL and GENRE are supported for coordinated migration")
     if not isinstance(release_id, str) or not _UUID.fullmatch(release_id):
         raise BoxsetReviewError("A full MusicBrainz release UUID is required")
     root = catalog.archive_root()
@@ -44,7 +46,7 @@ def preview(release_id, *, lookup=None):
     ):
         raise BoxsetReviewError("Invalid or duplicated physical medium positions")
     parent = None
-    target_labels = None
+    target_labels = None  # selected reviewed release field, kept for older API clients
     result = []
     provider = lookup or scanner.lookup_release_medium
     for row in albums:
@@ -63,24 +65,24 @@ def preview(release_id, *, lookup=None):
         if source.get("disc_total") != total:
             raise BoxsetReviewError("Published disc-total metadata differs from Collection")
         candidates = scanner._fresh_values(snapshot, provider)
-        match = [item for item in candidates if item[:3] == ("release", 0, "LABEL")]
+        match = [item for item in candidates if item[:3] == ("release", 0, field)]
         if len(match) != 1:
-            raise BoxsetReviewError("Could not obtain one exact physical release label")
+            raise BoxsetReviewError("Could not obtain one exact physical release " + field)
         _, _, _, existing, incoming = match[0]
         if not incoming:
-            raise BoxsetReviewError("MusicBrainz release has no verified label for these physical discs")
+            raise BoxsetReviewError("MusicBrainz release has no recognized " + field + " for these physical discs")
         normalized = scanner._canonical(incoming)
         if target_labels is None:
             target_labels = normalized
         if target_labels != normalized:
-            raise BoxsetReviewError("MusicBrainz label differs across discs of one physical release")
+            raise BoxsetReviewError("MusicBrainz " + field + " differs across discs of one physical release")
         with revision._db() as db:
             approvals = db.execute(
                 "SELECT fingerprint,before_json,after_json,archive_revision,publish_id "
                 "FROM metadata_proposals "
                 "WHERE archive_path=? AND release_id=? AND status='accepted' "
-                "AND field='LABEL' AND scope='release' AND track=0",
-                (str(leaf), release_id)
+                "AND field=? AND scope='release' AND track=0",
+                (str(leaf), release_id, field)
             ).fetchall()
         already_correct = scanner._canonical(existing) == normalized
         accepted = (len(approvals) == 1
@@ -89,7 +91,7 @@ def preview(release_id, *, lookup=None):
                     and json.loads(approvals[0]["before_json"]) == scanner._canonical(existing)
                     and json.loads(approvals[0]["after_json"]) == normalized)
         if len(approvals) > 1:
-            raise BoxsetReviewError("Multiple competing accepted label approvals for one disc")
+            raise BoxsetReviewError("Multiple competing accepted " + field + " approvals for one disc")
         status = "already_correct" if already_correct else (
             "approved_for_review" if accepted else "needs_operator_approval"
         )
@@ -99,9 +101,12 @@ def preview(release_id, *, lookup=None):
             "publication_id": snapshot["publish_id"],
             "manifest_sha256": snapshot["manifest_sha256"],
             "track_count": len(snapshot["tracks"]),
-            "existing_flac_labels": scanner._canonical(existing),
-            "reviewed_labels": normalized,
-            "label_status": status,
+            "existing_flac_labels": scanner._canonical(existing) if field == "LABEL" else [],
+            "existing_flac_genres": scanner._canonical(existing) if field == "GENRE" else [],
+            "reviewed_labels": normalized if field == "LABEL" else [],
+            "reviewed_genres": normalized if field == "GENRE" else [],
+            "label_status": status if field == "LABEL" else "",
+            "genre_status": status if field == "GENRE" else "",
             "accepted_fingerprint": approvals[0]["fingerprint"] if accepted else None,
         })
     # Never silently omit a newly published disc that has not yet been
@@ -119,11 +124,13 @@ def preview(release_id, *, lookup=None):
                     "Unindexed published disc detected; refresh Collection before reviewing this boxset"
                 )
     missing = sorted(set(range(1, total + 1)) - set(present))
-    ready = all(d["label_status"] != "needs_operator_approval" for d in result)
-    actionable = (ready and any(d["label_status"] == "approved_for_review" for d in result))
+    status_key = "label_status" if field == "LABEL" else "genre_status"
+    ready = all(d[status_key] != "needs_operator_approval" for d in result)
+    actionable = (ready and any(d[status_key] == "approved_for_review" for d in result))
     enabled = os.environ.get("OSCAR_ENABLE_BOXSET_ARCHIVE_REVISIONS") == "1"
     fingerprint = hashlib.sha256(json.dumps({
         "release_id": release_id, "discs": result, "missing": missing,
+        **({"field": field} if field != "LABEL" else {}),
     }, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
     return {
         "release_id": release_id,
@@ -132,7 +139,9 @@ def preview(release_id, *, lookup=None):
         "present_disc_numbers": present,
         "missing_disc_numbers": missing,
         "partial_boxset": bool(missing),
-        "reviewed_labels": target_labels,
+        "field": field,
+        "reviewed_labels": target_labels if field == "LABEL" else [],
+        "reviewed_genres": target_labels if field == "GENRE" else [],
         "disc_reviews": result,
         "all_present_discs_reviewed": ready,
         "fingerprint": fingerprint,

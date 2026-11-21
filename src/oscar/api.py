@@ -813,6 +813,7 @@ def archive_revision_operations(request: Request,
 
 class ArchiveBoxsetPreviewRequest(BaseModel):
     release_id: str = Field(pattern=r"^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$")
+    field: str = Field(default="LABEL", pattern=r"^(LABEL|GENRE)$")
 
 
 @app.post("/api/collection/archive-revisions/boxset-preview")
@@ -826,7 +827,7 @@ def archive_revision_boxset_preview(body: ArchiveBoxsetPreviewRequest, request: 
     from oscar.musicbrainz import MusicBrainzError
     _rip_auth(x_oscar_rip_token, request)
     try:
-        return preview(body.release_id)
+        return preview(body.release_id, field=body.field)
     except (BoxsetReviewError, RevisionError, ScanError, CatalogError,
             MusicBrainzError, ValueError, OSError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -847,7 +848,7 @@ def archive_revision_boxset_apply(body: ArchiveBoxsetApplyRequest, request: Requ
     from oscar.musicbrainz import MusicBrainzError
     _rip_auth(x_oscar_rip_token, request)
     try:
-        return start(body.release_id, body.fingerprint, body.confirmation)
+        return start(body.release_id, body.fingerprint, body.confirmation, field=body.field)
     except (BoxsetApplyError, BoxsetReviewError, ScanError, CatalogError,
             MusicBrainzError, ValueError, OSError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
