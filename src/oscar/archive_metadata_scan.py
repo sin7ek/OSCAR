@@ -171,11 +171,21 @@ def _fresh_values(snapshot, lookup):
                          for x in labels if isinstance(x, dict) and x.get("catalog_number")))
     label_names = sorted(set(str(x.get("name")).strip()
                              for x in labels if isinstance(x, dict) and x.get("name")))
+    # Release-scope genres must be consistent across the archived CD before
+    # proposing a change. Never silently overwrite conflicting per-track styles.
+    genre_values = [_canonical(track["tags"].get("GENRE", [])) for track in snapshot["tracks"]]
+    if any(values != genre_values[0] for values in genre_values[1:]):
+        raise ScanError("Inconsistent GENRE tags across archived tracks; manual review required")
+    provider_genres = result.get("genres") or []
+    if provider_genres:
+        from oscar.archive_genres import normalize_genres
+        provider_genres = normalize_genres(provider_genres)
     candidates = [
         ("release", 0, "CATALOGNUMBER", snapshot["tracks"][0]["tags"].get("CATALOGNUMBER", []), numbers),
         ("release", 0, "LABEL", _existing_label_values(snapshot["tracks"][0]["tags"]), label_names),
         ("release", 0, "BARCODE", snapshot["tracks"][0]["tags"].get("BARCODE", []),
          [result["barcode"]] if result.get("barcode") else []),
+        ("release", 0, "GENRE", genre_values[0], provider_genres),
     ]
     for index, (archived, external) in enumerate(zip(snapshot["tracks"], tracks), 1):
         if external.get("position") != index:
