@@ -1,7 +1,7 @@
 """Independent read-only verification of completed coordinated boxset revisions.
 
 Audits original and revised FLAC Vorbis comments field-by-field. Only the
-operator-approved LABEL and its existing RECORDLABEL alias may differ.
+operator-approved LABEL (plus pre-existing RECORDLABEL alias) or GENRE may differ.
 Never edits archives, Collection, or prior operation journal records.
 """
 from __future__ import annotations
@@ -16,7 +16,7 @@ from oscar import archive_revision_boxset_apply as group
 from oscar import collection_catalog as catalog
 
 _ID = re.compile(r"[0-9a-f]{32}\Z")
-_ALLOWED = {"LABEL", "RECORDLABEL"}
+_ALLOWED = {"LABEL", "RECORDLABEL", "GENRE"}
 
 
 def _tags(path):
@@ -24,14 +24,18 @@ def _tags(path):
             for key, values in FLAC(str(path)).tags.items()}
 
 
-def compare_tags(original, revised, approved):
+def compare_tags(original, revised, approved, *, field="LABEL"):
+    if field not in {"LABEL", "GENRE"}:
+        raise ValueError("Unsupported verified metadata field")
     """Return exact unexpected tag changes; case-insensitive Vorbis names."""
     before, after = _tags(original), _tags(revised)
     unexpected = {}
+    revision_field = field
     for field in sorted(set(before) | set(after)):
         if before.get(field, []) == after.get(field, []):
             continue
-        if field in _ALLOWED:
+        if field in _ALLOWED and (field == revision_field or
+                                  (field == "RECORDLABEL" and revision_field == "LABEL")):
             if after.get(field, []) != sorted(str(v) for v in approved):
                 unexpected[field] = {"before": before.get(field, []),
                                      "after": after.get(field, [])}
@@ -81,7 +85,8 @@ def verify(operation_id):
             if old_manifest.get("disc_number") != disc:
                 errors.append("Journal disc position differs from original")
             for key in sorted(set(old_files) & set(new_files)):
-                differences = compare_tags(original / key, revised / key, entry["after"])
+                differences = compare_tags(original / key, revised / key, entry["after"],
+                                           field=entry.get("field", "LABEL"))
                 if differences:
                     errors.append(f"Track {key}: unexpected metadata differences in " +
                                   ", ".join(sorted(differences)))
@@ -97,7 +102,7 @@ def verify(operation_id):
             errors.append(f"{type(exc).__name__}: {exc}"[:300])
         with group._db() as db:
             item = db.execute(
-                "SELECT label,label_provenance,musicbrainz_release_id,disc_number "
+                "SELECT label,label_provenance,genres,library_section,musicbrainz_release_id,disc_number "
                 "FROM archive_items WHERE archive_path=?", (str(revised),)
             ).fetchone()
             decisions = db.execute(
@@ -105,10 +110,20 @@ def verify(operation_id):
                 (entry["fingerprint"],)
             ).fetchall()
         if (item is None or item["musicbrainz_release_id"] != row["release_id"]
-                or item["disc_number"] != disc or
-                item["label"] != "; ".join(entry["after"]) or
-                item["label_provenance"] != "archive_revision_approved_labels"):
-            errors.append("Collection row does not match approved revised disc")
+                or item["disc_number"] != disc):
+            errors.append("Collection row does not match physical disc identity")
+        elif entry.get("field", "LABEL") == "LABEL":
+            if (item["label"] != "; ".join(entry["after"]) or
+                    item["label_provenance"] != "archive_revision_approved_labels"):
+                errors.append("Collection label does not match approved revision")
+        elif entry.get("field") == "GENRE":
+            from oscar.archive_genres import classify
+            expected = classify(entry["after"], profile=new_manifest.get("profile"))
+            if (item["genres"] != expected["genres"] or
+                    item["library_section"] != expected["library_section"]):
+                errors.append("Collection genre does not match approved revision")
+        else:
+            errors.append("Unexpected field in group revision journal")
         if len(decisions) != 1 or decisions[0]["status"] != "applied":
             errors.append("Approved metadata decision is not marked applied")
         results.append({
