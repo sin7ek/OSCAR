@@ -36,6 +36,81 @@ def max_concurrent_rips():
     return int(raw)
 
 
+
+def _progress(job, *, now=None):
+    """Read-only, conservative track-completion progress from rip staging.
+
+    cyanrip v0.9.3 outputs do not provide a guaranteed structured progress
+    stream. A file actively being written is NOT a completed track. At most
+    N-1 track files are counted while cyanrip is still running. A 3+ minute
+    ETA is only a rough estimate from completed tracks, never a promise.
+    """
+    if job.get("status") not in {"queued", "running"}:
+        return None
+    now = time.time() if now is None else now
+    job_id = job.get("id", "")
+    if not re.fullmatch(r"[a-f0-9]{32}", job_id):
+        return None
+    result = {
+        "method": "completed_track_files_estimate",
+        "percent": None, "total_tracks": None, "completed_tracks": 0,
+        "current_track": None, "elapsed_seconds": None,
+        "eta_seconds": None, "eta_kind": "unavailable",
+        "detail": "Waiting for completed tracks; an active FLAC is not counted.",
+    }
+    started = job.get("started_at")
+    if isinstance(started, (float, int)) and now >= started:
+        result["elapsed_seconds"] = int(now - started)
+    # Never inspect arbitrary caller paths; use the bounded job ID under
+    # OSCAR's own fixed staging root. Bad or missing files are non-fatal.
+    try:
+        folder = staging_root() / ("oscar-" + job_id)
+        if folder.is_symlink() or not folder.is_dir():
+            return result
+        plan_file = folder / "plan.json"
+        if plan_file.is_symlink() or not plan_file.is_file() or plan_file.stat().st_size > 100_000:
+            return result
+        plan = json.loads(plan_file.read_text(encoding="utf-8"))
+        total = plan.get("track_count")
+        if type(total) is not int or not 1 <= total <= 99:
+            return result
+        result["total_tracks"] = total
+        audio = folder / "audio"
+        files = []
+        if audio.is_dir() and not audio.is_symlink():
+            for item in audio.iterdir():
+                if item.is_symlink() or not item.is_file() or not item.name.lower().endswith(".flac"):
+                    continue
+                match = re.match(r"^([0-9]{1,3}) - .+\\.flac$", item.name, flags=re.I)
+                if match and 1 <= int(match.group(1)) <= total:
+                    files.append(int(match.group(1)))
+                if len(files) > 120:
+                    return result
+        # File creation is not track completion. cyanrip creates the current
+        # FLAC before its audio is fully written. Count only earlier tracks.
+        current = max(files) if files else None
+        completed = max(0, current - 1) if current else 0
+        result["completed_tracks"] = completed
+        result["current_track"] = current or 1
+        # This is deliberately a *track-based* metric, NOT sector progress.
+        # Hold below 100% until the extraction worker has exited successfully.
+        result["percent"] = min(99, round(completed * 100 / total, 1))
+        result["detail"] = (
+            f"{completed}/{total} tracks finished (estimated from next output file)"
+            if current else f"0/{total} tracks finished; reading or preparing CD"
+        )
+        elapsed = result["elapsed_seconds"]
+        if elapsed is not None and completed >= 2:
+            seconds_per_track = elapsed / completed
+            projected = round(seconds_per_track * (total - completed))
+            if 0 < projected < 86400:
+                result["eta_seconds"] = projected
+                result["eta_kind"] = "rough_track_average"
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        pass
+    return result
+
+
 def dashboard():
     """Show enabled detected optical drives and in-memory running rip jobs."""
     configured = {d.stable_id: d for d in discover_settings().drives if d.enabled}
@@ -49,13 +124,16 @@ def dashboard():
         relevant = sorted(
             [j for j in jobs if j["stable_id"] == stable_id],
             key=lambda j: j.get("created_at", 0), reverse=True)
+        latest = relevant[0] if relevant else None
+        if latest and latest.get("status") in {"queued", "running"}:
+            latest["progress"] = _progress(latest)
         drives.append({
             "stable_id": stable_id, "label": drive.label,
             "device": present.get("device"), "present": bool(present),
             "offset_set": drive.offset_samples is not None,
             "status": "ripping" if stable_id in active else
                       "ready" if present and drive.offset_samples is not None else "not_ready",
-            "job": relevant[0] if relevant else None,
+            "job": latest,
         })
     return {
         "max_concurrent_rips": max_concurrent_rips(),
