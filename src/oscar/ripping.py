@@ -22,6 +22,8 @@ from oscar.toc import read_toc
 _LOCK = threading.Lock()
 _ACTIVE = set()
 _TRAY_BUSY = set()
+_STOP_REQUESTED = set()
+_PROCESSES = {}
 _JOBS = {}
 _DISC = re.compile(r"^[A-Za-z0-9._-]{28}$")
 
@@ -217,6 +219,32 @@ def control_tray(stable_id, action, *, opener=os.open, closer=os.close, ioctl=fc
             _TRAY_BUSY.discard(stable_id)
 
 
+def stop(job_id):
+    """Request cancellation of OSCAR's active cyanrip child only.
+
+    This never removes a staging directory, partial audio, logs or a ledger
+    record. The worker finishes the interrupted state before freeing the drive.
+    """
+    if not enabled():
+        raise RipError("Experimental ripping disabled")
+    if not re.fullmatch(r"[a-f0-9]{32}", job_id):
+        raise RipError("Invalid job ID")
+    with _LOCK:
+        job = _JOBS.get(job_id)
+        if (not job or job.get("status") not in ("queued", "running")
+                or job["stable_id"] not in _ACTIVE):
+            raise RipError("Only an active OSCAR rip can be stopped")
+        _STOP_REQUESTED.add(job_id)
+        proc = _PROCESSES.get(job_id)
+        if proc is not None and proc.poll() is None:
+            try:
+                proc.terminate()
+            except ProcessLookupError:
+                pass
+    return {"job_id": job_id, "status": "stop_requested",
+            "note": "Partial staging retained. Wait for the worker to exit."}
+
+
 def make_command(device, offset):
     """Debian cyanrip 0.9.3-compatible flags; do not use newer -B.
 
@@ -252,12 +280,35 @@ def _run(job, device, offset, workdir, runner, on_completed=None):
         _atomic_json(workdir / "state.json", _snapshot(job))
         command = make_command(device, offset)
         with open(workdir / "cyanrip-console.log", "xb") as log:
-            # No shell. Hard timeout requires subprocess.run; default 3 hours.
-            result = runner(command, cwd=str(workdir), stdout=log,
-                            stderr=subprocess.STDOUT, timeout=10800, check=False)
-        job["returncode"] = result.returncode
-        if result.returncode:
-            raise RipError(f"cyanrip exited with code {result.returncode}; inspect the console log")
+            if runner is subprocess.run:
+                # Expose only our own child process to a deliberate Stop action.
+                with _LOCK:
+                    if job["id"] in _STOP_REQUESTED:
+                        raise RipError("Rip stopped before extraction began")
+                    proc = subprocess.Popen(command, cwd=str(workdir),
+                                            stdout=log, stderr=subprocess.STDOUT)
+                    _PROCESSES[job["id"]] = proc
+                try:
+                    returncode = proc.wait(timeout=10800)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait(timeout=30)
+                    raise
+                finally:
+                    with _LOCK:
+                        _PROCESSES.pop(job["id"], None)
+            else:
+                # Existing offline fake runners keep the same injection contract.
+                if job["id"] in _STOP_REQUESTED:
+                    raise RipError("Rip stopped before extraction began")
+                result = runner(command, cwd=str(workdir), stdout=log,
+                                stderr=subprocess.STDOUT, timeout=10800, check=False)
+                returncode = result.returncode
+        job["returncode"] = returncode
+        if job["id"] in _STOP_REQUESTED:
+            raise RipError("Rip stopped by operator")
+        if returncode:
+            raise RipError(f"cyanrip exited with code {returncode}; inspect the console log")
         hashes = {}
         for file in sorted((workdir / "audio").rglob("*.flac")) if (workdir / "audio").exists() else []:
             if not file.is_file() or file.is_symlink():
@@ -275,11 +326,15 @@ def _run(job, device, offset, workdir, runner, on_completed=None):
         job["warning"] = ("Files have SHA-256 hashes, NOT independent audio verification. "
                           "Review cyanrip's log and AccurateRip results manually; CTDB not integrated.")
     except subprocess.TimeoutExpired:
-        job["status"] = "failed"
-        job["error"] = "Rip timed out; inspect staging files and log"
+        stopped = job["id"] in _STOP_REQUESTED
+        job["status"] = "interrupted" if stopped else "failed"
+        job["error"] = ("Stopped by operator; partial staging retained" if stopped
+                        else "Rip timed out; inspect staging files and log")
     except Exception as exc:
-        job["status"] = "failed"
-        job["error"] = f"{type(exc).__name__}: {exc}"[:300]
+        stopped = job["id"] in _STOP_REQUESTED
+        job["status"] = "interrupted" if stopped else "failed"
+        job["error"] = ("Stopped by operator; partial staging retained" if stopped
+                        else f"{type(exc).__name__}: {exc}"[:300])
     finally:
         job["finished_at"] = time.time()
         try:
@@ -293,6 +348,8 @@ def _run(job, device, offset, workdir, runner, on_completed=None):
                     pass
         finally:
             with _LOCK:
+                _STOP_REQUESTED.discard(job["id"])
+                _PROCESSES.pop(job["id"], None)
                 _ACTIVE.discard(job["stable_id"])
 
 
