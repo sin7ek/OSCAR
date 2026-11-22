@@ -48,6 +48,9 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 .drivefit-drive details{margin:8px 0}
 .drivefit-badges{display:flex;flex-wrap:wrap;gap:8px;list-style:none;padding:0}
 .drivefit-badges li{border:1px solid #537294;background:#1a3047;border-radius:8px;padding:5px 9px}
+.go-drive-card .drivefit-badges{gap:4px;margin:0 0 8px}
+.go-drive-card .drivefit-badges li{padding:2px 6px;font-size:.75rem;border-radius:5px}
+.go-drive-card .drivefit-badges[hidden]{display:none}
 .go-workflow-row button{padding:7px 12px;margin:6px 8px 0 0}
 .go-job-toolbar{display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin:12px 0}
 .go-job-toolbar label{margin:0}.go-job-toolbar select{margin-left:6px}
@@ -2770,6 +2773,37 @@ function scheduleGoDashboardRefresh(){
  if(!goDashboardHeaders||document.getElementById('panel-go').hidden)return;
  goDashboardTimer=setTimeout(()=>refreshGoCards(false),3500);
 }
+let goDrivefitLabels=new Map();
+let goDrivefitNextRefresh=0;
+let goDrivefitRequest=null;
+function readGoDrivefitLabels(headers, force){
+ if(goDrivefitRequest)return goDrivefitRequest;
+ if(!force&&Date.now()<goDrivefitNextRefresh)return Promise.resolve(goDrivefitLabels);
+ goDrivefitNextRefresh=Date.now()+60000;
+ goDrivefitRequest=fetch('/api/diagnostics/drivefit',{headers})
+  .then(response=>{
+   if(!response.ok)throw Error('DriveFit unavailable');
+   return response.json();
+  })
+  .then(data=>{
+   goDrivefitLabels=new Map((data.drives||[]).map(drive=>[drive.stable_id,drive.badges]));
+   return goDrivefitLabels;
+  })
+  .catch(()=>goDrivefitLabels)
+  .finally(()=>{goDrivefitRequest=null});
+ return goDrivefitRequest;
+}
+function renderGoDrivefitLabels(list, badges){
+ list.replaceChildren();
+ list.hidden=!badges?.length;
+ for(const tag of badges||[]){
+  const label=document.createElement('li');
+  label.textContent=tag.name;
+  label.title=tag.evidence;
+  label.setAttribute('aria-label',tag.name+' · '+tag.evidence);
+  list.append(label);
+ }
+}
 async function refreshGoCards(interactive=true){
  const target=document.getElementById('go-drive-cards');
  const workflows=document.getElementById('go-workflows');
@@ -2790,9 +2824,16 @@ async function refreshGoCards(interactive=true){
   if(!driveResponse.ok||!jobResponse.ok)throw new Error('Drive/workflow status unavailable');
   const dashboard=await driveResponse.json(), ledger=await jobResponse.json();
   target.replaceChildren();workflows.replaceChildren();
+  const cardsWithLabels=new Map();
+  const labels=readGoDrivefitLabels(headers,interactive);
   for(const drive of dashboard.drives||[]){
    const card=document.createElement('article');card.className='go-drive-card';
    const h=document.createElement('h3');h.textContent=drive.label;card.append(h);
+   const badges=document.createElement('ul');
+   badges.className='drivefit-badges';
+   badges.setAttribute('aria-label','DriveFit');
+   renderGoDrivefitLabels(badges,goDrivefitLabels.get(drive.stable_id));
+   card.append(badges);cardsWithLabels.set(drive.stable_id,badges);
    const device=document.createElement('small');
    device.textContent=(drive.device||'Not detected')+
     ' · '+(drive.offset_set?'offset configured':'offset missing');
@@ -2868,6 +2909,11 @@ async function refreshGoCards(interactive=true){
   else if(goDashboardTimer){clearTimeout(goDashboardTimer);goDashboardTimer=null}
   if(!(dashboard.drives||[]).length)
    target.textContent='No enabled optical drives. Configure them under Settings.';
+  void labels.then(tags=>{
+   for(const [id,list] of cardsWithLabels){
+    if(list.isConnected)renderGoDrivefitLabels(list,tags.get(id));
+   }
+  });
   renderTrackedGoJobs(ledger.jobs||[]);
  }catch(error){
   target.textContent='Drive status unavailable: '+error.message;

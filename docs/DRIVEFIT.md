@@ -1,5 +1,8 @@
 # DriveFit
 
+The **Go!** drive cards display the same evidence-based tags in compact form. Hover over a tag to read its supporting evidence, or open **DriveFit** for the full comparison. Cards with no earned tags show no badges.
+
+
 Open **DriveFit** for a comparison of configured optical drives and their recorded rip attempts. OSCAR reads the existing staging job state, saved TOC, and verification reports. The page does not open optical devices or start a test rip.
 
 ## Performance tags
