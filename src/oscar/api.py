@@ -474,6 +474,19 @@ def search_discogs_pressings(body: DiscogsPressingSearch, request: Request,
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
+@app.post("/api/rip/jobs/{job_id}/edition-search")
+def search_staged_disc_editions(job_id: str, body: DiscogsPressingSearch, request: Request,
+                                x_oscar_rip_token: str | None = Header(default=None)):
+    from oscar import edition_search, ripping
+    from oscar.go_controller import GoError
+
+    _rip_auth(x_oscar_rip_token, request)
+    try:
+        return edition_search.search(job_id, **body.model_dump())
+    except (ripping.RipError, GoError, OSError, ValueError, KeyError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 class TrackRecoveryRequest(BaseModel):
     original_job_id: str = Field(pattern=r"^[a-f0-9]{32}$")
     diagnostic_job_id: str = Field(pattern=r"^[a-f0-9]{32}$")

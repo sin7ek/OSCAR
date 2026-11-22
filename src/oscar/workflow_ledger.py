@@ -618,10 +618,14 @@ def list_jobs(limit=100):
             "SELECT job_id,disc_id,phase,identification_mode,secure_review_level,"
             "created_at,updated_at,proposed_release_id,accepted_release_id,"
             "candidate_options FROM workflow_jobs ORDER BY updated_at DESC LIMIT ?", (limit,))]
-    # Display-only evidence, never physical-edition proof or an approval action.
-    # All candidate titles originate from previously persisted MusicBrainz results;
-    # never perform network lookups while listing jobs.
+    from oscar import rip_working_title
+
+    # The title worker runs outside the list request and never selects a release.
     for row in rows:
+        row["working_title"] = rip_working_title.display(
+            row["job_id"], row["disc_id"],
+            schedule=row["phase"] not in {"RIP_IN_PROGRESS", "RIP_FAILED", "RIP_INTERRUPTED",
+                                          "ARCHIVE_PUBLISHED"})
         try:
             candidates = json.loads(row.pop("candidate_options") or "[]")
         except (ValueError, TypeError):

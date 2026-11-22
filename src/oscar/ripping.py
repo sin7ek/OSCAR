@@ -141,8 +141,10 @@ def dashboard():
             [j for j in jobs if j["stable_id"] == stable_id],
             key=lambda j: j.get("created_at", 0), reverse=True)
         latest = relevant[0] if relevant else None
-        if latest and latest.get("status") in {"queued", "running"}:
-            latest["progress"] = _progress(latest)
+        if latest:
+            latest = _with_working_title(latest)
+            if latest.get("status") in {"queued", "running"}:
+                latest["progress"] = _progress(latest)
         drives.append({
             "stable_id": stable_id, "label": drive.label,
             "device": present.get("device"), "present": bool(present),
@@ -362,6 +364,9 @@ def _run(job, device, offset, workdir, runner, on_completed=None):
         job["finished_at"] = time.time()
         try:
             _atomic_json(workdir / "state.json", _snapshot(job))
+            if job["status"] in {"needs_verification", "partial_diagnostic"}:
+                from oscar import rip_working_title
+                rip_working_title.display(job["id"], job.get("disc_id"), schedule=True)
             # This small metrics ledger persists independently of staging cleanup.
             # A database outage must NEVER turn a successful extraction into failure.
             try:
@@ -454,7 +459,7 @@ def status(job_id):
         raise RipError("Invalid job ID")
     job = _JOBS.get(job_id)
     if job is not None:
-        return _snapshot(job)
+        return _with_working_title(_snapshot(job))
     root = staging_root()
     record = root / ("oscar-" + job_id) / "state.json"
     if not record.is_file() or record.is_symlink():
@@ -466,4 +471,13 @@ def status(job_id):
     if data.get("status") in {"queued", "running"}:
         data["status"] = "interrupted"
         data["warning"] = "The service restarted during extraction; inspect partial files manually"
-    return _snapshot(data)
+    return _with_working_title(_snapshot(data))
+
+
+def _with_working_title(job):
+    from oscar import rip_working_title
+    job["working_title"] = rip_working_title.display(
+        job["id"], job.get("disc_id"), schedule=job.get("status") in {
+            "needs_verification", "partial_diagnostic",
+        })
+    return job

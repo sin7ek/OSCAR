@@ -25,6 +25,10 @@ See [#116](https://github.com/sin7ek/OSCAR/pull/116) and [#137](https://github.c
 
 ## Next on Tower
 
+- Go! identifier search combines the staged disc lookup, MusicBrainz catalog, barcode and matrix searches, and Discogs links or matching release identifiers. It suggests a unique leading MusicBrainz candidate for manual selection and staging metadata review. Test provider lookups and the handoff on Tower.
+
+- Completed staging jobs use a display-only artist and album working title when enabled MusicBrainz lookup has a majority album identity. The title is saved beside the staged rip and shown in Go! and Review, with lazy lookup for older jobs. Working titles provide no release approval and do not enter tags or archive paths. Tower acceptance is pending.
+
 - Check the Advanced Review progression from a verified rip to the read-only archive preview, then check identifier handoffs in both Go! review modes.
 
 - Verify a complete staged disc against CTDB and compare the result with a known CUETools log. Then reopen Proposed SOURCES.txt. Test Discogs against Jagged Little Pill with all three physical identifiers. See [archive publishing](ARCHIVE_PUBLISHER.md).

@@ -147,6 +147,8 @@ def search_release_candidates(*, catalog_number=None, title=None, barcode=None,
             "id": item["id"], "title": item.get("title"), "artist": artist,
             "date": item.get("date"), "country": item.get("country"),
             "barcode": item.get("barcode"), "labels": labels,
+            "formats": [medium.get("format") for medium in item.get("media") or []
+                        if isinstance(medium, dict) and medium.get("format")],
             "search_score": item.get("score"),
             "provenance": f"musicbrainz_search_{field}",
         })

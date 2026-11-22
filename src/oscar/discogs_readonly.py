@@ -135,6 +135,11 @@ def search_pressings(*, catalog, barcode, matrix, mastering_sid, mould_sid, open
                 rows.append({"variant": name, "comparison": comparison})
         candidates.append({"id": release_id, "title": release.get("title"),
                            "country": release.get("country"), "year": release.get("year"),
+                           "artist": " & ".join(str(a.get("name") or "")
+                                                for a in release.get("artists", [])),
+                           "barcode": next((x.get("value") for x in release.get("identifiers", [])
+                                            if x.get("type") == "Barcode"), None),
+                           "catalog_numbers": [x.get("catno") for x in release.get("labels", [])],
                            "variants": rows})
     pagination = data.get("pagination") or {}
     return {"releases": candidates, "search_total": pagination.get("items"),
