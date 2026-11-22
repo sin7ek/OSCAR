@@ -225,6 +225,46 @@ def register(job_id):
         return _view(db,job_id)
 
 
+def register_recovery(job_id):
+    """Register a successfully independently verified recovery for manual review.
+
+    Recovery is deliberately Semi Automatic irrespective of current Best Guess
+    configuration; a recovered CD never inherits unattended archive approval.
+    """
+    state = _state(job_id)
+    report = verification.report(job_id)
+    directory = verification._safe_job(job_id)
+    plan_path = directory / "plan.json"
+    if plan_path.is_symlink() or not plan_path.is_file():
+        raise WorkflowError("Recovery plan missing")
+    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    recovery = plan.get("recovery") or {}
+    if (recovery.get("format") != "OSCAR_TRACK_RECOVERY_V1"
+            or state.get("status") != "needs_verification"
+            or state.get("returncode") != 0
+            or report.get("status") != "checks_passed"
+            or report.get("verification_method") != "independent_trackverify_R_v1_v2"
+            or report.get("job_id") != job_id
+            or len(report.get("tracks") or []) != plan.get("track_count")
+            or not all(track.get("checks_passed") for track in report["tracks"])):
+        raise WorkflowError("Recovery lacks fully verified independent AccurateRip evidence")
+    settings = discover_settings()
+    stamp = _now()
+    with _db() as db:
+        if db.execute("SELECT 1 FROM workflow_jobs WHERE job_id=?", (job_id,)).fetchone():
+            raise WorkflowError("Recovered workflow already registered")
+        db.execute("""INSERT INTO workflow_jobs
+            (job_id,disc_id,identification_mode,secure_review_level,phase,created_at,updated_at)
+            VALUES (?,?,?,?,?,?,?)""",
+            (job_id, state["disc_id"], "semi_automatic", settings.secure_review_level,
+             "RELEASE_REVIEW_PENDING", stamp, stamp))
+        db.execute("""INSERT INTO workflow_events
+            (job_id,phase_before,phase_after,reason,happened_at) VALUES (?,?,?,?,?)""",
+            (job_id, "UNREGISTERED", "RELEASE_REVIEW_PENDING",
+             "independently_verified_track_recovery_manual_release_review", stamp))
+        return _view(db, job_id)
+
+
 def refresh(job_id):
     """Reconcile durable state with saved rip/verification evidence only."""
     state = _state(job_id)
