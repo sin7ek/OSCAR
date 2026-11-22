@@ -1,11 +1,26 @@
+# audiotools/trackverify is available in Debian Bookworm but removed from
+# Trixie. Freeze the Bookworm Python 3.11 tool to a self-contained binary;
+# do not mix oldstable apt repositories into OSCAR's runtime.
+FROM debian:bookworm-slim AS trackverify-builder
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    audiotools python3-venv python3-pip binutils \
+    && rm -rf /var/lib/apt/lists/*
+RUN python3 -m venv --system-site-packages /opt/pyinstaller \
+    && /opt/pyinstaller/bin/pip install --no-cache-dir pyinstaller==6.16.0
+RUN /opt/pyinstaller/bin/pyinstaller --clean --onefile \
+    --collect-all audiotools --name trackverify /usr/bin/trackverify \
+    && /dist/trackverify --help
+
 FROM python:3.12-slim-trixie
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     OSCAR_CONFIG_PATH=/config/settings.json
 
-RUN apt-get update && apt-get install -y --no-install-recommends libdiscid0 cyanrip flac audiotools \
+RUN apt-get update && apt-get install -y --no-install-recommends libdiscid0 cyanrip flac \
     && rm -rf /var/lib/apt/lists/*
+
+COPY --from=trackverify-builder /dist/trackverify /usr/local/bin/trackverify
 
 WORKDIR /app
 
