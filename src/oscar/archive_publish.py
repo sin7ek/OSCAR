@@ -163,7 +163,8 @@ def prepare(job_id, copy_id, kind="original_tags", profile="auto",
     if profile not in {"auto", "standard", "classical"}:
         raise PublishError("Invalid processing profile")
     root = verification._safe_job(job_id)
-    if verification.report(job_id).get("status") != "checks_passed":
+    verification_report = verification.report(job_id)
+    if verification_report.get("status") != "checks_passed":
         raise PublishError("Source rip verification must pass before publishing")
     review = archive_review.review(job_id, copy_id, kind, profile=profile, artwork=False)
     relative, names, disc_number, disc_total = _names(review)
@@ -188,7 +189,20 @@ def prepare(job_id, copy_id, kind="original_tags", profile="auto",
         records.append({"number": track["number"], "source": rel,
                         "filename": filename, "expected_sha256": expected,
                         "audio_md5": audio_md5})
+        source_sha = entry.get("source_sha256")
+        if kind == "original_tags" and isinstance(source_sha, str) and re.fullmatch(r"[a-f0-9]{64}", source_sha):
+            records[-1]["rip_sha256"] = source_sha
     evidence = _source_evidence(job_id)
+    recovery = _recovery_provenance(root, review["album"], records, verification_report)
+    provenance = {
+        "metadata_source": saved_preview.get("source") or "MusicBrainz",
+        "verification_method": verification_report.get("verification_method") or
+        ("cyanrip" if verification_report.get("tracks") else "not_recorded"),
+        "accuraterip_coverage": verification_report.get("accuraterip_coverage"),
+        "track_verification": {t["number"]: t.get("accuraterip", {})
+                               for t in verification_report.get("tracks", [])},
+        "recovery": recovery,
+    }
     cue = review["cue"]["archive_cue_proposal"]
     referenced = [match.group(1) for line in cue.splitlines()
                   if (match := archive_review._CUEFILE.match(line))]
@@ -205,6 +219,7 @@ def prepare(job_id, copy_id, kind="original_tags", profile="auto",
             "relative_directory": relative.as_posix(),
             "disc_number": disc_number, "disc_total": disc_total,
             "tracks": records, "cue": cue, "source_evidence": evidence,
+            "provenance": provenance,
             "include_cover": bool(include_cover),
             "metadata_observations": review["consistency"]["flags"],
             "original_preview_fingerprint": saved_preview.get("fingerprint"),
@@ -223,8 +238,136 @@ def prepare(job_id, copy_id, kind="original_tags", profile="auto",
     return plan
 
 
+def _recovery_provenance(job, album, records, report):
+    path = job / "recovery-sources.json"
+    is_recovery = report.get("verification_method") == "independent_trackverify_R_v1_v2"
+    if not is_recovery and not path.exists() and not report.get("recovery_sources"):
+        return None
+    if not is_recovery or not path.is_file() or path.is_symlink():
+        raise PublishError("Missing or inconsistent track recovery evidence")
+    try:
+        recovery = json.loads(path.read_text(encoding="utf-8"))
+        parent_ids = {key: recovery[key] for key in ("original_job_id", "diagnostic_job_id")}
+        ids = set(parent_ids.values())
+        tracks = recovery["tracks"]
+        verification_tracks = report["tracks"]
+        state = verification._load_job(job, report["job_id"])
+        if (
+            recovery["format"] != "OSCAR_TRACK_RECOVERY_V1"
+            or parent_ids != report["recovery_sources"]
+            or len(ids) != 2 or report["job_id"] in ids
+            or not all(_COPY_ID.fullmatch(value) for value in ids)
+            or recovery["disc_id"] != state["disc_id"]
+            or (album.get("musicbrainz_disc_id") and recovery["disc_id"] != album["musicbrainz_disc_id"])
+            or recovery["track_count"] != len(records)
+            or len(tracks) != len(verification_tracks) or len(tracks) != len(records)
+            or not any(track["source_job_id"] == parent_ids["diagnostic_job_id"] for track in tracks)
+        ):
+            raise ValueError
+        for track, verified, record in zip(tracks, verification_tracks, records):
+            source_path = track["source_path"]
+            source_hash = track["source_sha256"]
+            if (
+                track["track"] != record["number"] or verified["number"] != record["number"]
+                or track["source_job_id"] not in ids or track["source_job_id"] != verified["source_job_id"]
+                or verified["file"] != record["source"] or not verified["checks_passed"]
+                or not re.fullmatch(r"audio/[^/\r\n]+\.flac", source_path)
+                or not re.fullmatch(r"[a-f0-9]{64}", source_hash)
+                or source_hash != track["recovered_sha256"]
+                or source_hash != state["files_sha256"][record["source"]]
+                or source_hash != record.get("rip_sha256", source_hash)
+                or verification.accuraterip_assessment(verified["accuraterip"])["status"] != "both_versions_matched"
+            ):
+                raise ValueError
+    except (ValueError, TypeError, KeyError, AttributeError) as exc:
+        raise PublishError("Inconsistent track recovery evidence") from exc
+    return recovery
+
+
+def _source_type(plan):
+    return "HYBRID_REPAIRED_CD_RIP" if plan["provenance"]["recovery"] else "PHYSICAL_CD_RIP"
+
+
+def render_sources(plan, release_match_status):
+    """Render the same provenance text for Go review and archive publication."""
+    provenance = plan["provenance"]
+    recovery = provenance["recovery"]
+    album = plan["album"]
+    disc = plan["disc_number"]
+    total = plan["disc_total"]
+    disc_id = album.get("musicbrainz_disc_id") or (recovery or {}).get("disc_id") or "Not recorded"
+    method = {
+        "independent_trackverify_R_v1_v2": "Independent trackverify -R (AccurateRip v1 and v2, offset 0)",
+        "cyanrip": "AccurateRip results reported by cyanrip during extraction",
+    }.get(provenance["verification_method"], "Verification method not recorded")
+    lines = [
+        "OSCAR archive sources",
+        f"SOURCE_TYPE: {_source_type(plan)}",
+        f"Album: {album['artist']} — {album['title']}",
+        f"Medium: Disc {disc:02d} of {total:02d}",
+        f"Disc ID: {disc_id}",
+        "",
+        "[Metadata]",
+        f"Source: {provenance['metadata_source']}",
+        f"MusicBrainz release: https://musicbrainz.org/release/{plan['release_id']}",
+        f"Physical edition status: {release_match_status}",
+        f"Processing profile: {plan['profile']}",
+        f"Tagged staging copy: {plan['copy_id']} ({plan['kind']})",
+    ]
+    if album.get("catalog_numbers"):
+        lines.append("Catalog numbers from metadata: " + "; ".join(album["catalog_numbers"]))
+    if album.get("genre_source"):
+        lines.append(f"Genre metadata source: {album['genre_source']}")
+    if plan["include_cover"]:
+        lines.append(f"Cover art source: https://coverartarchive.org/release/{plan['release_id']}/front")
+    lines.extend(["", "[Audio extraction]", f"Staging rip job: {plan['job_id']}"])
+    if recovery:
+        lines.extend([
+            f"Original full-disc rip job: {recovery['original_job_id']}",
+            f"Replacement diagnostic rip job: {recovery['diagnostic_job_id']}",
+            "The recovery job assembled the disc from both staging sources.",
+        ])
+    lines.extend(["", "[Verification]", method, "CTDB: not checked by OSCAR"])
+    if provenance["accuraterip_coverage"]:
+        lines.append(f"AccurateRip coverage: {provenance['accuraterip_coverage']}")
+    lines.extend(["Archive checks: FLAC decode, file SHA-256, STREAMINFO audio MD5 and CUE references.",
+                  "", "[Track sources]"])
+    for item in plan["tracks"]:
+        number = item["number"]
+        lines.append(f"Disc {disc:02d} / Track {number:02d} — {item['filename']}")
+        if recovery:
+            source = recovery["tracks"][number - 1]
+            job_id = source["source_job_id"]
+            origin = "diagnostic replacement" if job_id == recovery["diagnostic_job_id"] else "original full-disc rip"
+            lines.extend([
+                f"  Audio source: {origin}",
+                f"  Source job: {job_id}",
+                f"  Source file: {source['source_path']}",
+                f"  Source and recovered-copy SHA-256: {source['source_sha256']}",
+            ])
+        else:
+            lines.append(f"  Audio source: {plan['job_id']}/{item['source']}")
+            if item.get("rip_sha256"):
+                lines.append(f"  Source FLAC SHA-256: {item['rip_sha256']}")
+        versions = provenance["track_verification"].get(number, {})
+        for version in ("v1", "v2"):
+            match = versions.get(version)
+            if not match:
+                lines.append(f"  AccurateRip {version}: not reported")
+                continue
+            confidence = match.get("confidence")
+            suffix = f" (confidence {confidence})" if confidence is not None else ""
+            lines.append(f"  AccurateRip {version}: {match['status'].replace('_', ' ')}{suffix}")
+        lines.append(f"  Published FLAC SHA-256: {item['expected_sha256']}")
+    lines.extend(["", "[Archived evidence]", "album.cue — CUE with published file names",
+                  "manifest.json — archive file hashes and provenance"])
+    for item in plan["source_evidence"]:
+        lines.append(f"ExtractionEvidence/{item['source']} — SHA-256: {item['sha256']}")
+    return "\n".join(lines) + "\n"
+
+
 def _source_evidence(job_id):
-    """Read-only inventory of original CUE and available cyanrip logs."""
+    """Read-only inventory of the source CUE, logs and verification records."""
     job = verification._safe_job(job_id)
     audio = job / "audio"
     if audio.is_symlink() or not audio.is_dir():
@@ -237,6 +380,12 @@ def _source_evidence(job_id):
         for path in sorted(folder.glob("*.log")):
             if path.is_symlink() or not path.is_file():
                 raise PublishError("Unsafe original extraction log")
+            paths.append(path)
+    for name in ("verification-report.json", "recovery-sources.json"):
+        path = job / name
+        if path.is_symlink() or (path.exists() and not path.is_file()):
+            raise PublishError("Unsafe verification or recovery evidence")
+        if path.is_file():
             paths.append(path)
     return [{"source": path.relative_to(job).as_posix(),
              "sha256": _hash(path), "size": path.stat().st_size}
@@ -369,22 +518,18 @@ def _do_publish(plan, publish_id, *, allow_metadata_observations, cover_download
                 raise PublishError("Published CUE references missing FLAC files")
             evidence_copies = _copy_source_evidence(job_id, new_plan["source_evidence"], temp)
             artwork = (cover_download or _cover)(new_plan["release_id"], temp) if new_plan["include_cover"] else None
-            sources = (
-                "OSCAR archived copy — original ripping evidence remains in staging\n"
-                f"Staging rip job: {job_id}\nTagged staging copy: {copy_id}\n"
-                f"MusicBrainz physical release: https://musicbrainz.org/release/{new_plan['release_id']}\n"
-                f"Processing profile: {new_plan['profile']}\n"
-                "AccurateRip confidence is from cyanrip's saved verification report, not a new independent lookup.\n"
-                "The original CUE and available extraction logs are also preserved in ExtractionEvidence/.\n"
-                "The originally ripped CUE, logs and FLACs remain in their original staging folder.\n"
-                "This folder contains reviewed copies, not new recordings or rewritten audio.\n"
-            )
-            (temp / "SOURCES.txt").write_text(sources, encoding="utf-8")
+            release_match_status = plan.get("_release_match_status") or "EDITION_NOT_VERIFIED"
+            with (temp / "SOURCES.txt").open("x", encoding="utf-8") as out:
+                out.write(render_sources(new_plan, release_match_status))
+                out.flush()
+                os.fsync(out.fileno())
             manifest = {
                 "status": "published_verified", "publish_id": publish_id,
                 "job_id": job_id, "copy_id": copy_id,
                 "release_id": new_plan["release_id"], "profile": new_plan["profile"],
-                "release_match_status": plan.get("_release_match_status") or "EDITION_NOT_VERIFIED",
+                "release_match_status": release_match_status,
+                "source_type": _source_type(new_plan),
+                "provenance": new_plan["provenance"],
                 "label_info": new_plan["album"].get("labels") or [],
                 "disc_number": new_plan["disc_number"],
                 "disc_total": new_plan["disc_total"],

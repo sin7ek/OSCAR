@@ -11,7 +11,15 @@
 5. Confirm publication. A background worker copies each tagged FLAC to a **new** hidden staging directory under the destination filesystem, verifies source SHA-256 and STREAMINFO MD5, decodes the copied FLAC, compares its full SHA-256 and audio MD5 with the source, writes an `album.cue` with exact existing FILE references, verifies those references, then writes `SOURCES.txt` and `manifest.json`. Only after all checks pass is the verified directory atomically promoted with Linux `renameat2(RENAME_NOREPLACE)`. No existing album/disc may be overwritten.
 6. The UI polls status while the OSCAR process is running. The new folder contains `NN - Title.flac`, `album.cue`, `manifest.json`, `SOURCES.txt` and optionally a separately reviewed cover image.
 
-**Important:** No independent Audio/CTDB check takes place during publishing. The rip's AccurateRip evidence is from the saved cyanrip verification. The CUE preserves captured INDEX/PREGAP as reported; this is not an independent optical index verification. A passing publish only proves the copied archive matches the verified, reviewed staging inputs. The original rip, original cyanrip CUE/log, and tagged staging copy remain intact.
+## Audio and metadata sources
+
+`SOURCES.txt` records the selected MusicBrainz release and edition status, disc position, audio source and AccurateRip evidence per track, published FLAC SHA-256 values, and archived evidence paths and hashes. Go! Archive Review shows the proposed text before approval.
+
+- A regular rip uses `PHYSICAL_CD_RIP` and attributes its saved AccurateRip results to cyanrip.
+- A Track Recovery publication uses `HYBRID_REPAIRED_CD_RIP`. Each row identifies the source job and file and records the identical raw-source and recovery-copy SHA-256. The verification section attributes the saved v1/v2 results to the independent `trackverify -R` run. `ExtractionEvidence/` contains the recovery source map, saved verification report and available verifier transcript.
+- Publication checks the archived FLACs and CUE references against the reviewed staging inputs. OSCAR does not run another AccurateRip or CTDB lookup during publication. Physical edition identification requires separate evidence.
+
+For Unraid acceptance, open the recovered Mahler/Bernstein Disc 11 in Go! Archive Review and expand **Proposed SOURCES.txt**. Expect 16 tracks from the original full-disc job and **Disc 11 / Track 07** from the replacement diagnostic job, with v1/v2 results and both source and published file hashes. If publishing to a test archive, compare the resulting text with the preview and confirm the archived recovery evidence matches the saved staging records.
 
 ## Unraid / Portainer requirements
 

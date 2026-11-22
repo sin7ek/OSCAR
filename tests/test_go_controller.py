@@ -401,7 +401,12 @@ def _prepare_verified_go_archive(rig, monkeypatch, mode="semi_automatic"):
 def _fake_go_archive_plan(job_id, copy_id):
     return {"job_id": job_id, "copy_id": copy_id, "release_id": RELEASE1,
             "fingerprint": "a" * 64, "relative_directory": "Boulez/Stravinsky",
-            "output_exists": False, "metadata_observations": []}
+            "output_exists": False, "metadata_observations": [],
+            "album": {"title": "Stravinsky", "artist": "Boulez"}, "disc_number": 1,
+            "disc_total": 1, "profile": "classical", "kind": "original_tags",
+            "provenance": {"recovery": None, "metadata_source": "MusicBrainz",
+                           "verification_method": "cyanrip", "accuraterip_coverage": None},
+            "tracks": [], "source_evidence": [], "include_cover": False}
 
 
 def test_go_archive_preview_only_after_verified_copy(rig, monkeypatch):
@@ -422,6 +427,7 @@ def test_go_archive_preview_only_after_verified_copy(rig, monkeypatch):
     assert preview["requires_operator_confirmation"]
     assert preview["archive_review"]["tracks"][0]["work_ids"] == ["work-1"]
     assert preview["release_match_status"] == "INFERRED_OPERATOR_ACCEPTED"
+    assert "Physical edition status: INFERRED_OPERATOR_ACCEPTED" in preview["sources_preview"]
 
 
 def test_go_archive_publish_confirmation_fingerprint_and_source(rig, monkeypatch):

@@ -200,6 +200,7 @@ def archive_preview(job_id, *, prepare=None, review=None):
             "release_id": release_id, "copy_id": copy_id,
             "release_match_status": state["release_match_status"],
             "archive_review": inspected, "publication_plan": plan,
+            "sources_preview": archive_publish.render_sources(plan, state["release_match_status"]),
             "can_publish": not plan.get("output_exists", True),
             "requires_operator_confirmation": True,
             "message": "Inspect actual classical Work/recording credits, CUE, file names and warnings. "
