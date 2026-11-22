@@ -438,6 +438,57 @@ def get_rip_verification(job_id: str, request: Request, x_oscar_rip_token: str |
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+class TrackRecoveryRequest(BaseModel):
+    original_job_id: str = Field(pattern=r"^[a-f0-9]{32}$")
+    diagnostic_job_id: str = Field(pattern=r"^[a-f0-9]{32}$")
+    replacement_tracks: list[int] = Field(min_length=1, max_length=99)
+
+
+class TrackRecoveryStartRequest(TrackRecoveryRequest):
+    confirmation: str
+
+
+@app.post("/api/track-recovery/preview")
+def track_recovery_preview(body: TrackRecoveryRequest, request: Request,
+                           x_oscar_rip_token: str | None = Header(default=None)):
+    """Validate source hashes, cyanrip evidence, physical TOCs and CUE read-only."""
+    from oscar import track_recovery
+    from oscar.ripping import RipError
+    _rip_auth(x_oscar_rip_token, request)
+    try:
+        return track_recovery.preview(
+            body.original_job_id, body.diagnostic_job_id, body.replacement_tracks)
+    except (track_recovery.RecoveryError, RipError, OSError, ValueError, KeyError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/track-recovery/start")
+def track_recovery_start(body: TrackRecoveryStartRequest, request: Request,
+                         x_oscar_rip_token: str | None = Header(default=None)):
+    """Create a fresh staging copy; no source or archive overwrites."""
+    from oscar import track_recovery
+    from oscar.ripping import RipError
+    _rip_auth(x_oscar_rip_token, request)
+    try:
+        return track_recovery.start(
+            body.original_job_id, body.diagnostic_job_id,
+            body.replacement_tracks, body.confirmation)
+    except (track_recovery.RecoveryError, RipError, OSError, ValueError, KeyError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.get("/api/track-recovery/jobs/{job_id}")
+def track_recovery_status(job_id: str, request: Request,
+                          x_oscar_rip_token: str | None = Header(default=None)):
+    from oscar import track_recovery
+    from oscar.ripping import RipError
+    _rip_auth(x_oscar_rip_token, request)
+    try:
+        return track_recovery.status(job_id)
+    except (track_recovery.RecoveryError, RipError, OSError, ValueError, KeyError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 class DeferReleaseReviewRequest(BaseModel):
     reason: str
     title: str = Field(default="", max_length=200)
