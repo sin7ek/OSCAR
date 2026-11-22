@@ -240,6 +240,8 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 <label for="verify-job">Staging rip job ID (32 hexadecimal characters)</label>
 <input id="verify-job" placeholder="f41806152a614b1a9006b10456b9bbd4" maxlength="32" style="width:340px;max-width:90%">
 <button id="verify-start" type="button">Verify staged rip</button>
+<button id="ctdb-verify" type="button">Verify this staged disc against CTDB</button>
+<div id="ctdb-output" aria-live="polite"></div>
 <div id="verify-output" aria-live="polite"></div></section>
 <section><h2>Metadata &amp; tagging (experimental)</h2>
 <p>Only for a previously verified staging rip. Preview an explicitly selected MusicBrainz physical release, including its classical work/performer relationships. Review label/catalog details before copying. Original FLACs are never modified.</p>
@@ -264,6 +266,20 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 <p>Matrix search covers MusicBrainz release annotations. Try a distinctive part of the matrix when the full inscription returns no candidates.</p>
 <div id="release-search-results" aria-live="polite"></div>
 </section>
+<section><h2>Compare physical pressings with Discogs</h2>
+<p>Search by the printed barcode or catalog number. Add any codes you can read from the CD. The first five candidates are compared. Unnumbered identifiers may come from different pressings.</p>
+<label for="discogs-pressing-catalog">Catalog number</label>
+<input id="discogs-pressing-catalog" maxlength="100">
+<label for="discogs-pressing-barcode">Barcode</label>
+<input id="discogs-pressing-barcode" maxlength="30">
+<label for="discogs-pressing-matrix">Matrix/runout</label>
+<input id="discogs-pressing-matrix" maxlength="250">
+<label for="discogs-pressing-mastering_sid">Mastering SID</label>
+<input id="discogs-pressing-mastering_sid" maxlength="32">
+<label for="discogs-pressing-mould_sid">Mould SID</label>
+<input id="discogs-pressing-mould_sid" maxlength="32">
+<button type="button" id="discogs-pressing-search">Compare Discogs CD releases</button>
+<div id="discogs-pressing-results" aria-live="polite"></div></section>
 <section><h2>CD not found, wrong edition or incomplete metadata?</h2>
 <p>OSCAR can preserve a verified rip safely while its physical release remains unresolved. A matching Disc ID does not prove an edition. Do not tag from an unrelated release.</p>
 <label for="recovery-reason">What happened?</label>
@@ -1255,6 +1271,53 @@ document.getElementById('catalog-search-button').onclick=()=>searchPhysicalRelea
 document.getElementById('title-search-button').onclick=()=>searchPhysicalReleases('title');
 document.getElementById('barcode-search-button').onclick=()=>searchPhysicalReleases('barcode');
 document.getElementById('matrix-search-button').onclick=()=>searchPhysicalReleases('matrix_runout');
+
+document.getElementById('discogs-pressing-search').onclick=async(event)=>{
+ const button=event.currentTarget, target=document.getElementById('discogs-pressing-results');
+ const headers=requestAuthHeaders('Compare Discogs CD pressings');
+ if(!headers)return;
+ const body=Object.fromEntries(['catalog','barcode','matrix','mastering_sid','mould_sid'].map(key=>
+  [key,document.getElementById('discogs-pressing-'+key).value.trim()]));
+ button.disabled=true;
+ target.textContent='Comparing Discogs CD releases…';
+ try{
+  const response=await fetch('/api/discogs/pressings',{method:'POST',
+   headers:{'Content-Type':'application/json',...headers},body:JSON.stringify(body)});
+  const data=await response.json();
+  if(!response.ok)throw Error(data.detail);
+  target.replaceChildren(metadataElement('p',data.releases.length+' CD candidates reviewed'+
+   (data.search_total!=null?' · '+data.search_total+' search results':'')));
+  for(const release of data.releases){
+   const link=metadataElement('a',[release.title,release.country,release.year].filter(Boolean).join(' · '));
+   link.href='https://www.discogs.com/release/'+release.id;
+   link.target='_blank';link.rel='noopener noreferrer';
+   const row=metadataElement('p','');row.append(link);target.append(row);
+   for(const item of release.variants){
+    target.append(metadataElement('p',item.variant+' · '+Object.entries(item.comparison)
+     .map(([field,status])=>field+' '+status.replaceAll('_',' ')).join(' · ')));
+   }
+  }
+ }catch(error){target.textContent='Discogs comparison unavailable: '+error.message}
+ finally{button.disabled=false}
+};
+
+document.getElementById('ctdb-verify').onclick=async(event)=>{
+ const button=event.currentTarget, target=document.getElementById('ctdb-output');
+ const job=document.getElementById('verify-job').value.trim().toLowerCase();
+ if(!/^[a-f0-9]{32}$/.test(job)){target.textContent='Enter a valid rip job ID.';return}
+ const headers=requestAuthHeaders('Verify staged CD audio against CTDB');
+ if(!headers)return;
+ button.disabled=true;target.textContent='Checking staged audio against CTDB…';
+ try{
+  const response=await fetch('/api/rip/jobs/'+job+'/ctdb-verification',{method:'POST',headers});
+  const data=await response.json();
+  if(!response.ok)throw Error(data.detail);
+  target.textContent='CTDB: '+data.status.replaceAll('_',' ')+
+   (data.confidence!=null?' · confidence '+data.confidence+'/'+data.total:'')+
+   (data.message?' · '+data.message:'');
+ }catch(error){target.textContent='CTDB verification unavailable: '+error.message}
+ finally{button.disabled=false}
+};
 
 const recoveryAdvice={
  missing_release:'Missing release: search MusicBrainz by physical catalog number and title. Check the actual booklet, all track names/versions, and Disc ID/TOC. If genuinely absent, submit a new physical Various Artists or artist release through MusicBrainz. Never attach unrelated recordings or invent IDs. You can defer this entirely.',
@@ -3229,6 +3292,15 @@ async function goAdvance(){
     document.getElementById('matrix-search').focus();
    };
    output.append(search);
+   const compare=metadataElement('button','Compare Discogs pressings');
+   compare.type='button';
+   compare.onclick=()=>{
+    document.getElementById('discogs-pressing-matrix').value=matrix.value.trim();
+    showOscarTab('review');
+    oscarAdvanced.open=true;
+    document.getElementById('discogs-pressing-catalog').focus();
+   };
+   output.append(compare);
    const accept=document.createElement('button');accept.type='button';
    accept.textContent='Accept selected INFERRED release (no tags or publication)';
    accept.onclick=async()=>{

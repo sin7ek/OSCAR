@@ -25,6 +25,17 @@ Transcribe the matrix from the inner ring in **Go!** while accepting a Semi Auto
 
 For Unraid acceptance, open the recovered Mahler/Bernstein Disc 11 in Go! Archive Review and expand **Proposed SOURCES.txt**. Expect 16 tracks from the original full-disc job and **Disc 11 / Track 07** from the replacement diagnostic job, with v1/v2 results and both source and published file hashes. If publishing to a test archive, compare the resulting text with the preview and confirm the archived recovery evidence matches the saved staging records.
 
+## Independent CTDB evidence and Discogs pressing comparison
+
+In **Review → Advanced tools → Staging verification**, enter the complete staged rip job ID and select **Verify this staged disc against CTDB**. OSCAR checks the ordered cue and saved input hashes, then runs `ctdb-cli --xml verify` against the existing FLACs. A match reports database confidence, separate from the AccurateRip evidence. No database entry, no audio match, and lookup failure have distinct outcomes. Verification never submits a rip or applies repairs. CTDB requires a complete supported CUE and does not change archive or Track Recovery approval rules.
+
+For this integration, configure `OSCAR_CTDB_EXECUTABLE=/opt/ctdb/ctdb-cli` and mount a compatible Linux build at `/opt/ctdb` read-only. Use the [ctdb-cli source revision](https://github.com/Masterisk-F/ctdb-cli/tree/627d2daae63d638c6ca9b578a2abba1290a45350) with the documented XML mode. Build with .NET 10 and publish self-contained for the container architecture with `dotnet publish CTDB.CLI/CTDB.CLI.csproj -c Release -r linux-x64 --self-contained true -o bin/publish` after running `bash setup.sh` on the pinned checkout. Mount the whole publish directory so its dependencies are available. Linux runtime dependencies required by the binary must be available inside the container.
+
+A completed lookup result is saved as `ctdb-report.json` with the original CUE and FLAC hashes. Rerun **Proposed SOURCES.txt** after verification. Publication includes the compatible report under `ExtractionEvidence/` and its result in `SOURCES.txt` and the manifest. A transient lookup failure is shown immediately and preserves any previous completed lookup.
+
+Use **Compare physical pressings with Discogs** in Advanced tools, or open it from Semi Automatic Go! review. Enter barcode or catalog number and any observed matrix, mastering SID and mould SID. OSCAR uses the private `OSCAR_DISCOGS_PAT` already supported by the container. It compares identifiers within each numbered Discogs variant for the first five CD candidates. Discogs comparison is read-only. Release approval and tag sources still use the reviewed MusicBrainz edition.
+
+
 ## Unraid / Portainer requirements
 
 - Keep existing `/config` and `/staging` volumes. Do not replace your production Portainer stack with `compose.preview.yml` or change staging storage.

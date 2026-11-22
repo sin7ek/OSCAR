@@ -441,6 +441,39 @@ def get_rip_verification(job_id: str, request: Request, x_oscar_rip_token: str |
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+@app.post("/api/rip/jobs/{job_id}/ctdb-verification")
+def verify_staged_disc_with_ctdb(job_id: str, request: Request,
+                                x_oscar_rip_token: str | None = Header(default=None)):
+    from oscar import ctdb_verification
+    from oscar.ripping import RipError
+
+    _rip_auth(x_oscar_rip_token, request)
+    try:
+        return ctdb_verification.verify(job_id)
+    except (RipError, OSError, ValueError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+class DiscogsPressingSearch(BaseModel):
+    catalog: str = Field(default="", max_length=100)
+    barcode: str = Field(default="", max_length=30)
+    matrix: str = Field(default="", max_length=250)
+    mastering_sid: str = Field(default="", max_length=32)
+    mould_sid: str = Field(default="", max_length=32)
+
+
+@app.post("/api/discogs/pressings")
+def search_discogs_pressings(body: DiscogsPressingSearch, request: Request,
+                            x_oscar_rip_token: str | None = Header(default=None)):
+    from oscar import discogs_readonly
+
+    _rip_auth(x_oscar_rip_token, request)
+    try:
+        return discogs_readonly.search_pressings(**body.model_dump())
+    except (discogs_readonly.DiscogsError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 class TrackRecoveryRequest(BaseModel):
     original_job_id: str = Field(pattern=r"^[a-f0-9]{32}$")
     diagnostic_job_id: str = Field(pattern=r"^[a-f0-9]{32}$")
