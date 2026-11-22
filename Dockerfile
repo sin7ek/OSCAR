@@ -3,7 +3,7 @@
 # do not mix oldstable apt repositories into OSCAR's runtime.
 FROM debian:bookworm-slim AS trackverify-builder
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    audiotools python3-venv python3-pip binutils \
+    audiotools python3-venv python3-pip libpython3.11 binutils \
     && rm -rf /var/lib/apt/lists/*
 RUN python3 -m venv --system-site-packages /opt/pyinstaller \
     && /opt/pyinstaller/bin/pip install --no-cache-dir pyinstaller==6.16.0
