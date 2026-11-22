@@ -28,6 +28,9 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 .go-drive-card{border:1px solid #42556b;border-radius:13px;background:#121c28;padding:16px;min-width:0}
 .go-drive-card h3{margin:0 0 8px}.go-drive-card small{display:block;overflow-wrap:anywhere;margin:6px 0}
 .go-drive-card button{width:100%;margin:8px 0 0}
+.go-drive-controls{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:8px 0}
+.go-drive-controls button{margin:0}
+.go-drive-card button:disabled{opacity:.5;cursor:not-allowed}
 .go-drive-card .drive-ready{color:#9ce4b3}.go-drive-card .drive-busy{color:#f1d393}
 .go-rip-progress{margin:12px 0 6px}
 .go-rip-progress label{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;font-size:.84rem;color:#d1def2}
@@ -2346,6 +2349,19 @@ function addGoAction(parent,label,handler){
  button.type='button';button.textContent=label;button.onclick=handler;
  parent.append(button);return button;
 }
+async function controlGoTray(stableId, action){
+ const headers=requestAuthHeaders('Control optical drive tray');if(!headers)return;
+ const out=document.getElementById('go-result');
+ try{
+  const response=await fetch('/api/rip/tray',{method:'POST',
+   headers:{'Content-Type':'application/json',...headers},
+   body:JSON.stringify({stable_id:stableId,action,confirmation:'CONTROL_TRAY'})});
+  const data=await response.json();
+  if(!response.ok)throw new Error(data.detail||'Tray command unavailable');
+  out.textContent='Drive '+action+' command sent. Actual tray response depends on hardware.';
+  await refreshGoCards(false);
+ }catch(error){out.textContent='Tray command blocked: '+error.message}
+}
 let goDashboardTimer=null,goDashboardHeaders=null;
 function ripDuration(seconds){
  if(!Number.isFinite(seconds)||seconds<0)return 'unknown';
@@ -2420,6 +2436,7 @@ async function refreshGoCards(interactive=true){
    state.className=ready?'drive-ready':'drive-busy';
    state.textContent=drive.status==='ripping'?'Ripping in progress':
       !drive.present?'Drive not detected':
+      drive.status==='drive_control'?'Tray command in progress':
       !drive.offset_set?'Read offset required':
       dashboard.slots_available===0?'All ripping slots occupied':'Ready to rip';
    card.append(state);
@@ -2433,6 +2450,16 @@ async function refreshGoCards(interactive=true){
      document.getElementById('go-job').value=last.id;
      showOscarTab('go');goAdvance();
     });
+   }
+   if(drive.present){
+    const controls=document.createElement('div');controls.className='go-drive-controls';
+    for(const action of ['eject','close']){
+     const button=addGoAction(controls,action==='eject'?'Eject':'Close tray',
+       ()=>controlGoTray(drive.stable_id,action));
+     button.disabled=drive.status==='ripping'||drive.status==='drive_control';
+     if(button.disabled)button.title='Blocked while this drive is busy';
+    }
+    card.append(controls);
    }
    const start=addGoAction(card,'Go! · '+drive.label,()=>startGoForDrive(drive.stable_id));
    start.disabled=!ready;
