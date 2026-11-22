@@ -245,6 +245,16 @@ def stop(job_id):
             "note": "Partial staging retained. Wait for the worker to exit."}
 
 
+def _validate_tracks(tracks, count):
+    if tracks is None:
+        return None
+    if (not isinstance(tracks, (list, tuple)) or not tracks or len(tracks) > count
+            or any(type(n) is not int or n < 1 or n > count for n in tracks)
+            or len(set(tracks)) != len(tracks)):
+        raise RipError("Selected tracks must be unique numbers from the inserted CD")
+    return sorted(tracks)
+
+
 def make_command(device, offset):
     """Debian cyanrip 0.9.3-compatible flags; do not use newer -B.
 
@@ -270,7 +280,7 @@ def _snapshot(job):
     return {key: value for key, value in job.items()
             if key in ("id", "stable_id", "disc_id", "status", "created_at",
                        "started_at", "finished_at", "returncode", "flac_count",
-                       "warning", "error", "files_sha256")}
+                       "warning", "error", "files_sha256", "selected_tracks")}
 
 
 def _run(job, device, offset, workdir, runner, on_completed=None):
@@ -279,6 +289,8 @@ def _run(job, device, offset, workdir, runner, on_completed=None):
         job["started_at"] = time.time()
         _atomic_json(workdir / "state.json", _snapshot(job))
         command = make_command(device, offset)
+        if job.get("selected_tracks"):
+            command += ["-l", ",".join(str(n) for n in job["selected_tracks"])]
         with open(workdir / "cyanrip-console.log", "xb") as log:
             if runner is subprocess.run:
                 # Expose only our own child process to a deliberate Stop action.
@@ -322,9 +334,12 @@ def _run(job, device, offset, workdir, runner, on_completed=None):
             raise RipError("No FLAC output was found; keep logs for inspection")
         job["flac_count"] = len(hashes)
         job["files_sha256"] = hashes
-        job["status"] = "needs_verification"
-        job["warning"] = ("Files have SHA-256 hashes, NOT independent audio verification. "
-                          "Review cyanrip's log and AccurateRip results manually; CTDB not integrated.")
+        job["status"] = "partial_diagnostic" if job.get("selected_tracks") else "needs_verification"
+        job["warning"] = (
+            "Selected-track diagnostic ONLY, not eligible for full-CD verification or Go publication."
+            if job.get("selected_tracks") else
+            "Files have SHA-256 hashes, NOT independent audio verification. "
+            "Review cyanrip's log and AccurateRip results manually; CTDB not integrated.")
     except subprocess.TimeoutExpired:
         stopped = job["id"] in _STOP_REQUESTED
         job["status"] = "interrupted" if stopped else "failed"
@@ -353,7 +368,7 @@ def _run(job, device, offset, workdir, runner, on_completed=None):
                 _ACTIVE.discard(job["stable_id"])
 
 
-def plan(stable_id):
+def plan(stable_id, selected_tracks=None):
     if not enabled():
         raise RipError("Experimental ripping disabled")
     with _LOCK:
@@ -365,15 +380,23 @@ def plan(stable_id):
     disc_id = toc["musicbrainz_disc_id"]
     if not _DISC.fullmatch(disc_id):
         raise RipError("Unexpected MusicBrainz Disc ID")
+    selected = _validate_tracks(selected_tracks, len(toc["tracks"]))
+    command = make_command(device, offset)
+    if selected:
+        command += ["-l", ",".join(str(n) for n in selected)]
     return {"stable_id": stable_id, "device": device, "offset_samples": offset,
             "disc_id": disc_id, "toc_string": toc.get("toc_string", ""),
-            "track_count": len(toc["tracks"]),
-            "output_root": str(root), "command": make_command(device, offset),
-            "warning": "Experimental extraction only; no verified archive or automatic cleanup"}
+            "track_count": len(toc["tracks"]), "selected_tracks": selected,
+            "output_root": str(root), "command": command,
+            "warning": ("Selected-track diagnostic ONLY; cannot enter Go or publish" if selected
+                        else "Experimental extraction only; no verified archive or automatic cleanup")}
 
 
-def start(stable_id, *, runner=subprocess.run, on_created=None, on_completed=None):
-    information = plan(stable_id)
+def start(stable_id, *, runner=subprocess.run, on_created=None, on_completed=None,
+          selected_tracks=None):
+    if selected_tracks is not None and (on_created is not None or on_completed is not None):
+        raise RipError("Selected-track diagnostics cannot enter a Go workflow")
+    information = plan(stable_id, selected_tracks=selected_tracks)
     root = staging_root()
     with _LOCK:
         if stable_id in _ACTIVE or stable_id in _TRAY_BUSY:
@@ -387,6 +410,7 @@ def start(stable_id, *, runner=subprocess.run, on_created=None, on_completed=Non
         directory.mkdir(mode=0o700)
         job = {"id": job_id, "stable_id": stable_id,
                "disc_id": information["disc_id"], "status": "queued",
+               "selected_tracks": information["selected_tracks"],
                "created_at": time.time()}
         _atomic_json(directory / "plan.json", information)
         # Record durable workflow state before any extraction worker starts.
