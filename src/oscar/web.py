@@ -2486,17 +2486,31 @@ async function refreshGoCards(interactive=true){
     const info=document.createElement('small');
     info.textContent='Last rip: '+last.id+' · '+(last.status||'unknown');
     card.append(info);
-    addGoAction(card,'Open last job',()=>{
-     document.getElementById('go-job').value=last.id;
-     showOscarTab('go');goAdvance();
-    });
+    if(Array.isArray(last.selected_tracks)&&last.selected_tracks.length){
+     addGoAction(card,'Inspect diagnostic job',async()=>{
+      const headers=requestAuthHeaders('Read diagnostic extraction status');if(!headers)return;
+      const out=document.getElementById('go-result');
+      try{
+       const response=await fetch('/api/rip/jobs/'+last.id,{headers});
+       const data=await response.json();
+       if(!response.ok)throw new Error(data.detail||'Cannot inspect job');
+       out.textContent='Diagnostic '+data.id+' · tracks '+data.selected_tracks.join(', ')+
+         ' · '+data.status+' · '+(data.error||data.warning||'Staging only, not a Go workflow');
+      }catch(error){out.textContent='Diagnostic job unavailable: '+error.message}
+     });
+    }else{
+     addGoAction(card,'Open last job',()=>{
+      document.getElementById('go-job').value=last.id;
+      showOscarTab('go');goAdvance();
+     });
+    }
    }
    if(drive.present){
     const controls=document.createElement('div');controls.className='go-drive-controls';
     for(const action of ['eject','close']){
      const button=addGoAction(controls,action==='eject'?'Eject':'Close tray',
        ()=>controlGoTray(drive.stable_id,action));
-     button.disabled=drive.status==='ripping'||drive.status==='drive_control';
+     button.disabled=!drive.offset_set||drive.status==='ripping'||drive.status==='drive_control';
      if(button.disabled)button.title='Blocked while this drive is busy';
     }
     card.append(controls);
