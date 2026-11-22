@@ -37,6 +37,12 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 
 .go-workflow-row{border:1px solid #3c4b60;border-radius:10px;padding:11px;margin:10px 0;background:#131c29;overflow-wrap:anywhere}
 .go-workflow-row button{padding:7px 12px;margin:6px 8px 0 0}
+.go-job-toolbar{display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin:12px 0}
+.go-job-toolbar label{margin:0}.go-job-toolbar select{margin-left:6px}
+.go-workflow-row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.go-job-title{font-weight:700}.go-job-details{display:grid;gap:3px;min-width:0;flex:1 1 300px}
+.go-job-details small{display:block;overflow-wrap:anywhere}.go-job-state{color:#d2dff2;font-size:.85rem}
+#go-job-summary{color:#c5d6e9;margin:10px 0}
 .oscar-advanced{border:1px solid #344559;border-radius:12px;padding:12px;margin:14px 0}
 .oscar-advanced>summary{cursor:pointer;font-weight:650;padding:8px}
 .oscar-advanced section{margin:12px 0}
@@ -186,6 +192,12 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 <button type="button" id="go-advance">Check next safe step</button>
 <div id="go-result" aria-live="polite"></div>
 <h3>Tracked Go! jobs</h3>
+<p>Saved MusicBrainz candidates are hints, not physical-edition proof. Published jobs are hidden by default; no archive or staging files are changed by these controls.</p>
+<div class="go-job-toolbar">
+<label for="go-job-filter">Show <select id="go-job-filter"><option value="action">Needs attention</option><option value="active">In progress</option><option value="published">Published</option><option value="all">All jobs</option></select></label>
+<label for="go-job-sort">Sort <select id="go-job-sort"><option value="updated">Recent activity</option><option value="created">Newest created</option><option value="priority">Priority</option><option value="album">Album A–Z</option><option value="id">Job ID</option></select></label>
+</div>
+<div id="go-job-summary" aria-live="polite"></div>
 <div id="go-workflows" aria-live="polite"></div>
 </section>
 <section><h2>Persistent workflow ledger · towards CD in → Go!</h2>
@@ -2431,25 +2443,66 @@ async function refreshGoCards(interactive=true){
   else if(goDashboardTimer){clearTimeout(goDashboardTimer);goDashboardTimer=null}
   if(!(dashboard.drives||[]).length)
    target.textContent='No enabled optical drives. Configure them under Settings.';
-  const jobs=ledger.jobs||[];
-  for(const job of jobs){
-   const row=document.createElement('div');row.className='go-workflow-row';
-   const label=document.createElement('strong');
-   label.textContent=job.phase+' · '+job.identification_mode;
-   row.append(label);
-   const id=document.createElement('small');
-   id.textContent=job.job_id;row.append(id);
-   addGoAction(row,'Open / Check next safe step',()=>{
-    document.getElementById('go-job').value=job.job_id;
-    showOscarTab('go');goAdvance();
-   });
-   workflows.append(row);
-  }
-  if(!jobs.length)workflows.textContent='No tracked Go! jobs yet.';
+  renderTrackedGoJobs(ledger.jobs||[]);
  }catch(error){
   target.textContent='Drive status unavailable: '+error.message;
  }
 }
+// Presentation-only list: no MusicBrainz requests, file writes, or identification approvals.
+const goPublishedPhases=new Set(['ARCHIVE_PUBLISHED']);
+const goActivePhases=new Set(['RIP_IN_PROGRESS','METADATA_COPY_RUNNING','ARCHIVE_PUBLISH_RUNNING']);
+const goJobPriority={'RIP_FAILED':0,'RIP_INTERRUPTED':0,'VERIFICATION_PENDING':1,
+ 'METADATA_REVIEW_REQUIRED':2,'ARCHIVE_REVIEW_REQUIRED':2,'RELEASE_REVIEW_PENDING':3,
+ 'DEFERRED_REVIEW':3,'METADATA_READY':4,'RELEASE_ACCEPTED':4};
+function goJobGroup(job){
+ if(goPublishedPhases.has(job.phase))return 'published';
+ if(goActivePhases.has(job.phase))return 'active';
+ return 'action';
+}
+function renderTrackedGoJobs(jobs){
+ const target=document.getElementById('go-workflows');
+ const summary=document.getElementById('go-job-summary');
+ if(!target||!summary)return;
+ const filter=document.getElementById('go-job-filter').value;
+ const sort=document.getElementById('go-job-sort').value;
+ const counts={action:0,active:0,published:0};
+ for(const job of jobs)counts[goJobGroup(job)]++;
+ summary.textContent=counts.action+' need attention · '+counts.active+' active · '+
+  counts.published+' published · '+jobs.length+' tracked';
+ const visible=jobs.filter(job=>filter==='all'||goJobGroup(job)===filter);
+ const title=job=>job.candidate_title||'Unknown CD';
+ visible.sort((a,b)=>{
+  if(sort==='priority')return ((goJobPriority[a.phase]??5)-(goJobPriority[b.phase]??5)) ||
+   String(b.updated_at||'').localeCompare(String(a.updated_at||''));
+  if(sort==='album')return title(a).localeCompare(title(b)) || a.job_id.localeCompare(b.job_id);
+  if(sort==='id')return a.job_id.localeCompare(b.job_id);
+  const field=sort==='created'?'created_at':'updated_at';
+  return String(b[field]||'').localeCompare(String(a[field]||'')) || a.job_id.localeCompare(b.job_id);
+ });
+ target.replaceChildren();
+ for(const job of visible){
+  const row=document.createElement('article');row.className='go-workflow-row';
+  const info=document.createElement('div');info.className='go-job-details';
+  const name=document.createElement('div');name.className='go-job-title';name.textContent=title(job);
+  const state=document.createElement('div');state.className='go-job-state';
+  state.textContent=job.phase.replaceAll('_',' ')+' · '+job.identification_mode+
+   (job.match_status==='INFERRED_OPERATOR_ACCEPTED'?' · operator accepted inferred release':
+    job.match_status==='INFERRED_NOT_PHYSICALLY_VERIFIED'?' · possible MusicBrainz match (NOT edition verified)':' · release unresolved');
+  const details=document.createElement('small');
+  details.textContent=(job.candidate_date?'Candidate date: '+job.candidate_date+' · ':'')+
+    'Job '+job.job_id+' · Updated '+(job.updated_at||'unknown');
+  info.append(name,state,details);row.append(info);
+  addGoAction(row,goJobGroup(job)==='published'?'View published job':
+    goJobGroup(job)==='active'?'View progress / status':'Open / Check next safe step',()=>{
+   document.getElementById('go-job').value=job.job_id;
+   showOscarTab('go');goAdvance();
+  });
+  target.append(row);
+ }
+ if(!visible.length)target.textContent=jobs.length?'No jobs in this filter.':'No tracked Go! jobs yet.';
+}
+for(const id of ['go-job-filter','go-job-sort'])
+ document.getElementById(id).addEventListener('change',()=>refreshGoCards(false));
 const reviewPhases=new Set(['RIP_FAILED','RIP_INTERRUPTED','METADATA_REVIEW_REQUIRED',
  'ARCHIVE_REVIEW_REQUIRED','VERIFICATION_PENDING','RELEASE_REVIEW_PENDING',
  'DEFERRED_REVIEW','METADATA_READY','RELEASE_ACCEPTED']);
