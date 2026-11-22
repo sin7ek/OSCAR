@@ -307,6 +307,23 @@ def rip_tray_action(body: DriveTrayRequest, request: Request,
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
+class StopRipRequest(BaseModel):
+    confirmation: str
+
+
+@app.post("/api/rip/jobs/{job_id}/stop")
+def rip_stop_job(job_id: str, body: StopRipRequest, request: Request,
+                 x_oscar_rip_token: str | None = Header(default=None)):
+    from oscar.ripping import RipError, stop
+    _rip_auth(x_oscar_rip_token, request)
+    if body.confirmation != "STOP_RIP_KEEP_STAGING":
+        raise HTTPException(status_code=422, detail="Explicit stop-and-retain-staging confirmation required")
+    try:
+        return stop(job_id)
+    except (RipError, OSError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
 @app.get("/api/rip/jobs/{job_id}")
 def get_rip_status(job_id: str, request: Request, x_oscar_rip_token: str | None = Header(default=None)):
     from oscar.ripping import RipError, status
