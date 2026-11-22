@@ -40,7 +40,7 @@ def test_drive_discovery_from_sysfs_and_by_id(tmp_path: Path):
     found = inspect_drives(sysclass, byid, bypath)
     assert len(found) == 2
     assert found[1]["device"] == "/dev/sr2"
-    assert found[1]["stable_id"] == "usb-HL-DT-ST_GP95NB_XYZ"
+    assert found[1]["stable_id"] == "usb-HL-DT-ST_GP95NB_XYZ-0:0"
     assert found[1]["identity_persistent"] is True
     settings = discover_settings(tmp_path / "settings.json", found)
     assert len(settings.drives) == 2
