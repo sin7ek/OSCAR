@@ -783,3 +783,36 @@ def test_archive_carries_saved_ctdb_evidence(publishable):
     destination = archive / published["relative_directory"]
     assert (destination / "SOURCES.txt").read_text() == proposed
     assert (destination / "ExtractionEvidence" / path.name).read_bytes() == path.read_bytes()
+
+
+def test_archive_carries_edition_search_for_selected_release(publishable):
+    job, original, archive, _ = publishable
+    disc_id = "a" * 28
+    preview_path = original / "metadata-preview.json"
+    saved_preview = json.loads(preview_path.read_text())
+    saved_preview["album"]["musicbrainz_disc_id"] = disc_id
+    preview_path.write_text(json.dumps(saved_preview))
+    provider = archive_publish.edition_provenance
+    provider.save(JOB, disc_id, "disc_lookup", [{"id": RELEASE, "country": "CA"}])
+    provider.save(JOB, disc_id, "combined_search", [{
+        "id": RELEASE, "country": "CA", "sources": ["disc_lookup", "barcode"],
+        "catalog_matches": True, "barcode_matches": True,
+        "discogs": [{"id": 4709815, "country": "Germany",
+                     "link": "Shared artist, title, barcode and catalog number",
+                     "variants": [{"variant": "Variant 1",
+                                   "comparison": {"Matrix / Runout": "matches"}}]}],
+    }], identifiers={"barcode": "3259180002527", "matrix": "800 025-2 02"}, suggested=RELEASE)
+    assert provider.for_release(job, JOB, "b" * 28, RELEASE) is None
+    assert provider.for_release(job, JOB, disc_id, "b" * 36) is None
+    plan = archive_publish.prepare(JOB, COPY, "original_tags", profile="standard")
+    proposed = archive_publish.render_sources(plan, "EDITION_NOT_VERIFIED")
+    assert "[Edition search]" in proposed
+    assert "MusicBrainz release country: CA" in proposed
+    assert "Discogs release country: Germany" in proposed
+    assert "Variant 1: Matrix / Runout matches" in proposed
+    assert "Combined search suggested this candidate: yes" in proposed
+    result = archive_publish._do_publish(plan, "b" * 32, allow_metadata_observations=True)
+    destination = archive / result["relative_directory"]
+    assert (destination / "SOURCES.txt").read_text() == proposed
+    manifest = json.loads((destination / "manifest.json").read_text())
+    assert manifest["provenance"]["edition_search"] == plan["provenance"]["edition_search"]

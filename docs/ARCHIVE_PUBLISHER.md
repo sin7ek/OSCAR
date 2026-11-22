@@ -19,6 +19,9 @@ Transcribe the matrix from the inner ring in **Go!** while accepting a Semi Auto
 
 `SOURCES.txt` records the selected MusicBrainz release and edition status, disc position, audio source and AccurateRip evidence per track, published FLAC SHA-256 values, and archived evidence paths and hashes. Go! Archive Review shows the proposed text before approval.
 
+The **Edition search** section records saved lookup evidence for the disc and MusicBrainz release used by the tagged copy. The standard Go! Disc ID/TOC lookup records its evidence automatically. When the operator runs **Find matching editions**, the same section also includes the supplied identifiers, whether the candidate was suggested, and matched Discogs references, matrix comparisons, provider country values and lookup warnings. The archive manifest retains the same evidence. The provider results are kept as a historical comparison from the recorded date. Editing or approving an edition remains separate from discovery.
+
+
 - A regular rip uses `PHYSICAL_CD_RIP` and attributes its saved AccurateRip results to cyanrip.
 - A Track Recovery publication uses `HYBRID_REPAIRED_CD_RIP`. Each row identifies the source job and file and records the identical raw-source and recovery-copy SHA-256. The verification section attributes the saved v1/v2 results to the independent `trackverify -R` run. `ExtractionEvidence/` contains the recovery source map, saved verification report and available verifier transcript.
 - Publication checks the archived FLACs and CUE references against the reviewed staging inputs. OSCAR does not run another AccurateRip or CTDB lookup during publication. Physical edition identification requires separate evidence.

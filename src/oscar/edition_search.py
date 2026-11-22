@@ -4,7 +4,7 @@ import unicodedata
 import urllib.parse
 import urllib.request
 
-from oscar import discogs_readonly, musicbrainz, ripping
+from oscar import discogs_readonly, edition_provenance, musicbrainz, ripping
 from oscar.boxsets import RELEASE_ID
 from oscar.mb_client import fetch_json
 from oscar.physical_release import _normalized_catalog
@@ -159,6 +159,16 @@ def search(job_id, *, catalog, barcode, matrix, mastering_sid, mould_sid, discog
     recommended = (ranked[0]["id"] if ranked and ranked[0]["score"] >= 5
                    and not ranked[0].get("barcode_conflict")
                    and (len(ranked) == 1 or ranked[0]["score"] > ranked[1]["score"]) else None)
+    try:
+        edition_provenance.save(
+            job_id, plan["disc_id"], "combined_search", ranked,
+            identifiers={"catalog": catalog, "barcode": barcode, "matrix": matrix,
+                         "mastering_sid": mastering_sid, "mould_sid": mould_sid,
+                         "discogs_release": pinned},
+            suggested=recommended, notices=notices,
+        )
+    except (ripping.RipError, OSError):
+        notices.append("Edition search evidence could not be saved to the staging job.")
     return {"releases": ranked, "recommended": recommended, "notices": notices,
             "unlinked_discogs": [item for item in discogs if not any(
                 reference["id"] == item["id"]
