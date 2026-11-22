@@ -24,7 +24,7 @@ import uuid
 
 from mutagen.flac import FLAC
 
-from oscar import archive_review, ctdb_verification, verification
+from oscar import archive_review, ctdb_verification, edition_provenance, verification
 from oscar.archive_naming import safe_component
 from oscar.metadata_staging import _COPY_ID, _streaminfo_md5_hex
 from oscar.pressing_evidence import observed_matrix
@@ -205,6 +205,10 @@ def prepare(job_id, copy_id, kind="original_tags", profile="auto",
                                for t in verification_report.get("tracks", [])},
         "recovery": recovery,
     }
+    edition_search = edition_provenance.for_release(
+        root, job_id, review["album"].get("musicbrainz_disc_id"), review["release_id"])
+    if edition_search:
+        provenance["edition_search"] = edition_search
     if ctdb:
         result, report_hash = ctdb
         if not any(item["source"] == ctdb_verification.REPORT and item["sha256"] == report_hash
@@ -332,6 +336,8 @@ def render_sources(plan, release_match_status):
         lines.append(f"Genre metadata source: {album['genre_source']}")
     if plan["include_cover"]:
         lines.append(f"Cover art source: https://coverartarchive.org/release/{plan['release_id']}/front")
+    if searches := provenance.get("edition_search"):
+        lines.extend(edition_provenance.render(searches))
     lines.extend(["", "[Audio extraction]", f"Staging rip job: {plan['job_id']}"])
     if recovery:
         lines.extend([

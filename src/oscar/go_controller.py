@@ -505,6 +505,11 @@ def advance(job_id, *, lookup=None, verify_start=None,
     if not ranked:
         return {"workflow":workflow,"action":"missing_release",
                 "message":"No MusicBrainz release. Preserve verified staging for review."}
+    from oscar import edition_provenance
+    try:
+        edition_provenance.save(job_id, disc_id, "disc_lookup", ranked)
+    except (ripping.RipError, OSError):
+        pass  # Discovery must still complete if staging evidence cannot be written.
     options = [{"release_id":x["id"],"title":x.get("title"),"date":x.get("date"),
                 "labels":x.get("labels"),"score":_candidate_score(x)} for x in ranked]
     if workflow["identification_mode"] == "secure":
