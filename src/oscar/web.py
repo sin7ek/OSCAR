@@ -1061,6 +1061,10 @@ async function verifyExistingJob(jobOverride=null, targetOverride=null){
    const note=document.createElement('p');
    note.textContent=(data.notes||[]).join(' ');
    target.append(note);
+   if(data.status==='checks_passed'){
+    continueAdvanced(target,'Next: preview MusicBrainz tags',{'metadata-job':job,'metadata-release':'','metadata-matrix':''},
+     'metadata-preview-btn',{focus:'metadata-release'});
+   }
   }
   await poll();
  }catch(e){target.textContent='Verification unavailable: '+e.message}
@@ -1069,6 +1073,17 @@ document.getElementById('verify-start').onclick=()=>verifyExistingJob();
 
 let reviewedMetadata=null;
 function metadataElement(tag,text){const e=document.createElement(tag);e.textContent=String(text??'—');return e;}
+function openAdvanced(values, nextButton, {run=false, focus=nextButton}={}){
+ for(const [id,value] of Object.entries(values))document.getElementById(id).value=value;
+ showOscarTab('review');
+ oscarAdvanced.open=true;
+ document.getElementById(focus).focus();
+ if(run)document.getElementById(nextButton).click();
+}
+function continueAdvanced(result, label, values, nextButton, options){
+ addGoAction(result,label,()=>openAdvanced(values,nextButton,options));
+}
+
 function proposedSources(text){
  const panel=document.createElement('details');
  panel.append(metadataElement('summary','Proposed SOURCES.txt'),metadataElement('pre',text));
@@ -1157,13 +1172,15 @@ document.getElementById('metadata-preview-btn').onclick=async()=>{
        status.textContent='Tagging in progress; original FLACs remain unchanged…';
        setTimeout(()=>poll().catch(e=>status.textContent=e.message),3000);
       }else{
-       if(task.status==='tagged_copy_ready_for_review'){
-        document.getElementById('inspect-job').value=job;
-        document.getElementById('inspect-copy').value=started.copy_id;
-       }
        status.textContent=task.status+' · '+(task.count??'?')+' tagged FLAC copies'+
         (task.error?' · '+task.error:'')+
         ' · copy ID '+started.copy_id+'. No archive promotion.';
+       if(task.status==='tagged_copy_ready_for_review'){
+        document.getElementById('inspect-job').value=job;
+        document.getElementById('inspect-copy').value=started.copy_id;
+        continueAdvanced(output,'Next: inspect saved FLAC tags',
+         {'inspect-job':job,'inspect-copy':started.copy_id},'inspect-start',{run:true});
+       }
       }
     }await poll();
    }catch(e){status.textContent='Tagged-copy request failed: '+e.message}
@@ -1195,6 +1212,10 @@ document.getElementById('inspect-start').onclick=async()=>{
   overview.textContent=result.track_count+' tracks · '+result.status+
     ' · source: actual saved FLAC tags (not a MusicBrainz lookup)';
   target.append(overview);
+  if(result.status==='tags_match_preview'){
+   continueAdvanced(target,'Next: preview archive and SOURCES.txt',
+    {'publish-job':job,'publish-copy':copy,'publish-kind':'original_tags'},'publish-preview');
+  }
   const table=document.createElement('table');table.style.width='100%';
   const h=document.createElement('tr');
   for(const v of ['Track','Title','Composer','Work / grouping','Conductor','Orchestra','Checks']){
@@ -1261,6 +1282,8 @@ async function searchPhysicalReleases(kind){
    a.textContent=[item.title||'Untitled',item.artist,item.date,item.barcode,
       item.labels.map(x=>(x.name||'')+' '+(x.catalog_number||'')).join(', ')].filter(Boolean).join(' · ');
    line.append(a);target.append(line);
+   continueAdvanced(line,'Use in metadata preview',
+    {'metadata-release':item.id},'metadata-preview-btn');
    if(item.annotation) target.append(metadataElement('p',item.annotation));
   }
   const warning=document.createElement('p');warning.textContent=data.note;
@@ -1427,6 +1450,10 @@ document.getElementById('physical-compare-btn').onclick=async()=>{
   const safety=document.createElement('p');
   safety.textContent='Read-only comparison. OSCAR did NOT approve the edition, attach the Disc ID, tag, rename or archive anything.';
   out.append(safety);
+  if(evidence.disc_id_attached_to_matching_medium){
+   continueAdvanced(out,'Next: preview MusicBrainz tags',
+    {'metadata-job':job,'metadata-release':release},'metadata-preview-btn',{run:true});
+  }
  }catch(error){out.textContent='Physical release comparison failed: '+error.message}
 };
 
@@ -2944,6 +2971,57 @@ async function refreshReviewQueue(interactive=true){
 }
 document.getElementById('go-refresh-drives').onclick=()=>refreshGoCards(true);
 document.getElementById('review-refresh').onclick=()=>refreshReviewQueue(true);
+const goPhysicalDrafts=new Map();
+function renderGoPhysicalFields(output, job, selectedRelease){
+ const draft=goPhysicalDrafts.get(job)||{};
+ goPhysicalDrafts.set(job,draft);
+ const toggle=document.createElement('input');
+ toggle.type='checkbox';toggle.checked=Boolean(draft.enabled);
+ toggle.id='go-physical-identifiers';
+ const label=metadataElement('label','Use catalog, barcode and optional other identifiers');
+ label.htmlFor=toggle.id;
+ output.append(toggle,label);
+ const fields=document.createElement('fieldset');
+ fields.hidden=!toggle.checked;
+ toggle.onchange=()=>{draft.enabled=toggle.checked;fields.hidden=!toggle.checked};
+ for(const [key,labelText,maxLength] of [
+  ['catalog','Printed catalog number',100],['barcode','Printed barcode',30],
+  ['matrix','Matrix/runout',250],['mastering_sid','Mastering SID',32],
+  ['mould_sid','Mould SID',32]]){
+  const input=document.createElement('input');
+  input.id='go-pressing-'+key;input.value=draft[key]||'';input.maxLength=maxLength;
+  input.oninput=()=>{draft[key]=input.value.trim()};
+  const caption=metadataElement('label',labelText);
+  caption.htmlFor=input.id;fields.append(caption,input);
+ }
+ addGoAction(fields,'Compare MusicBrainz edition',()=>openAdvanced({
+  'physical-job':job,'physical-release':selectedRelease(),
+  'physical-catalog':draft.catalog||'','physical-barcode':(draft.barcode||'').replace(/[ -]/g,''),
+  'metadata-matrix':draft.matrix||''
+ },'physical-compare-btn',{focus:selectedRelease()?'physical-compare-btn':'physical-release'}));
+ addGoAction(fields,'Search MusicBrainz matrix annotations',()=>openAdvanced(
+  {'matrix-search':draft.matrix||''},'matrix-search-button',{focus:'matrix-search'}));
+ addGoAction(fields,'Compare Discogs pressings',()=>openAdvanced(Object.fromEntries(
+  ['catalog','barcode','matrix','mastering_sid','mould_sid'].map(key=>
+   ['discogs-pressing-'+key,draft[key]||''])),'discogs-pressing-search'));
+ const sources=metadataElement('p','Search external catalogs: ');
+ function externalSearch(name, domain, getTerms){
+  const link=metadataElement('a',name);
+  link.target='_blank';link.rel='noopener noreferrer';
+  const update=()=>{link.href='https://www.google.com/search?'+new URLSearchParams({
+   q:['site:'+domain,...getTerms().filter(Boolean).map(value=>'"'+value+'"')].join(' ')
+  })};
+  fields.addEventListener('input',update);update();return link;
+ }
+ sources.append(
+  externalSearch('Musik-Sammler','musik-sammler.de/release/',()=>[draft.matrix,draft.catalog]),
+  document.createTextNode(' · '),
+  externalSearch('VGMdb','vgmdb.net/album/',()=>[draft.catalog]));
+ fields.append(sources);
+ output.append(fields);
+ return ()=>draft.enabled?draft.matrix||'':'';
+}
+
 async function goAdvance(){
  const output=document.getElementById('go-result');
  const id=document.getElementById('go-job').value.trim().toLowerCase();
@@ -3265,6 +3343,19 @@ async function goAdvance(){
     finally{previewButton.disabled=false}
    };
   }
+  if(data.action==='secure_physical_review' ||
+     (data.action==='missing_release' && state.identification_mode!=='best_guess')){
+   const candidates=data.candidates||[];
+   const select=document.createElement('select');
+   select.setAttribute('aria-label','MusicBrainz release to compare');
+   select.append(new Option('Choose a MusicBrainz candidate',''));
+   for(const candidate of candidates){
+    select.append(new Option((candidate.title||candidate.release_id)+' · '+(candidate.date||''),
+     candidate.release_id));
+   }
+   if(candidates.length)output.append(select);
+   renderGoPhysicalFields(output,id,()=>select.value);
+  }
   if(data.action==='semi_release_review'){
    const label=document.createElement('label');
    label.textContent='Review the MusicBrainz candidate (this is NOT physical-edition verification)';
@@ -3278,29 +3369,7 @@ async function goAdvance(){
    }
    select.value=data.release_id||'';
    output.append(select);
-   const matrixLabel=metadataElement('label','Matrix/runout from the CD inner ring (optional)');
-   matrixLabel.htmlFor='go-matrix';
-   const matrix=document.createElement('input');
-   matrix.id='go-matrix';matrix.maxLength=250;matrix.style.width='min(360px, 95%)';
-   output.append(matrixLabel,matrix);
-   const search=metadataElement('button','Open matrix/runout search');
-   search.type='button';
-   search.onclick=()=>{
-    document.getElementById('matrix-search').value=matrix.value.trim();
-    showOscarTab('review');
-    oscarAdvanced.open=true;
-    document.getElementById('matrix-search').focus();
-   };
-   output.append(search);
-   const compare=metadataElement('button','Compare Discogs pressings');
-   compare.type='button';
-   compare.onclick=()=>{
-    document.getElementById('discogs-pressing-matrix').value=matrix.value.trim();
-    showOscarTab('review');
-    oscarAdvanced.open=true;
-    document.getElementById('discogs-pressing-catalog').focus();
-   };
-   output.append(compare);
+   const matrixValue=renderGoPhysicalFields(output,id,()=>select.value);
    const accept=document.createElement('button');accept.type='button';
    accept.textContent='Accept selected INFERRED release (no tags or publication)';
    accept.onclick=async()=>{
@@ -3314,7 +3383,7 @@ async function goAdvance(){
      const response=await fetch('/api/go/jobs/'+id+'/accept-release',{
       method:'POST',headers:{'Content-Type':'application/json',...headers},
       body:JSON.stringify({release_id,confirmation:'ACCEPT_INFERRED_RELEASE',
-       matrix_runout:matrix.value.trim()||null})
+       matrix_runout:matrixValue()||null})
      });
      const result=await response.json();
      if(!response.ok)throw new Error(result.detail||'Approval rejected');
