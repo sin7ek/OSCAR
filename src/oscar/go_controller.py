@@ -443,6 +443,7 @@ def advance(job_id, *, lookup=None, verify_start=None,
                 "message":"Interrupted extraction is preserved; no automatic rerip."}
     workflow = workflow_ledger.refresh(job_id)
     phase = workflow["phase"]
+    workflow["working_title"] = rip.get("working_title", "")
     if phase == "RIP_IN_PROGRESS":
         return {"workflow":workflow, "action":"ripping", "message":"Ripping in progress."}
     if phase == "RIP_FAILED":

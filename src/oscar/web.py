@@ -2810,7 +2810,9 @@ async function refreshGoCards(interactive=true){
    const last=drive.job;
    if(last&&last.id){
     const info=document.createElement('small');
-    info.textContent='Last rip: '+last.id+' · '+(last.status||'unknown');
+    const tracked=ledger.jobs?.find(job=>job.job_id===last.id);
+    info.textContent='Last rip: '+(tracked?.working_title||last.working_title||last.id.slice(0,8))+
+     ' · '+(last.status||'unknown');
     card.append(info);
     if(Array.isArray(last.selected_tracks)&&last.selected_tracks.length){
      addGoAction(card,'Inspect diagnostic job',async()=>{
@@ -2893,7 +2895,7 @@ function renderTrackedGoJobs(jobs){
  summary.textContent=counts.action+' need attention · '+counts.active+' active · '+
   counts.published+' published · '+jobs.length+' tracked';
  const visible=jobs.filter(job=>filter==='all'||goJobGroup(job)===filter);
- const title=job=>job.candidate_title||'Unknown CD';
+ const title=job=>job.working_title||job.candidate_title||'Unknown CD';
  visible.sort((a,b)=>{
   if(sort==='priority')return ((goJobPriority[a.phase]??5)-(goJobPriority[b.phase]??5)) ||
    String(b.updated_at||'').localeCompare(String(a.updated_at||''));
@@ -2913,7 +2915,8 @@ function renderTrackedGoJobs(jobs){
     job.match_status==='INFERRED_NOT_PHYSICALLY_VERIFIED'?' · possible MusicBrainz match (NOT edition verified)':' · release unresolved');
   const details=document.createElement('small');
   details.textContent=(job.candidate_date?'Candidate date: '+job.candidate_date+' · ':'')+
-    'Job '+job.job_id+' · Updated '+(job.updated_at||'unknown');
+    'Job '+job.job_id.slice(0,8)+' · Updated '+(job.updated_at||'unknown');
+  details.title=job.job_id;
   info.append(name,state,details);row.append(info);
   addGoAction(row,goJobGroup(job)==='published'?'View published job':
     goJobGroup(job)==='active'?'View progress / status':'Open / Check next safe step',()=>{
@@ -2945,8 +2948,9 @@ async function refreshReviewQueue(interactive=true){
   for(const job of matching){
    const row=document.createElement('div');row.className='go-workflow-row';
    const title=document.createElement('strong');
-   title.textContent=job.phase+' · '+job.identification_mode;
-   const id=document.createElement('small');id.textContent=job.job_id;
+   title.textContent=job.working_title||job.candidate_title||'Unknown CD';
+   const id=document.createElement('small');id.textContent=job.phase+' · '+job.identification_mode+
+    ' · '+job.job_id.slice(0,8);id.title=job.job_id;
    row.append(title,id);
    addGoAction(row,'Inspect in Go!',()=>{
     document.getElementById('go-job').value=job.job_id;
@@ -2994,6 +2998,75 @@ function renderGoPhysicalFields(output, job, selectedRelease){
   const caption=metadataElement('label',labelText);
   caption.htmlFor=input.id;fields.append(caption,input);
  }
+ const results=metadataElement('div','');
+ results.setAttribute('aria-live','polite');
+ let searchGeneration=0;
+ fields.addEventListener('input',()=>{searchGeneration++;results.replaceChildren()});
+ const search=metadataElement('button','Find matching editions');
+ search.type='button';
+ search.onclick=async()=>{
+  const headers=requestAuthHeaders('Find physical editions for this rip');
+  if(!headers)return;
+  const body=Object.fromEntries(['catalog','barcode','matrix','mastering_sid','mould_sid']
+   .map(key=>[key,draft[key]||'']));
+  const generation=++searchGeneration;
+  search.disabled=true;results.textContent='Comparing MusicBrainz and Discogs…';
+  try{
+   const response=await fetch('/api/rip/jobs/'+job+'/edition-search',{method:'POST',
+    headers:{'Content-Type':'application/json',...headers},body:JSON.stringify(body)});
+   const data=await response.json();
+   if(generation!==searchGeneration)return;
+   if(!response.ok)throw Error(data.detail);
+   results.replaceChildren(metadataElement('p',data.recommended?
+    'Suggested edition for review':'No single edition stands out. Review the candidates.'));
+   for(const note of data.notices)results.append(metadataElement('p',note));
+   for(const release of data.releases){
+    const row=metadataElement('div','');
+    const link=metadataElement('a',[release.artist,release.title||release.id,release.country,release.date]
+     .filter(Boolean).join(' · '));
+    link.href='https://musicbrainz.org/release/'+release.id;
+    link.target='_blank';link.rel='noopener noreferrer';
+    row.append(link,metadataElement('p',[
+     release.id===data.recommended?'Suggested for review':'',
+     release.catalog_matches?'Catalog matches':'',
+     release.barcode_matches?'Barcode matches':'',
+     release.barcode_conflict?'Barcode differs':'',
+     release.sources.includes('disc_lookup')?'Found by saved disc lookup':'',
+     release.sources.includes('matrix_runout')?'Matrix found in MusicBrainz annotation':''
+    ].filter(Boolean).join(' · ')));
+    for(const reference of release.discogs){
+     const discogs=metadataElement('a','Discogs '+reference.id+' · '+reference.link+
+      (reference.country?' · '+reference.country:''));
+     discogs.href='https://www.discogs.com/release/'+reference.id;
+     discogs.target='_blank';discogs.rel='noopener noreferrer';
+     row.append(discogs);
+     for(const variant of reference.variants){
+      row.append(metadataElement('p',variant.variant+' · '+Object.entries(variant.comparison)
+       .map(([key,value])=>key+' '+value.replaceAll('_',' ')).join(' · ')));
+     }
+    }
+    const select=document.getElementById('go-semi-candidate');
+    if(select&&Array.from(select.options).some(option=>option.value===release.id)){
+     addGoAction(row,'Select for Go! release review',()=>{
+      select.value=release.id;select.focus();
+     });
+    }else{
+     continueAdvanced(row,'Preview MusicBrainz tags',
+      {'metadata-job':job,'metadata-release':release.id,'metadata-matrix':body.matrix},
+      'metadata-preview-btn',{run:true});
+    }
+    results.append(row);
+   }
+   for(const item of data.unlinked_discogs){
+    const link=metadataElement('a','Discogs '+item.id+' · '+(item.title||'')+' · no MusicBrainz link found');
+    link.href='https://www.discogs.com/release/'+item.id;
+    link.target='_blank';link.rel='noopener noreferrer';
+    const line=metadataElement('p','');line.append(link);results.append(line);
+   }
+  }catch(error){if(generation===searchGeneration)results.textContent='Edition search unavailable: '+error.message}
+  finally{search.disabled=false}
+ };
+ fields.append(search,results);
  addGoAction(fields,'Compare MusicBrainz edition',()=>openAdvanced({
   'physical-job':job,'physical-release':selectedRelease(),
   'physical-catalog':draft.catalog||'','physical-barcode':(draft.barcode||'').replace(/[ -]/g,''),
@@ -3037,7 +3110,7 @@ async function goAdvance(){
   const state=data.workflow||{};
   output.replaceChildren();
   const summary=document.createElement('p');
-  summary.textContent='Job '+id+' · '+state.phase+' · '+state.identification_mode+
+  summary.textContent=(state.working_title?state.working_title+' · ':'')+'Job '+id+' · '+state.phase+' · '+state.identification_mode+
    ' · '+data.action;output.append(summary);
   const explanation=document.createElement('p');
   explanation.textContent=data.message||state.next_action||'Review needed';output.append(explanation);
