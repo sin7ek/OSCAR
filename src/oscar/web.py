@@ -2991,7 +2991,7 @@ function renderGoPhysicalFields(output, job, selectedRelease){
  for(const [key,labelText,maxLength] of [
   ['catalog','Printed catalog number',100],['barcode','Printed barcode',30],
   ['matrix','Matrix/runout',250],['mastering_sid','Mastering SID',32],
-  ['mould_sid','Mould SID',32]]){
+  ['mould_sid','Mould SID',32],['discogs_release','Known Discogs release ID or URL (optional)',300]]){
   const input=document.createElement('input');
   input.id='go-pressing-'+key;input.value=draft[key]||'';input.maxLength=maxLength;
   input.oninput=()=>{draft[key]=input.value.trim()};
@@ -3007,7 +3007,7 @@ function renderGoPhysicalFields(output, job, selectedRelease){
  search.onclick=async()=>{
   const headers=requestAuthHeaders('Find physical editions for this rip');
   if(!headers)return;
-  const body=Object.fromEntries(['catalog','barcode','matrix','mastering_sid','mould_sid']
+  const body=Object.fromEntries(['catalog','barcode','matrix','mastering_sid','mould_sid','discogs_release']
    .map(key=>[key,draft[key]||'']));
   const generation=++searchGeneration;
   search.disabled=true;results.textContent='Comparing MusicBrainz and Discogs…';
@@ -3020,6 +3020,7 @@ function renderGoPhysicalFields(output, job, selectedRelease){
    results.replaceChildren(metadataElement('p',data.recommended?
     'Suggested edition for review':'No single edition stands out. Review the candidates.'));
    for(const note of data.notices)results.append(metadataElement('p',note));
+   const regions=new Intl.DisplayNames(['en'],{type:'region'});
    for(const release of data.releases){
     const row=metadataElement('div','');
     const link=metadataElement('a',[release.artist,release.title||release.id,release.country,release.date]
@@ -3040,6 +3041,14 @@ function renderGoPhysicalFields(output, job, selectedRelease){
      discogs.href='https://www.discogs.com/release/'+reference.id;
      discogs.target='_blank';discogs.rel='noopener noreferrer';
      row.append(discogs);
+     const code=release.country;
+     const country=code==='XE'?'Europe':code==='XW'?'Worldwide':
+      /^[A-Z]{2}$/.test(code||'')?regions.of(code):'';
+     if(country&&country!==code&&reference.country&&
+        country.toLowerCase()!==reference.country.toLowerCase()){
+      row.append(metadataElement('p','Release country differs: MusicBrainz '+country+
+       ' · Discogs '+reference.country+'. Compare the edition and distribution evidence.'));
+     }
      for(const variant of reference.variants){
       row.append(metadataElement('p',variant.variant+' · '+Object.entries(variant.comparison)
        .map(([key,value])=>key+' '+value.replaceAll('_',' ')).join(' · ')));
@@ -3058,10 +3067,16 @@ function renderGoPhysicalFields(output, job, selectedRelease){
     results.append(row);
    }
    for(const item of data.unlinked_discogs){
-    const link=metadataElement('a','Discogs '+item.id+' · '+(item.title||'')+' · no MusicBrainz link found');
+    const link=metadataElement('a',['Discogs '+item.id,item.title,item.country,item.year,'no MusicBrainz link found']
+     .filter(Boolean).join(' · '));
     link.href='https://www.discogs.com/release/'+item.id;
     link.target='_blank';link.rel='noopener noreferrer';
-    const line=metadataElement('p','');line.append(link);results.append(line);
+    const row=metadataElement('div','');row.append(link);
+    for(const variant of item.variants){
+     row.append(metadataElement('p',variant.variant+' · '+Object.entries(variant.comparison)
+      .map(([key,value])=>key+' '+value.replaceAll('_',' ')).join(' · ')));
+    }
+    results.append(row);
    }
   }catch(error){if(generation===searchGeneration)results.textContent='Edition search unavailable: '+error.message}
   finally{search.disabled=false}
