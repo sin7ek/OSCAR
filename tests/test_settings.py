@@ -36,7 +36,7 @@ def test_drive_discovery_from_sysfs_and_by_id(tmp_path: Path):
         (dev / "vendor").write_text("HL-DT-ST")
         (dev / "rev").write_text("1.00")
     (byid / "ata-HL-DT-ST_GH24NS95_ABC").symlink_to("../../sr1")
-    (byid / "usb-HL-DT-ST_GP95NB_XYZ").symlink_to("../../sr2")
+    (byid / "usb-HL-DT-ST_GP95NB_XYZ-0:0").symlink_to("../../sr2")
     found = inspect_drives(sysclass, byid, bypath)
     assert len(found) == 2
     assert found[1]["device"] == "/dev/sr2"
@@ -60,9 +60,52 @@ def test_read_only_inventory_unknown_directory(tmp_path: Path):
     assert inspect_drives(tmp_path / "missing") == []
 
 
-def test_drive_id_rejects_paths():
+def test_real_usb_udev_id_preserves_exact_identity_and_settings(tmp_path):
+    stable_id = "usb-HL-DT-ST_DVDRAM_GP95NB70_K0LKBCC3829-0:0"
+    path = tmp_path / "settings.json"
+    chosen = DriveSettings(stable_id=stable_id, label="LG GP95NB70",
+                           enabled=True, offset_samples=667)
+    save_settings(OscarSettings(drives=[chosen]), path)
+    assert read_settings(path).drives[0].stable_id == stable_id
+    detected = [{"stable_id": stable_id, "device": "/dev/sr3",
+                 "label": "LG GP95NB70", "identity_persistent": True}]
+    merged = discover_settings(path, detected)
+    assert len(merged.drives) == 1
+    assert merged.drives[0] == chosen
+
+
+def test_real_usb_udev_id_works_for_settings_and_media_endpoint(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    from oscar import api, media, settings as cfg
+    stable_id = "usb-HL-DT-ST_DVDRAM_GP95NB70_K0LKBCC3829-0:0"
+    path = tmp_path / "settings.json"
+    save_settings(OscarSettings(drives=[DriveSettings(
+        stable_id=stable_id, label="LG GP95NB70", enabled=True)]), path)
+    entry = {"stable_id": stable_id, "device": "/dev/sr3",
+             "label": "LG GP95NB70", "identity_persistent": True}
+    monkeypatch.setattr(cfg, "config_path", lambda: path)
+    monkeypatch.setattr(cfg, "inspect_drives", lambda: [entry])
+    monkeypatch.setattr(media, "inspect_drives", lambda: [entry])
+    monkeypatch.setattr(media, "probe_device", lambda dev:
+                        {"status": "no_disc", "disc_type": None})
+    monkeypatch.setenv("OSCAR_ENABLE_MEDIA_PROBE", "1")
+    client = TestClient(api.app)
+    config = client.get("/api/settings")
+    assert config.status_code == 200
+    assert config.json()["drives"][0]["stable_id"] == stable_id
+    checked = client.get("/api/media")
+    assert checked.status_code == 200
+    assert checked.json()[0]["stable_id"] == stable_id
+    assert checked.json()[0]["status"] == "no_disc"
+
+
+@pytest.mark.parametrize("invalid", [
+    "../../etc/passwd", "usb-drive/../sr0", "usb-drive\\\\sr0",
+    "usb-drive 0:0", "usb-drive;rm", "usb-drive\\n0:0",
+])
+def test_drive_id_rejects_paths(invalid):
     with pytest.raises(ValidationError):
-        DriveSettings(stable_id="../../etc/passwd", label="bad")
+        DriveSettings(stable_id=invalid, label="bad")
 
 
 def test_default_identification_policy_is_secure_and_existing_configs_migrate(tmp_path):
