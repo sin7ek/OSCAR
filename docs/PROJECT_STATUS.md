@@ -1,8 +1,10 @@
 # OSCAR — project status and handoff
 
-## Current status — 2026-11-22, through PR #145
+## Current status — 2026-11-22, through PR #149
 
-**Latest feature on `main` and GHCR:** [PR #145](https://github.com/sin7ek/OSCAR/pull/145) ships independent, operator-triggered CTDB verification and read-only Discogs pressing comparison. PR Tests and Docker build passed. The Linux/amd64 `ghcr.io/sin7ek/oscar:main` OCI revision matched merge `ca4bfe47ad3e6cacd232c0d5448417300da8619c` at manifest digest `sha256:8ba24a6c041843fb48f3557eaf627df1808d531e548922acaecd99bdab184f7d`. A live lookup with a two-track test signal produced the expected CTDB no-audio-match result (`0/1`). Known-good audio and Discogs variant acceptance on Tower are pending.
+**Latest feature on `main` and GHCR:** [PR #149](https://github.com/sin7ek/OSCAR/pull/149) adds display-only rip working titles and integrated MusicBrainz/Discogs edition review. Python Tests and Docker build passed. The registry Linux/amd64 image `ghcr.io/sin7ek/oscar:main` reports revision `db0df556f9743d0b02c0f13a86e5ee205d80ba08` at digest `sha256:d44a401ad2d106340ebc637d420e24aaa47604bbe147a42d8dec46e47d4b15bf`. Live Tower acceptance remains open.
+
+**CTDB and Discogs:** [PR #145](https://github.com/sin7ek/OSCAR/pull/145) ships independent, operator-triggered CTDB verification and read-only Discogs pressing comparison. PR Tests and Docker build passed. The Linux/amd64 `ghcr.io/sin7ek/oscar:main` OCI revision matched merge `ca4bfe47ad3e6cacd232c0d5448417300da8619c` at manifest digest `sha256:8ba24a6c041843fb48f3557eaf627df1808d531e548922acaecd99bdab184f7d`. A live lookup with a two-track test signal produced the expected CTDB no-audio-match result (`0/1`). Known-good audio and Discogs variant acceptance on Tower are pending.
 
 **Combined identifier search:** Go! identifier search combines the staged disc lookup, MusicBrainz catalog, barcode and matrix searches, and Discogs links or matching release identifiers. It suggests a unique leading MusicBrainz candidate for manual selection and staging metadata review. Test provider lookups and the handoff on Tower.
 
