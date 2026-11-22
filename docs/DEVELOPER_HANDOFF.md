@@ -1,5 +1,7 @@
 # OSCAR — Developer handoff
 
+**Matrix/runout:** MusicBrainz release-annotation search and optional disc-level operator transcription are available in the [archive publishing workflow](ARCHIVE_PUBLISHER.md). A new tagged copy carries `MATRIX_RUNOUT` through to the publication preview, archived `SOURCES.txt` and manifest. Tower acceptance is pending.
+
 Last reconciled 2026-11-22 through feature PR [#140](https://github.com/sin7ek/OSCAR/pull/140) and open PR [#139](https://github.com/sin7ek/OSCAR/pull/139). Read the [work document](PROJECT_STATUS.md) for evidence and project decisions and the [dashboard](PROGRESS.md) for test and deployment status.
 
 ## Build and deployment

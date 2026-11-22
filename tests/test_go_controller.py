@@ -283,7 +283,9 @@ def test_go_semi_metadata_handoff_is_durable_single_copy(rig):
     job_id = _finish(rig)
     rig[2]["status"] = "checks_passed"
     go.advance(job_id, lookup=lambda disc, toc: {"releases": [{"id": RELEASE1}]})
-    ledger.accept_semi_release(job_id, RELEASE1, "ACCEPT_INFERRED_RELEASE")
+    matrix = "936245901-2.2 WME"
+    ledger.accept_semi_release(job_id, RELEASE1, "ACCEPT_INFERRED_RELEASE",
+                               matrix_runout=matrix)
     calls, adapters = _fake_metadata_flow(job_id, RELEASE1)
     started = go.advance(job_id, **adapters)
     assert started["action"] == "metadata_copy_running"
@@ -293,6 +295,8 @@ def test_go_semi_metadata_handoff_is_durable_single_copy(rig):
     assert started["workflow"]["release_match_status"] == "INFERRED_OPERATOR_ACCEPTED"
     assert calls[-1][0] == "start"
     assert calls[-1][-1]["reserved_copy_id"] == copy_id
+    assert calls[-1][-1]["matrix_runout"] == matrix
+    assert started["workflow"]["matrix_runout"] == matrix
     assert calls[-1][-1]["identification_status"] == "INFERRED_OPERATOR_ACCEPTED"
     # No new worker can be launched on a repeat poll.
     result = go.advance(job_id, **adapters)

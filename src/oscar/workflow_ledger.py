@@ -14,6 +14,7 @@ import re
 import sqlite3
 
 from oscar import verification
+from oscar.pressing_evidence import observed_matrix
 from oscar.settings import discover_settings
 
 _JOB_ID = re.compile(r"[a-f0-9]{32}\Z")
@@ -31,6 +32,7 @@ CREATE TABLE IF NOT EXISTS workflow_jobs (
   candidate_options TEXT NOT NULL DEFAULT '[]',
   accepted_release_id TEXT NOT NULL DEFAULT '',
   release_approved_at TEXT NOT NULL DEFAULT '',
+  matrix_runout TEXT NOT NULL DEFAULT '',
   metadata_copy_id TEXT NOT NULL DEFAULT '',
   metadata_fingerprint TEXT NOT NULL DEFAULT '',
   metadata_release_id TEXT NOT NULL DEFAULT '',
@@ -73,7 +75,7 @@ def _db():
     db.executescript(_SCHEMA)
     existing = {row[1] for row in db.execute("PRAGMA table_info(workflow_jobs)")}
     for name in ("proposed_release_id", "release_evidence", "candidate_options",
-                 "accepted_release_id", "release_approved_at", "metadata_copy_id",
+                 "accepted_release_id", "release_approved_at", "matrix_runout", "metadata_copy_id",
                  "metadata_fingerprint", "metadata_release_id",
                  "archive_publish_id", "archive_fingerprint",
                  "archive_relative_directory", "archive_release_id",
@@ -356,7 +358,7 @@ def remember_semi_candidates(job_id, candidates, evidence):
         return _view(db, job_id)
 
 
-def accept_semi_release(job_id, release_id, confirmation):
+def accept_semi_release(job_id, release_id, confirmation, *, matrix_runout=None):
     """Approve an inferred release explicitly, without tagging or publishing."""
     if not _JOB_ID.fullmatch(job_id):
         raise WorkflowError("Invalid rip job ID")
@@ -365,6 +367,7 @@ def accept_semi_release(job_id, release_id, confirmation):
     if not isinstance(release_id, str) or not re.fullmatch(
             r"[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}", release_id):
         raise WorkflowError("Invalid MusicBrainz release UUID")
+    matrix = observed_matrix(matrix_runout)
     # Always check live saved verification before accepting identity.
     current = refresh(job_id)
     with _db() as db:
@@ -372,7 +375,7 @@ def accept_semi_release(job_id, release_id, confirmation):
         if not item or item["identification_mode"] != "semi_automatic":
             raise WorkflowError("Only Semi Automatic jobs can accept inferred releases")
         if item["phase"] == "RELEASE_ACCEPTED":
-            if item["accepted_release_id"] == release_id:
+            if item["accepted_release_id"] == release_id and item["matrix_runout"] == matrix:
                 return _view(db, job_id)
             raise WorkflowError("Release was already accepted; cannot silently replace it")
         if item["phase"] != "RELEASE_REVIEW_PENDING" or current["phase"] != "RELEASE_REVIEW_PENDING":
@@ -382,9 +385,9 @@ def accept_semi_release(job_id, release_id, confirmation):
             raise WorkflowError("Only a saved server-discovered candidate may be accepted")
         stamp = _now()
         result = db.execute("""UPDATE workflow_jobs SET accepted_release_id=?,
-            release_approved_at=?,updated_at=? WHERE job_id=? AND
+            release_approved_at=?,matrix_runout=?,updated_at=? WHERE job_id=? AND
             accepted_release_id='' AND phase='RELEASE_REVIEW_PENDING'""",
-            (release_id, stamp, stamp, job_id))
+            (release_id, stamp, matrix, stamp, job_id))
         if result.rowcount != 1:
             raise WorkflowError("Concurrent release review changed; refresh")
         _transition(db, job_id, "RELEASE_REVIEW_PENDING", "RELEASE_ACCEPTED",

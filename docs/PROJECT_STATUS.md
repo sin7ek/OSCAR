@@ -1,5 +1,7 @@
 # OSCAR — project status and handoff
 
+**Matrix/runout:** MusicBrainz release-annotation search and optional disc-level operator transcription are available in the [archive publishing workflow](ARCHIVE_PUBLISHER.md). A new tagged copy carries `MATRIX_RUNOUT` through to the publication preview, archived `SOURCES.txt` and manifest. Tower acceptance is pending.
+
 ## Current status — 2026-11-22, through PR #140
 
 **Latest feature on `main` and GHCR:** [#140 DriveFit](https://github.com/sin7ek/OSCAR/pull/140) merged as `5368f6489da5755fe7fb53f99c41d0af7d01b17d`. GitHub [Tests](https://github.com/sin7ek/OSCAR/actions/runs/45072660464) and [Docker build](https://github.com/sin7ek/OSCAR/actions/runs/45072660444) passed. The OCI revision of `ghcr.io/sin7ek/oscar:main` for Linux/amd64 matched that commit at registry digest `sha256:ecbd840da41f318446145ce686f73d73baf2a20f9492d5545a75b39878150e56`. Tower pull and DriveFit acceptance remain open.

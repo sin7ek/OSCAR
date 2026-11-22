@@ -746,3 +746,22 @@ def test_documented_catalog_number_does_not_raise_missing_warning(staged):
     result = archive_review.review(JOB, COPY, "original_tags", artwork=False)
     assert not any(f["code"] == "missing_release_catalog_number"
                    for f in result["consistency"]["flags"])
+
+
+def test_matrix_transcription_is_in_proposed_and_published_sources(publishable):
+    _, original, archive, _ = publishable
+    preview_path = original / "metadata-preview.json"
+    preview = json.loads(preview_path.read_text())
+    matrix = "936245901-2.2 WME"
+    preview["album"]["matrix_runout"] = matrix
+    preview_path.write_text(json.dumps(preview))
+    plan = archive_publish.prepare(JOB, COPY, "original_tags", profile="standard")
+    proposed = archive_publish.render_sources(plan, "EDITION_NOT_VERIFIED")
+    assert f"Physical matrix/runout (operator transcription): {matrix}" in proposed
+    published = archive_publish._do_publish(plan, "b" * 32, allow_metadata_observations=True)
+    destination = archive / published["relative_directory"]
+    assert (destination / "SOURCES.txt").read_text() == proposed
+    manifest = json.loads((destination / "manifest.json").read_text())
+    assert manifest["provenance"]["physical_matrix_runout"] == {
+        "value": matrix, "source": "operator_transcription",
+    }
