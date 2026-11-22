@@ -75,6 +75,14 @@ def _progress(job, *, now=None):
         if plan_file.is_symlink() or not plan_file.is_file() or plan_file.stat().st_size > 100_000:
             return result
         plan = json.loads(plan_file.read_text(encoding="utf-8"))
+        selected = plan.get("selected_tracks")
+        if isinstance(selected, list) and selected:
+            result["method"] = "selected_track_diagnostic"
+            result["total_tracks"] = len(selected)
+            result["current_track"] = selected[0]
+            result["detail"] = "Diagnostic rip of selected tracks: " + ", ".join(str(n) for n in selected)
+            # Do not show misleading full-CD track fraction or ETA for sparse tracks.
+            return result
         total = plan.get("track_count")
         if type(total) is not int or not 1 <= total <= 99:
             return result
