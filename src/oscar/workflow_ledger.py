@@ -570,7 +570,25 @@ def list_jobs(limit=100):
         raise WorkflowError("Invalid workflow listing limit")
     with _db() as db:
         rows = [dict(x) for x in db.execute(
-            "SELECT job_id,disc_id,phase,identification_mode,secure_review_level,updated_at "
-            "FROM workflow_jobs ORDER BY updated_at DESC LIMIT ?", (limit,))]
+            "SELECT job_id,disc_id,phase,identification_mode,secure_review_level,"
+            "created_at,updated_at,proposed_release_id,accepted_release_id,"
+            "candidate_options FROM workflow_jobs ORDER BY updated_at DESC LIMIT ?", (limit,))]
+    # Display-only evidence, never physical-edition proof or an approval action.
+    # All candidate titles originate from previously persisted MusicBrainz results;
+    # never perform network lookups while listing jobs.
+    for row in rows:
+        try:
+            candidates = json.loads(row.pop("candidate_options") or "[]")
+        except (ValueError, TypeError):
+            candidates = []
+        selected = row["accepted_release_id"] or row["proposed_release_id"]
+        match = next((c for c in candidates if isinstance(c, dict)
+                      and c.get("release_id") == selected), None)
+        row["candidate_title"] = str(match.get("title") or "")[:300] if match else ""
+        row["candidate_date"] = str(match.get("date") or "")[:30] if match else ""
+        row["candidate_count"] = len(candidates)
+        row["match_status"] = ("INFERRED_OPERATOR_ACCEPTED" if row["accepted_release_id"]
+                               else "INFERRED_NOT_PHYSICALLY_VERIFIED" if selected
+                               else "UNRESOLVED")
     return {"jobs":rows, "engine_running":False,
             "notice":"Persistent Go archive reservations and safe reconciliation; no automatic retry after interruption."}
