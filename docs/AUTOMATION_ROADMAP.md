@@ -1,3 +1,9 @@
+## Advanced review handoffs
+
+A passed staging check links to metadata preview with the job ID filled in. A completed manual tagged copy links to FLAC tag inspection with both IDs. A successful inspection links to the read-only publication preview, including SOURCES.txt. Publication remains separately confirmed. A release search result can populate the exact MusicBrainz release field.
+
+Semi Secure and Secure Go! release review expose an opt-in physical identifiers form. Enter catalog number, barcode and any matrix or SID codes once per active browser session. OSCAR passes them to the relevant MusicBrainz and Discogs comparison forms and offers manual catalog search links for Musik-Sammler and VGMdb. Catalog and barcode are operator-entered evidence; they do not approve the candidate. MusicBrainz physical comparison still requires a catalog number, and only the existing Semi Secure approval stores the matrix with its workflow. Check actual Tower behavior before marking the UI accepted.
+
 ## Current Go! reality and next step — 2026-11-20
 
 **Update to supersede older “future” and “phase 1” wording below:** All three policy choices are now available; Semi Automatic has user-tested release acceptance, an isolated metadata-copy progression and reviewed archive publication. The user successfully published two different CDs from a six-CD classical boxset into one parent path on Unraid. This does **not** mean disc insertion triggers an unattended full workflow, that all metadata relationships are edition-verified, or that recovery/cleanup is automatic. Older planning sections below are historical milestones and may refer to past implementations as future.

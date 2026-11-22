@@ -25,6 +25,8 @@ See [#116](https://github.com/sin7ek/OSCAR/pull/116) and [#137](https://github.c
 
 ## Next on Tower
 
+- Check the Advanced Review progression from a verified rip to the read-only archive preview, then check identifier handoffs in both Go! review modes.
+
 - Verify a complete staged disc against CTDB and compare the result with a known CUETools log. Then reopen Proposed SOURCES.txt. Test Discogs against Jagged Little Pill with all three physical identifiers. See [archive publishing](ARCHIVE_PUBLISHER.md).
 
 - On Tower, search for `936245901-2.2 WME` in MusicBrainz release annotations. Check the tagged copy and **Proposed SOURCES.txt** from manual publication preview, and exercise matrix entry in Go! release review.
