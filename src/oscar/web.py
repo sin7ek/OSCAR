@@ -2355,7 +2355,8 @@ function addGoAction(parent,label,handler){
 }
 async function startGoDiagnosticTracks(stableId, raw){
  const out=document.getElementById('go-result');
- if(!/^\\s*\\d{1,2}(\\s*,\\s*\\d{1,2})*\\s*$/.test(raw)){
+ const parts=raw.split(',').map(n=>n.trim());
+ if(!parts.length||parts.length>99||parts.some(n=>!(/^[0-9]{1,2}$/.test(n)))){
   out.textContent='Enter unique comma-separated track numbers, e.g. 7 or 1,5,17.';return;
  }
  const selected=raw.split(',').map(n=>Number(n.trim()));
