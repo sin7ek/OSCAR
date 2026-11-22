@@ -24,7 +24,7 @@ import uuid
 
 from mutagen.flac import FLAC
 
-from oscar import archive_review, verification
+from oscar import archive_review, ctdb_verification, verification
 from oscar.archive_naming import safe_component
 from oscar.metadata_staging import _COPY_ID, _streaminfo_md5_hex
 from oscar.pressing_evidence import observed_matrix
@@ -193,7 +193,8 @@ def prepare(job_id, copy_id, kind="original_tags", profile="auto",
         source_sha = entry.get("source_sha256")
         if kind == "original_tags" and isinstance(source_sha, str) and re.fullmatch(r"[a-f0-9]{64}", source_sha):
             records[-1]["rip_sha256"] = source_sha
-    evidence = _source_evidence(job_id)
+    ctdb = ctdb_verification.saved_evidence(job_id, root)
+    evidence = _source_evidence(job_id, include_ctdb=bool(ctdb))
     recovery = _recovery_provenance(root, review["album"], records, verification_report)
     provenance = {
         "metadata_source": saved_preview.get("source") or "MusicBrainz",
@@ -204,6 +205,12 @@ def prepare(job_id, copy_id, kind="original_tags", profile="auto",
                                for t in verification_report.get("tracks", [])},
         "recovery": recovery,
     }
+    if ctdb:
+        result, report_hash = ctdb
+        if not any(item["source"] == ctdb_verification.REPORT and item["sha256"] == report_hash
+                   for item in evidence):
+            raise PublishError("CTDB report changed during archive preview; retry")
+        provenance["ctdb"] = result
     if matrix := observed_matrix(review["album"].get("matrix_runout")):
         provenance["physical_matrix_runout"] = {"value": matrix, "source": "operator_transcription"}
     cue = review["cue"]["archive_cue_proposal"]
@@ -332,7 +339,13 @@ def render_sources(plan, release_match_status):
             f"Replacement diagnostic rip job: {recovery['diagnostic_job_id']}",
             "The recovery job assembled the disc from both staging sources.",
         ])
-    lines.extend(["", "[Verification]", method, "CTDB: not checked by OSCAR"])
+    lines.extend(["", "[Verification]", method])
+    ctdb = provenance.get("ctdb")
+    if ctdb:
+        detail = f" ({ctdb['confidence']}/{ctdb['total']} confidence)" if "confidence" in ctdb else ""
+        lines.append(f"CTDB: {ctdb['status']}{detail} via {ctdb['method']}")
+    else:
+        lines.append("CTDB: not checked by OSCAR")
     if provenance["accuraterip_coverage"]:
         lines.append(f"AccurateRip coverage: {provenance['accuraterip_coverage']}")
     lines.extend(["Archive checks: FLAC decode, file SHA-256, STREAMINFO audio MD5 and CUE references.",
@@ -371,7 +384,7 @@ def render_sources(plan, release_match_status):
     return "\n".join(lines) + "\n"
 
 
-def _source_evidence(job_id):
+def _source_evidence(job_id, *, include_ctdb=False):
     """Read-only inventory of the source CUE, logs and verification records."""
     job = verification._safe_job(job_id)
     audio = job / "audio"
@@ -386,7 +399,10 @@ def _source_evidence(job_id):
             if path.is_symlink() or not path.is_file():
                 raise PublishError("Unsafe original extraction log")
             paths.append(path)
-    for name in ("verification-report.json", "recovery-sources.json"):
+    names = ["verification-report.json", "recovery-sources.json"]
+    if include_ctdb:
+        names.append(ctdb_verification.REPORT)
+    for name in names:
         path = job / name
         if path.is_symlink() or (path.exists() and not path.is_file()):
             raise PublishError("Unsafe verification or recovery evidence")

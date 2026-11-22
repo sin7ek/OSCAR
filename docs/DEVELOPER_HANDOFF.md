@@ -11,7 +11,7 @@ Last reconciled 2026-11-22 through feature PR [#142](https://github.com/sin7ek/O
 
 ## Tower acceptance already recorded
 
-On Tower, the manual Metadata & tagging preview for *Jagged Little Pill* showed the operator-transcribed `MATRIX_RUNOUT` value `936245901-2.2 WME` and successfully created 13 tagged staging copies for MusicBrainz release `fbf0a5ee-f9ef-3077-a38a-f990a1b9c8eb` (copy `25b4b47c4f814b4a96498e4b4767c96b`). Direct FLAC tag readback, Proposed SOURCES.txt, publication, annotation search and Go! matrix entry remain open.
+On Tower, the manual Metadata & tagging preview for *Jagged Little Pill* showed the operator-transcribed `MATRIX_RUNOUT` value `936245901-2.2 WME` and successfully created 13 tagged staging copies for MusicBrainz release `fbf0a5ee-f9ef-3077-a38a-f990a1b9c8eb` (copy `25b4b47c4f814b4a96498e4b4767c96b`). Manual Proposed SOURCES.txt also displayed the matrix correctly for the same copy. Direct FLAC readback, publication, annotation search and Go! matrix entry remain open.
 
 | Fixture | Observed result | Acceptance boundary |
 | --- | --- | --- |
@@ -23,6 +23,8 @@ On Tower, the manual Metadata & tagging preview for *Jagged Little Pill* showed 
 See [#116](https://github.com/sin7ek/OSCAR/pull/116) and [#137](https://github.com/sin7ek/OSCAR/pull/137) for the documented Boulez and recovery results. The work document keeps exact job IDs, accepted values and the historical sequence.
 
 ## Next on Tower
+
+- Verify a complete staged disc against CTDB and compare the result with a known CUETools log. Then reopen Proposed SOURCES.txt. Test Discogs against Jagged Little Pill with all three physical identifiers. See [archive publishing](ARCHIVE_PUBLISHER.md).
 
 - On Tower, search for `936245901-2.2 WME` in MusicBrainz release annotations. Check the tagged copy and **Proposed SOURCES.txt** from manual publication preview, and exercise matrix entry in Go! release review.
 
