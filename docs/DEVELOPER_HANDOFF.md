@@ -1,3 +1,7 @@
+## DriveFit comparison and tags — Unraid acceptance pending
+
+The DriveFit tab reads surviving pre-upgrade staging jobs and saves new rip summaries beside settings in `drivefit.sqlite3`. It ranks normalized verified full-rip speed, measured extraction-error rate and verification experience. Recovery includes matched same-disc attempts and independently verified diagnostic contributions. On Tower, check existing per-drive counts, GH42 speed and the LG Disc 11 / Track 07 contribution. See `docs/DRIVEFIT.md` for thresholds and the history boundary.
+
 ## 2026-11-22 — Track Recovery v1 verified on Unraid through Archive Review
 
 On Tower, the operator reported that recovery job `3c13772b6d104964ac71eb19e881668b` reused 16 tracks from Optiarc job `26766340b2a04813a27d6081f8eff3c1` and replaced track 7 from LG diagnostic job `033f1207b6ba4184b7130e20ff75b181`. OSCAR reported 17/17 independent AccurateRip v1 and v2 matches, CUE and SHA-256 checked. The integrated verifier requires both versions at offset zero. The supplied Go! Archive Review shows all 17 classical FLAC tag rows and 17 CUE tracks for Mahler/Bernstein, *The Symphonies* (2010), Disc 11, Disc ID `1FGELhYaLaSf9MIPUxtlZGDbQU8-`. The release is still INFERRED and publication remains pending explicit physical-edition review and approval.

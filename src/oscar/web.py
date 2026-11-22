@@ -43,6 +43,11 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 .go-rip-progress .go-progress-unknown{font-size:.82rem;color:#b7c6d8}
 
 .go-workflow-row{border:1px solid #3c4b60;border-radius:10px;padding:11px;margin:10px 0;background:#131c29;overflow-wrap:anywhere}
+.drivefit-drive{border:1px solid #3c4b60;border-radius:10px;padding:14px;margin:12px 0;overflow-wrap:anywhere}
+.drivefit-drive h3{margin-top:0}
+.drivefit-drive details{margin:8px 0}
+.drivefit-badges{display:flex;flex-wrap:wrap;gap:8px;list-style:none;padding:0}
+.drivefit-badges li{border:1px solid #537294;background:#1a3047;border-radius:8px;padding:5px 9px}
 .go-workflow-row button{padding:7px 12px;margin:6px 8px 0 0}
 .go-job-toolbar{display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin:12px 0}
 .go-job-toolbar label{margin:0}.go-job-toolbar select{margin-left:6px}
@@ -348,7 +353,7 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 // Progressive enhancement: retain every existing form, endpoint and event
 // handler; move the legacy specialist surfaces into a collapsible Review area.
 const oscarTabNames=[
- ['go','Go!'],['review','Review'],['collection','Collection'],['settings','Settings']
+ ['go','Go!'],['review','Review'],['collection','Collection'],['diagnostics','DriveFit'],['settings','Settings']
 ];
 const oscarNav=document.getElementById('oscar-tabs');
 const oscarPanels=document.getElementById('oscar-panels');
@@ -390,6 +395,118 @@ for(const section of [...document.body.querySelectorAll(':scope > section')]){
  else if(settingsSectionTitles.has(title))oscarPanelsByName.get('settings').append(section);
  else oscarAdvanced.append(section);
 }
+const diagnosticsPanel=oscarPanelsByName.get('diagnostics');
+const drivefitSection=document.createElement('section');
+drivefitSection.id='drivefit';
+const drivefitHeading=document.createElement('h2');
+drivefitHeading.textContent='Optical drive history';
+const drivefitIntro=document.createElement('p');
+drivefitIntro.textContent='Performance tags are based on saved rip and verification evidence.';
+const drivefitRefresh=document.createElement('button');
+drivefitRefresh.type='button';drivefitRefresh.id='drivefit-refresh';
+drivefitRefresh.textContent='Refresh DriveFit';
+const drivefitOutput=document.createElement('div');
+drivefitOutput.id='drivefit-output';drivefitOutput.setAttribute('aria-live','polite');
+drivefitSection.append(drivefitHeading,drivefitIntro,drivefitRefresh,drivefitOutput);
+diagnosticsPanel.append(drivefitSection);
+async function refreshDriveFit(){
+ const out=document.getElementById('drivefit-output');
+ const auth=requestAuthHeaders('DriveFit diagnostics');if(!auth)return;
+ out.textContent='Reading saved rip and verification history…';
+ try{
+  const response=await fetch('/api/diagnostics/drivefit',{headers:auth});
+  const data=await response.json();
+  if(!response.ok)throw Error(data.detail||'DriveFit unavailable');
+  out.replaceChildren();
+  const comparisons=document.createElement('section');
+  const heading=document.createElement('h3');heading.textContent='Compare drives';comparisons.append(heading);
+  const rule=document.createElement('p');
+  rule.textContent='Fast and Low errors need at least two comparable drives with five measured full rips each.';
+  comparisons.append(rule);
+  for(const [key,title,unit] of [['speed','Median rip speed','×'],['errors','Mean extraction errors per rip',''],['accuracy','Full rips passing verification','%']]){
+   const results=data.leaderboards[key];
+   if(!results.length)continue;
+   const caption=document.createElement('h4');caption.textContent=title;comparisons.append(caption);
+   const list=document.createElement('ol');
+   for(const item of results){
+    const row=document.createElement('li');
+    row.textContent=item.label+' · '+item.value+unit+' · '+item.samples+' rips'+
+     (item.samples<5?' · small sample':item.leader?' · tag supported':'');
+    list.append(row);
+   }
+   comparisons.append(list);
+  }
+  out.append(comparisons);
+  for(const item of data.drives||[]){
+   const section=document.createElement('section');
+   section.className='drivefit-drive';
+   const name=document.createElement('h3');name.textContent=item.label+' · '+item.stable_id;section.append(name);
+   const badges=document.createElement('ul');badges.className='drivefit-badges';
+   for(const tag of item.badges){
+    const badge=document.createElement('li');
+    const label=document.createElement('strong');label.textContent=tag.name;
+    badge.append(label,document.createTextNode(' · '+tag.evidence));badges.append(badge);
+   }
+   if(item.badges.length)section.append(badges);
+   const facts=[
+    'Connected: '+(item.present?'yes':'no')+' · firmware: '+(item.firmware||'unknown'),
+    'History: '+item.sample_count+' saved jobs · '+item.extractions_completed+' completed extractions',
+    'Diagnostic jobs: '+item.diagnostic_jobs+
+      ' · independently confirmed replacements: '+item.recovery_tracks.length,
+    'Verification: '+item.verified_jobs+' passed · '+item.review_required_jobs+' review required',
+    'Failed jobs: '+item.failed_jobs+' · interrupted: '+item.interrupted_jobs+
+      ' · reports with ripping errors: '+item.ripping_error_reports,
+    'Median full-rip duration: '+(item.median_duration_seconds===null?
+      'not available':Math.round(item.median_duration_seconds/60*10)/10+' min')+
+      ' · median throughput: '+(item.median_speed===null?'not available':
+       item.median_speed+'× from '+item.timed_verified_rips+' verified full rips'),
+    item.assessment==='insufficient_data'?
+      'Evidence: too few complete rips for a useful baseline':'Evidence: history available; benchmark with the same known-good CD'
+   ];
+   for(const fact of facts){const p=document.createElement('p');p.textContent=fact;section.append(p)}
+   const details=document.createElement('details');
+   const summary=document.createElement('summary');summary.textContent='Recent rip observations';
+   details.append(summary);
+   for(const job of item.recent_jobs){
+    const row=document.createElement('p');
+    row.textContent=job.job_id.slice(0,8)+' · '+job.status+
+      ' · '+(job.duration_seconds===null?'time unknown':Math.round(job.duration_seconds/60*10)/10+' min')+
+      ' · '+(job.tracks||'?')+' tracks · '+job.verification_status;
+    details.append(row);
+   }
+   if(item.recovery_tracks.length){
+    const recovery=document.createElement('details');
+    const heading=document.createElement('summary');heading.textContent='Verified recovery contributions';
+    recovery.append(heading);
+    for(const track of item.recovery_tracks){
+     const row=document.createElement('p');
+     row.textContent='Track '+String(track.track).padStart(2,'0')+
+      ' · diagnostic '+track.source_job_id+' · recovery '+track.recovery_job_id;
+     recovery.append(row);
+    }
+    section.append(recovery);
+   }
+   if(item.difficult_disc_comparisons.length){
+    const comparison=document.createElement('details');
+    const heading=document.createElement('summary');heading.textContent='Same-disc recovery comparisons';
+    comparison.append(heading);
+    for(const trial of item.difficult_disc_comparisons){
+     const row=document.createElement('p');
+     row.textContent=trial.disc_id+' · '+trial.verified_tracks+'/'+trial.tracks+' tracks passed · '+
+      trial.ripping_errors+' reported extraction errors · '+trial.verification_status+' · '+
+      trial.compared_drives+' drives'+(trial.strictly_best?' · Best verified result':'')+' · job '+trial.job_id;
+     comparison.append(row);
+    }
+    section.append(comparison);
+   }
+   section.append(details);out.append(section);
+  }
+  const note=document.createElement('p');
+  note.textContent='History: '+data.history_scope+' These are observations, not a hardware-health score. AccurateRip misses may reflect database coverage; compare the same known-good disc across drives.';
+  out.append(note);
+ }catch(error){out.textContent='DriveFit diagnostics unavailable: '+error.message}
+}
+drivefitRefresh.onclick=refreshDriveFit;
 const saveButton=document.getElementById('save');
 const saveStatus=document.getElementById('status');
 oscarPanelsByName.get('settings').append(saveButton,saveStatus);
@@ -402,6 +519,7 @@ function showOscarTab(name){
  }
  if(name==='go')refreshGoCards(false);
  if(name==='review')refreshReviewQueue(false);
+ if(name==='diagnostics')refreshDriveFit();
 }
 oscarNav.addEventListener('keydown',event=>{
  if(!['ArrowRight','ArrowLeft','Home','End'].includes(event.key))return;
