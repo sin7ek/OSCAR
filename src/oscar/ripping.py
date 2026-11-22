@@ -81,14 +81,17 @@ def _progress(job, *, now=None):
             for item in audio.iterdir():
                 if item.is_symlink() or not item.is_file() or not item.name.lower().endswith(".flac"):
                     continue
-                match = re.match(r"^([0-9]{1,3}) - .+\\.flac$", item.name, flags=re.I)
+                match = re.match(r"^([0-9]{1,3}) - .+\.flac$", item.name, flags=re.I)
                 if match and 1 <= int(match.group(1)) <= total:
                     files.append(int(match.group(1)))
                 if len(files) > 120:
                     return result
         # File creation is not track completion. cyanrip creates the current
         # FLAC before its audio is fully written. Count only earlier tracks.
-        current = max(files) if files else None
+        available = set(files)
+        current = 1 if 1 in available else None
+        while current is not None and current + 1 in available:
+            current += 1
         completed = max(0, current - 1) if current else 0
         result["completed_tracks"] = completed
         result["current_track"] = current or 1
