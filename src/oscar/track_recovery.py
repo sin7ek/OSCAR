@@ -232,6 +232,12 @@ def _run(job_id: str, original_id: str, diagnostic_id: str, selected: list[int],
         completed = runner(["trackverify", "-R", "-V", "normal", *paths],
                            capture_output=True, text=True, timeout=1800, check=False)
         text = (completed.stdout or "") + "\n" + (completed.stderr or "")
+        # Keep the original independent verifier transcript for future audits,
+        # including failure diagnostics. Never modify any source-job log.
+        with (directory / "trackverify-console.log").open("x", encoding="utf-8") as record:
+            record.write(text[:2_000_000])
+            record.flush()
+            os.fsync(record.fileno())
         if completed.returncode != 0:
             raise RecoveryError("Independent trackverify failed; see recovery log")
         ar = _parse_trackverify(text, info["count"])
