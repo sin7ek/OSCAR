@@ -10,7 +10,9 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class DriveSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    stable_id: str = Field(min_length=1, max_length=256, pattern=r"^[A-Za-z0-9_.-]+$")
+    # udev /dev/disk/by-id optical USB names end in SCSI LUN suffixes
+    # such as "-0:0"; ":" is safe here because IDs never become paths.
+    stable_id: str = Field(min_length=1, max_length=256, pattern=r"^[A-Za-z0-9_.:-]+$")
     label: str = Field(min_length=1, max_length=100)
     enabled: bool = False
     offset_samples: int | None = Field(default=None, ge=-2000, le=2000)
