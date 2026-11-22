@@ -207,6 +207,18 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 <div id="go-job-summary" aria-live="polite"></div>
 <div id="go-workflows" aria-live="polite"></div>
 </section>
+<section id="track-recovery"><h2>Track Recovery · independently verified CD reconstruction</h2>
+<p>Combine an incomplete full-disc rip with separately AccurateRip-confirmed diagnostic tracks. OSCAR checks source SHA-256, Disc ID, physical TOC, track order and CUE, then makes a NEW standalone FLAC staging copy. All tracks must pass independent trackverify AccurateRip v1 and v2 before manual Semi Automatic release review. Original jobs, logs and archive are never modified.</p>
+<label for="recovery-original">Original full-disc staging job ID</label>
+<input id="recovery-original" maxlength="32" placeholder="32-character original rip job ID" style="width:350px;max-width:95%">
+<label for="recovery-diagnostic">Selected-track diagnostic job ID</label>
+<input id="recovery-diagnostic" maxlength="32" placeholder="32-character diagnostic job ID" style="width:350px;max-width:95%">
+<label for="recovery-tracks">Replacement track number(s)</label>
+<input id="recovery-tracks" value="7" maxlength="100" placeholder="7 or 1,5,17" style="width:200px;max-width:95%">
+<button type="button" id="recovery-preview">Preview safe recovery</button>
+<button type="button" id="recovery-create">Create independently verified recovery</button>
+<div id="recovery-result" aria-live="polite"></div>
+</section>
 <section><h2>Persistent workflow ledger · towards CD in → Go!</h2>
 <p>Advanced recovery for already saved staging rips. Go! jobs are registered automatically; use this form only for manual recovery and historical imports. Nothing is re-ripped or overwritten.</p>
 <label for="workflow-job">Staging rip job ID</label>
@@ -2337,6 +2349,89 @@ document.getElementById('discogs-check').onclick=async()=>{
  }catch(error){out.textContent='Discogs unavailable: '+error.message}
 };
 
+function recoveryInput(){
+ const original=document.getElementById('recovery-original').value.trim().toLowerCase();
+ const diagnostic=document.getElementById('recovery-diagnostic').value.trim().toLowerCase();
+ const raw=document.getElementById('recovery-tracks').value.trim();
+ const parts=raw.split(',').map(s=>s.trim());
+ if(!/^[a-f0-9]{32}$/.test(original)||!/^[a-f0-9]{32}$/.test(diagnostic)){
+  throw new Error('Enter two valid 32-character staging job IDs');
+ }
+ if(!raw||parts.length>99||parts.some(s=>!(/^[0-9]{1,2}$/.test(s)))){
+  throw new Error('Enter valid track numbers (e.g. 7 or 1,5,17)');
+ }
+ const replacement_tracks=parts.map(Number);
+ if(replacement_tracks.some(n=>n<1||n>99)||new Set(replacement_tracks).size!==replacement_tracks.length){
+  throw new Error('Replacement tracks must be unique and between 1 and 99');
+ }
+ return {original_job_id:original,diagnostic_job_id:diagnostic,replacement_tracks};
+}
+async function recoveryRequest(endpoint,body){
+ const headers=requestAuthHeaders('Track Recovery staging operation');
+ if(!headers)throw Error('Authentication required');
+ const response=await fetch(endpoint,{method:'POST',
+  headers:{'Content-Type':'application/json',...headers},body:JSON.stringify(body)});
+ const data=await response.json();
+ if(!response.ok)throw Error(data.detail||'Track Recovery unavailable');
+ return data;
+}
+async function pollRecoveredJob(jobId){
+ const out=document.getElementById('recovery-result');
+ const headers=requestAuthHeaders('Read recovered CD verification status');
+ if(!headers)return;
+ try{
+  const response=await fetch('/api/track-recovery/jobs/'+jobId,{headers});
+  const data=await response.json();
+  if(!response.ok)throw Error(data.detail||'Recovery status unavailable');
+  out.replaceChildren();
+  const p=document.createElement('p');
+  p.textContent='Recovery '+jobId+' · '+data.status+' · original '+data.original_job_id+
+   ' · diagnostic '+data.diagnostic_job_id+' · tracks '+data.replacement_tracks.join(', ');
+  out.append(p);
+  if(data.verification?.status==='checks_passed'){
+   const info=document.createElement('p');
+   info.textContent='Independent AccurateRip v1/v2: '+
+    data.verification.tracks.length+'/'+data.verification.expected_tracks+
+    ' confirmed · CUE and SHA-256 checked. Physical edition still needs operator review.';
+   out.append(info);
+   const open=document.createElement('button');open.type='button';
+   open.textContent='Open recovered CD in Go!';
+   open.onclick=()=>{
+    document.getElementById('go-job').value=jobId;
+    showOscarTab('go');
+    goAdvance();
+   };
+   out.append(open);
+   refreshGoCards(false);
+  }else if(data.status==='recovery_running'){
+   const p=document.createElement('p');p.textContent='Copying verified tracks and running independent AccurateRip; no original files changed.';out.append(p);
+   setTimeout(()=>pollRecoveredJob(jobId),4000);
+  }else{
+   const p=document.createElement('p');
+   p.textContent=data.error||data.message||'Review recovery staging; no publication was attempted.';
+   out.append(p);
+  }
+ }catch(error){out.textContent='Recovery status: '+error.message}
+}
+document.getElementById('recovery-preview').onclick=async()=>{
+ const out=document.getElementById('recovery-result');
+ try{
+  const info=await recoveryRequest('/api/track-recovery/preview',recoveryInput());
+  out.textContent='Eligible: '+info.track_count+' tracks · replace '+info.replacement_tracks.join(', ')+
+   ' · Disc ID '+info.disc_id+'. '+info.warning;
+ }catch(error){out.textContent='Recovery preview blocked: '+error.message}
+};
+document.getElementById('recovery-create').onclick=async()=>{
+ const out=document.getElementById('recovery-result');
+ try{
+  const body=recoveryInput();
+  if(!window.confirm('CREATE NEW verified full-CD staging from these two jobs? Source audio remains untouched; this may copy the whole CD and query AccurateRip. Continue?'))return;
+  const result=await recoveryRequest('/api/track-recovery/start',{
+   ...body,confirmation:'CREATE_RECOVERED_STAGING'});
+  out.textContent='Recovery started: '+result.job_id+'. Source jobs remain unchanged.';
+  pollRecoveredJob(result.job_id);
+ }catch(error){out.textContent='Recovery creation blocked: '+error.message}
+};
 let goPoll=null;
 let goSessionHeaders=null;
 let goDashboardRefresh=null;
