@@ -247,6 +247,8 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 <input id="metadata-job" maxlength="32" placeholder="Paste 32-character rip job ID" style="width:340px;max-width:90%">
 <label for="metadata-release">MusicBrainz release UUID (exact physical edition, not release group)</label>
 <input id="metadata-release" maxlength="36" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" style="width:360px;max-width:90%">
+<label for="metadata-matrix">Matrix/runout from the CD inner ring (optional)</label>
+<input id="metadata-matrix" maxlength="250" style="width:360px;max-width:95%">
 <button type="button" id="metadata-preview-btn">Preview MusicBrainz tags</button>
 <div id="metadata-output" aria-live="polite"></div></section>
 <section><h2>Find a physical release without a Disc ID match (read-only)</h2>
@@ -255,6 +257,11 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 <button type="button" id="catalog-search-button">Search by catalog number</button>
 <label for="title-search">Album title (alternative search)</label><input id="title-search" maxlength="100" placeholder="Essential Dance Traxx" style="width:320px;max-width:95%">
 <button type="button" id="title-search-button">Search by title</button>
+<label for="barcode-search">Printed barcode</label><input id="barcode-search" maxlength="14" inputmode="numeric">
+<button type="button" id="barcode-search-button">Search by barcode</button>
+<label for="matrix-search">Matrix/runout</label><input id="matrix-search" maxlength="250" placeholder="Distinctive code from the inner ring">
+<button type="button" id="matrix-search-button">Search MusicBrainz annotations</button>
+<p>Matrix search covers MusicBrainz release annotations. Try a distinctive part of the matrix when the full inscription returns no candidates.</p>
 <div id="release-search-results" aria-live="polite"></div>
 </section>
 <section><h2>CD not found, wrong edition or incomplete metadata?</h2>
@@ -1046,6 +1053,11 @@ document.getElementById('verify-start').onclick=()=>verifyExistingJob();
 
 let reviewedMetadata=null;
 function metadataElement(tag,text){const e=document.createElement(tag);e.textContent=String(text??'—');return e;}
+function proposedSources(text){
+ const panel=document.createElement('details');
+ panel.append(metadataElement('summary','Proposed SOURCES.txt'),metadataElement('pre',text));
+ return panel;
+}
 document.getElementById('metadata-preview-btn').onclick=async()=>{
  const output=document.getElementById('metadata-output');output.replaceChildren();
  reviewedMetadata=null;
@@ -1054,13 +1066,14 @@ document.getElementById('metadata-preview-btn').onclick=async()=>{
  if(!/^[a-f0-9]{32}$/.test(job)||!/^[a-f0-9-]{36}$/.test(release)){
   output.textContent='Enter a valid staging job ID and MusicBrainz release UUID.';return;
  }
+ const matrix=document.getElementById('metadata-matrix').value.trim();
  const access=requestAuthHeaders('Inspect MusicBrainz metadata preview');
  if(!access)return;
  output.textContent='Checking completed rip, exact MusicBrainz medium and relationships…';
  try{
   const r=await fetch('/api/rip/jobs/'+job+'/metadata/preview',{
     method:'POST',headers:{'Content-Type':'application/json',...access},
-    body:JSON.stringify({release_id:release})
+    body:JSON.stringify({release_id:release,matrix_runout:matrix||null})
   });
   if(!r.ok)throw new Error(await r.text());
   const result=await r.json();reviewedMetadata=result;
@@ -1072,6 +1085,10 @@ document.getElementById('metadata-preview-btn').onclick=async()=>{
   output.append(metadataElement('p','Labels: '+(result.album.labels||[]).map(x=>
     (x.name||'?')+' ['+(x.catalog_number||'no catalogue number')+']').join(', ')+
     ' · Barcode: '+(result.album.barcode||'unknown')));
+  if(result.album.matrix_runout){
+   output.append(metadataElement('p','Proposed FLAC MATRIX_RUNOUT tag (transcribed from the CD): '+
+     result.album.matrix_runout));
+  }
   output.append(metadataElement('p','Proposed FLAC GENRE tags: '+
    ((result.album.genres||[]).join(' · ')||'none available')+
    ' · Source: '+(result.album.genre_source||'no verified genre evidence')+
@@ -1111,7 +1128,7 @@ document.getElementById('metadata-preview-btn').onclick=async()=>{
     const response=await fetch('/api/rip/jobs/'+job+'/metadata/copy',{
       method:'POST',headers:{'Content-Type':'application/json',...copyAccess},
       body:JSON.stringify({release_id:release,fingerprint:result.fingerprint,
-                           confirmation:'COPY_TAGGED_TO_STAGING'})
+                           confirmation:'COPY_TAGGED_TO_STAGING',matrix_runout:matrix||null})
     });
     if(!response.ok)throw new Error(await response.text());
     const started=await response.json();
@@ -1203,10 +1220,12 @@ document.getElementById('inspect-start').onclick=async()=>{
 
 
 
+const releaseSearchFields={catalog_number:'catalog-search',title:'title-search',
+ barcode:'barcode-search',matrix_runout:'matrix-search'};
 async function searchPhysicalReleases(kind){
  const target=document.getElementById('release-search-results');target.replaceChildren();
- const value=document.getElementById(kind==='catalog_number'?'catalog-search':'title-search').value.trim();
- if(!value||value.length>100){target.textContent='Enter a catalog number or a release title.';return}
+ const value=document.getElementById(releaseSearchFields[kind]).value.trim();
+ if(!value){target.textContent='Enter a value to search.';return}
  target.textContent='Searching MusicBrainz release candidates…';
  try{
   const response=await fetch('/api/release-search?'+new URLSearchParams({[kind]:value}));
@@ -1217,22 +1236,25 @@ async function searchPhysicalReleases(kind){
   info.textContent=data.releases.length+' candidate(s) from '+data.query_kind+' search. No physical edition or Disc ID has been verified.';
   target.append(info);
   if(!data.releases.length){
-   const msg=document.createElement('p');msg.textContent='No release found. Try the alternative title search. Do not use unrelated releases just because their Disc ID matches.';target.append(msg);
+   const msg=document.createElement('p');msg.textContent='No release found. Try another search field.';target.append(msg);
   }
   for(const item of data.releases){
    const line=document.createElement('p');const a=document.createElement('a');
    a.href='https://musicbrainz.org/release/'+encodeURIComponent(item.id);
    a.target='_blank';a.rel='noopener noreferrer';
-   a.textContent=(item.title||'Untitled')+' · '+(item.artist||'Unknown artist')+
-      ' · '+(item.date||'?')+' · '+item.labels.map(x=>(x.name||'')+' '+(x.catalog_number||'')).join(', ');
+   a.textContent=[item.title||'Untitled',item.artist,item.date,item.barcode,
+      item.labels.map(x=>(x.name||'')+' '+(x.catalog_number||'')).join(', ')].filter(Boolean).join(' · ');
    line.append(a);target.append(line);
+   if(item.annotation) target.append(metadataElement('p',item.annotation));
   }
-  const warning=document.createElement('p');warning.textContent='Candidates only. Follow up with the separate Physical release comparison using a verified staging job; do not tag from this list alone.';
+  const warning=document.createElement('p');warning.textContent=data.note;
   target.append(warning);
  }catch(error){target.textContent='Release search failed: '+error.message}
 }
 document.getElementById('catalog-search-button').onclick=()=>searchPhysicalReleases('catalog_number');
 document.getElementById('title-search-button').onclick=()=>searchPhysicalReleases('title');
+document.getElementById('barcode-search-button').onclick=()=>searchPhysicalReleases('barcode');
+document.getElementById('matrix-search-button').onclick=()=>searchPhysicalReleases('matrix_runout');
 
 const recoveryAdvice={
  missing_release:'Missing release: search MusicBrainz by physical catalog number and title. Check the actual booklet, all track names/versions, and Disc ID/TOC. If genuinely absent, submit a new physical Various Artists or artist release through MusicBrainz. Never attach unrelated recordings or invent IDs. You can defer this entirely.',
@@ -1586,6 +1608,7 @@ document.getElementById('publish-preview').onclick=async()=>{
   const summary=document.createElement('summary');summary.textContent='Inspect full proposed album.cue';cue.append(summary);
   const preview=document.createElement('pre');preview.textContent=data.cue;
   preview.style.whiteSpace='pre-wrap';preview.style.overflow='auto';cue.append(preview);plan.append(cue);
+  if(data.sources_preview)plan.append(proposedSources(data.sources_preview));
   for(const finding of data.metadata_observations){
    const p=document.createElement('p');p.textContent='Review: '+finding.code+' (tracks '+finding.tracks.join(', ')+') — '+finding.message;plan.append(p);
   }
@@ -3074,6 +3097,9 @@ async function goAdvance(){
     ' · '+state.phase+' · catalog: '+(state.archive_catalog_status||'pending');
    output.append(p);
   }
+  if(state.matrix_runout){
+   output.append(metadataElement('p','Physical matrix/runout (operator transcription): '+state.matrix_runout));
+  }
   for(const item of data.candidates||[]){
    const link=document.createElement('a');
    link.href='https://musicbrainz.org/release/'+encodeURIComponent(item.release_id);
@@ -3137,12 +3163,7 @@ async function goAdvance(){
      section.append(issues);
      const cueTitle=document.createElement('h4');cueTitle.textContent='Proposed archive CUE';section.append(cueTitle);
      const cue=document.createElement('pre');cue.textContent=r.cue?.archive_cue_proposal||'No CUE proposal';section.append(cue);
-     if(info.sources_preview){
-      const sources=document.createElement('details');
-      const summary=document.createElement('summary');summary.textContent='Proposed SOURCES.txt';sources.append(summary);
-      const text=document.createElement('pre');text.textContent=info.sources_preview;sources.append(text);
-      section.append(sources);
-     }
+     if(info.sources_preview)section.append(proposedSources(info.sources_preview));
      const fingerprint=document.createElement('p');
      fingerprint.textContent='Publication fingerprint: '+p.fingerprint;section.append(fingerprint);
      const approval=document.createElement('button');approval.type='button';
@@ -3194,6 +3215,20 @@ async function goAdvance(){
    }
    select.value=data.release_id||'';
    output.append(select);
+   const matrixLabel=metadataElement('label','Matrix/runout from the CD inner ring (optional)');
+   matrixLabel.htmlFor='go-matrix';
+   const matrix=document.createElement('input');
+   matrix.id='go-matrix';matrix.maxLength=250;matrix.style.width='min(360px, 95%)';
+   output.append(matrixLabel,matrix);
+   const search=metadataElement('button','Open matrix/runout search');
+   search.type='button';
+   search.onclick=()=>{
+    document.getElementById('matrix-search').value=matrix.value.trim();
+    showOscarTab('review');
+    oscarAdvanced.open=true;
+    document.getElementById('matrix-search').focus();
+   };
+   output.append(search);
    const accept=document.createElement('button');accept.type='button';
    accept.textContent='Accept selected INFERRED release (no tags or publication)';
    accept.onclick=async()=>{
@@ -3206,7 +3241,8 @@ async function goAdvance(){
     try{
      const response=await fetch('/api/go/jobs/'+id+'/accept-release',{
       method:'POST',headers:{'Content-Type':'application/json',...headers},
-      body:JSON.stringify({release_id,confirmation:'ACCEPT_INFERRED_RELEASE'})
+      body:JSON.stringify({release_id,confirmation:'ACCEPT_INFERRED_RELEASE',
+       matrix_runout:matrix.value.trim()||null})
      });
      const result=await response.json();
      if(!response.ok)throw new Error(result.detail||'Approval rejected');

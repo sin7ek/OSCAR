@@ -16,6 +16,7 @@ import uuid
 from pathlib import Path
 
 from oscar import ripping, verification
+from oscar.pressing_evidence import observed_matrix
 from oscar.boxsets import RELEASE_ID, lookup_release_medium
 from oscar.musicbrainz import MusicBrainzError
 
@@ -84,6 +85,8 @@ def _track_data(track, position, total, disc_number, disc_total, album):
         tag["BARCODE"] = album["barcode"]
     if album.get("catalog_numbers"):
         tag["CATALOGNUMBER"] = album["catalog_numbers"]
+    if album.get("matrix_runout"):
+        tag["MATRIX_RUNOUT"] = album["matrix_runout"]
     # Write the actual reviewed release labels during initial tagging. The
     # existing archive scanner can still detect missing labels on older rips.
     # Keep separate multivalue LABEL comments for multi-label releases.
@@ -132,7 +135,7 @@ def _track_data(track, position, total, disc_number, disc_total, album):
             "works": works, "provenance": "musicbrainz_explicit_release_and_relationships"}
 
 
-def build_preview(info, job_id, disc_id, track_count, *, operator_accepted=False):
+def build_preview(info, job_id, disc_id, track_count, *, operator_accepted=False, matrix_runout=None):
     exact = (info.get("status") == "exact_disc_id_and_track_count"
              and len(info.get("matched_media") or []) == 1)
     if exact:
@@ -171,6 +174,8 @@ def build_preview(info, job_id, disc_id, track_count, *, operator_accepted=False
              "musicbrainz_disc_id": disc_id,
              "genres": list(info.get("genres") or []),
              "genre_source": info.get("genre_source") or ""}
+    if matrix := observed_matrix(matrix_runout):
+        album["matrix_runout"] = matrix
     if not isinstance(medium.get("position"), int) or not 1 <= medium["position"] <= info["total_media"]:
         raise MetadataError("Missing physical disc position")
     output = {
@@ -202,7 +207,8 @@ def build_preview(info, job_id, disc_id, track_count, *, operator_accepted=False
     return output
 
 
-def preview(job_id, release_id, *, lookup=lookup_release_medium, operator_accepted=False):
+def preview(job_id, release_id, *, lookup=lookup_release_medium, operator_accepted=False,
+            matrix_runout=None):
     directory, state, report = _source(job_id)
     if not RELEASE_ID.fullmatch(release_id):
         raise MetadataError("Valid MusicBrainz release UUID required")
@@ -210,7 +216,7 @@ def preview(job_id, release_id, *, lookup=lookup_release_medium, operator_accept
     count = report["expected_tracks"]
     info = lookup(release_id, disc_id, count)
     result = build_preview(info, job_id, disc_id, count,
-                           operator_accepted=operator_accepted)
+                           operator_accepted=operator_accepted, matrix_runout=matrix_runout)
     # Actual original files may have non-unknown names in future cyanrip versions:
     # map track numbers to the manifest instead of assuming names.
     manifest = state.get("files_sha256") or {}
@@ -235,13 +241,15 @@ def preview(job_id, release_id, *, lookup=lookup_release_medium, operator_accept
 
 
 def _tagged_copy(job_id, release_id, fingerprint, copy_id, *, lookup=lookup_release_medium,
-                 flac_factory=None, runner=subprocess.run, identification_status=None):
+                 flac_factory=None, runner=subprocess.run, identification_status=None,
+                 matrix_runout=None):
     if flac_factory is None:
         from mutagen.flac import FLAC
         flac_factory = FLAC
     source, state, _ = _source(job_id)
     plan = preview(job_id, release_id, lookup=lookup,
-                   operator_accepted=(identification_status == "INFERRED_OPERATOR_ACCEPTED"))
+                   operator_accepted=(identification_status == "INFERRED_OPERATOR_ACCEPTED"),
+                   matrix_runout=matrix_runout)
     if plan["fingerprint"] != fingerprint:
         raise MetadataError("Metadata preview changed; review the current MusicBrainz data again")
     root = source / ("metadata-copy-" + copy_id)
@@ -298,7 +306,8 @@ def _tagged_copy(job_id, release_id, fingerprint, copy_id, *, lookup=lookup_rele
 
 
 def start_copy(job_id, release_id, fingerprint, confirmation, *,
-               reserved_copy_id=None, identification_status=None):
+               reserved_copy_id=None, identification_status=None, matrix_runout=None):
+    matrix_runout = observed_matrix(matrix_runout)
     if confirmation != "COPY_TAGGED_TO_STAGING":
         raise MetadataError("Explicit tagged-copy confirmation required")
     if not re.fullmatch(r"[0-9a-f]{64}", fingerprint):
@@ -324,7 +333,7 @@ def start_copy(job_id, release_id, fingerprint, confirmation, *,
     def work():
         try:
             result = _tagged_copy(job_id, release_id, fingerprint, copy_id,
-                                  identification_status=identification_status)
+                                  identification_status=identification_status, matrix_runout=matrix_runout)
         except Exception as exc:
             result = {"job_id": job_id, "copy_id": copy_id, "status": "failed",
                       "error": f"{type(exc).__name__}: {exc}"[:350],

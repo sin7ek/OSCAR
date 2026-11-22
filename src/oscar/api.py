@@ -138,15 +138,18 @@ def get_release_candidates(stable_id: str, catalog_number: str | None = None):
 
 @app.get("/api/release-search")
 def search_release_by_physical_evidence(catalog_number: str | None = None,
-                                        title: str | None = None):
-    """MusicBrainz discovery by printed catalog number or title, not an approval."""
+                                        title: str | None = None,
+                                        barcode: str | None = None,
+                                        matrix_runout: str | None = None):
+    """Discover MusicBrainz release candidates from physical evidence."""
     from oscar.musicbrainz import (
         MusicBrainzError, lookup_enabled, search_release_candidates,
     )
     if not lookup_enabled():
         raise HTTPException(status_code=403, detail="MusicBrainz lookup disabled")
     try:
-        return search_release_candidates(catalog_number=catalog_number, title=title)
+        return search_release_candidates(catalog_number=catalog_number, title=title,
+                                         barcode=barcode, matrix_runout=matrix_runout)
     except MusicBrainzError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -555,10 +558,12 @@ def compare_physical_release(job_id: str, body: PhysicalReleaseCompareRequest,
 
 class MetadataPreviewRequest(BaseModel):
     release_id: str = Field(min_length=36, max_length=36)
+    matrix_runout: str | None = Field(default=None, max_length=250)
 
 
 class MetadataCopyRequest(BaseModel):
     release_id: str = Field(min_length=36, max_length=36)
+    matrix_runout: str | None = Field(default=None, max_length=250)
     fingerprint: str = Field(min_length=64, max_length=64)
     confirmation: str
 
@@ -574,7 +579,7 @@ def preview_rip_metadata(job_id: str, request: MetadataPreviewRequest,
     if not lookup_enabled():
         raise HTTPException(status_code=403, detail="MusicBrainz lookup disabled")
     try:
-        return preview(job_id, request.release_id)
+        return preview(job_id, request.release_id, matrix_runout=request.matrix_runout)
     except (MetadataError, MusicBrainzError, RipError, ValueError, OSError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
@@ -658,7 +663,8 @@ def create_tagged_staging_copy(job_id: str, request: MetadataCopyRequest,
     if not lookup_enabled():
         raise HTTPException(status_code=403, detail="MusicBrainz lookup disabled")
     try:
-        return start_copy(job_id, request.release_id, request.fingerprint, request.confirmation)
+        return start_copy(job_id, request.release_id, request.fingerprint, request.confirmation,
+                          matrix_runout=request.matrix_runout)
     except (MetadataError, RipError, ValueError, OSError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
@@ -798,14 +804,15 @@ def preview_archive_publish(job_id: str, body: ArchivePublishPreviewRequest,
                             request: Request,
                             x_oscar_rip_token: str | None = Header(default=None)):
     """Prepare archive publication plan without writing any files."""
-    from oscar.archive_publish import PublishError, prepare
+    from oscar.archive_publish import PublishError, prepare, render_sources
     from oscar.archive_review import ReviewError
     from oscar.ripping import RipError
     _rip_auth(x_oscar_rip_token, request)
     _archive_publish_enabled()
     try:
-        return prepare(job_id, body.copy_id, body.kind, body.profile,
+        plan = prepare(job_id, body.copy_id, body.kind, body.profile,
                        include_cover=body.include_cover)
+        return {**plan, "sources_preview": render_sources(plan, "EDITION_NOT_VERIFIED")}
     except (PublishError, ReviewError, RipError, OSError, ValueError, KeyError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
@@ -1377,6 +1384,7 @@ def workflow_jobs(request: Request, x_oscar_rip_token: str | None = Header(defau
 
 class GoSemiReleaseApproval(BaseModel):
     release_id: str = Field(min_length=36, max_length=36)
+    matrix_runout: str | None = Field(default=None, max_length=250)
     confirmation: str
 
 
@@ -1393,7 +1401,8 @@ def go_accept_semi_release(job_id: str, body: GoSemiReleaseApproval,
     from oscar.ripping import RipError
     _rip_auth(x_oscar_rip_token, request)
     try:
-        return accept_semi_release(job_id, body.release_id, body.confirmation)
+        return accept_semi_release(job_id, body.release_id, body.confirmation,
+                                   matrix_runout=body.matrix_runout)
     except (WorkflowError, RipError, OSError, ValueError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 

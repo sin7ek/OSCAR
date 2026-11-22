@@ -13,6 +13,10 @@
 
 ## Audio and metadata sources
 
+Use **Review → Advanced tools** to search MusicBrainz by barcode, catalog number, title or matrix/runout. Matrix search checks indexed release annotations. Try a distinctive fragment when the full inscription yields no candidates. Review the release against the physical disc as annotations are incomplete and a shared code can appear on more than one release.
+
+Transcribe the matrix from the inner ring in **Go!** while accepting a Semi Automatic release, or in **Metadata & tagging** while previewing a manual tagged copy. OSCAR records the optional transcription per disc as a custom Vorbis comment `MATRIX_RUNOUT` and attributes it to the operator in `SOURCES.txt` and the archive manifest. Search results do not populate the tag. Both Go and manual publication show the proposed `SOURCES.txt`.
+
 `SOURCES.txt` records the selected MusicBrainz release and edition status, disc position, audio source and AccurateRip evidence per track, published FLAC SHA-256 values, and archived evidence paths and hashes. Go! Archive Review shows the proposed text before approval.
 
 - A regular rip uses `PHYSICAL_CD_RIP` and attributes its saved AccurateRip results to cyanrip.

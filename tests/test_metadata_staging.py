@@ -330,3 +330,19 @@ def test_preview_keeps_multiple_musicbrainz_release_labels(setup):
     plan = metadata.preview(JOB, RELEASE, lookup=multilabel)
     for track in plan["tracks"]:
         assert track["tags"]["LABEL"] == ["Deutsche Grammophon", "Philips"]
+
+
+def test_physical_matrix_is_an_optional_reviewed_tag(setup):
+    matrix = "936245901-2.2 WME"
+    blank = metadata.preview(JOB, RELEASE, lookup=lookup)
+    assert "MATRIX_RUNOUT" not in blank["tracks"][0]["tags"]
+    plan = metadata.preview(JOB, RELEASE, lookup=lookup, matrix_runout=matrix)
+    assert plan["fingerprint"] != blank["fingerprint"]
+    assert plan["album"]["matrix_runout"] == matrix
+    assert [track["tags"]["MATRIX_RUNOUT"] for track in plan["tracks"]] == [matrix, matrix]
+    with pytest.raises(metadata.MetadataError, match="preview changed"):
+        metadata._tagged_copy(JOB, RELEASE, plan["fingerprint"], "e" * 32,
+                              lookup=lookup, flac_factory=FakeFLAC, runner=fake_runner,
+                              matrix_runout="different inscription")
+    with pytest.raises(ValueError, match="one line"):
+        metadata.preview(JOB, RELEASE, lookup=lookup, matrix_runout="Matrix\nNew field")

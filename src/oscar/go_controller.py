@@ -99,7 +99,8 @@ def _metadata_handoff(job_id, workflow, *, preview=None, copy_start=None,
             if preview is None and workflow["identification_mode"] == "semi_automatic":
                 plan = reader(job_id, release_id, operator_accepted=(
                     workflow.get("accepted_release_id") == release_id
-                    and workflow.get("release_match_status") == "INFERRED_OPERATOR_ACCEPTED"))
+                    and workflow.get("release_match_status") == "INFERRED_OPERATOR_ACCEPTED"),
+                    matrix_runout=workflow.get("matrix_runout"))
             else:
                 plan = reader(job_id, release_id)
         except (MetadataError, musicbrainz.MusicBrainzError, OSError, ValueError) as exc:
@@ -112,10 +113,11 @@ def _metadata_handoff(job_id, workflow, *, preview=None, copy_start=None,
             job_id, release_id, plan["fingerprint"])
         starter = copy_start or metadata_staging.start_copy
         try:
+            options = {"matrix_runout": workflow["matrix_runout"]} if workflow.get("matrix_runout") else {}
             starter(job_id, release_id, workflow["metadata_fingerprint"],
                     "COPY_TAGGED_TO_STAGING",
                     reserved_copy_id=workflow["metadata_copy_id"],
-                    identification_status=workflow["release_match_status"])
+                    identification_status=workflow["release_match_status"], **options)
         except (MetadataError, OSError, ValueError) as exc:
             workflow = workflow_ledger.complete_metadata_copy(
                 job_id, workflow["metadata_copy_id"], checked=False,

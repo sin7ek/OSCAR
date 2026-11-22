@@ -27,6 +27,7 @@ from mutagen.flac import FLAC
 from oscar import archive_review, verification
 from oscar.archive_naming import safe_component
 from oscar.metadata_staging import _COPY_ID, _streaminfo_md5_hex
+from oscar.pressing_evidence import observed_matrix
 
 _LOCK = threading.RLock()
 _JOBS = {}
@@ -203,6 +204,8 @@ def prepare(job_id, copy_id, kind="original_tags", profile="auto",
                                for t in verification_report.get("tracks", [])},
         "recovery": recovery,
     }
+    if matrix := observed_matrix(review["album"].get("matrix_runout")):
+        provenance["physical_matrix_runout"] = {"value": matrix, "source": "operator_transcription"}
     cue = review["cue"]["archive_cue_proposal"]
     referenced = [match.group(1) for line in cue.splitlines()
                   if (match := archive_review._CUEFILE.match(line))]
@@ -316,6 +319,8 @@ def render_sources(plan, release_match_status):
     ]
     if album.get("catalog_numbers"):
         lines.append("Catalog numbers from metadata: " + "; ".join(album["catalog_numbers"]))
+    if matrix := provenance.get("physical_matrix_runout"):
+        lines.append("Physical matrix/runout (operator transcription): " + matrix["value"])
     if album.get("genre_source"):
         lines.append(f"Genre metadata source: {album['genre_source']}")
     if plan["include_cover"]:
