@@ -56,7 +56,7 @@ def test_balanced_credible_sources_remain_in_conflict():
 
 
 def test_duplicate_positive_provider_cluster_never_double_counts():
-    with pytest.raises(g.GenreEvidenceError, match="same provider"):
+    with pytest.raises(g.GenreEvidenceError, match="one provider"):
         g.analyze([
             g._claim("musicbrainz", "release", "https://example.com/a", ["Pop"]),
             g._claim("musicbrainz", "release_group", "https://example.com/b", ["Pop"]),
