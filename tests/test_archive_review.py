@@ -390,7 +390,11 @@ def test_safe_publisher_writes_verified_new_files_and_preserves_original(publish
     destination = archive / published["relative_directory"]
     assert (destination / "album.cue").is_file()
     assert (destination / "manifest.json").is_file()
-    assert (destination / "SOURCES.txt").is_file()
+    sources = (destination / "SOURCES.txt").read_text()
+    assert "SOURCE_TYPE: PHYSICAL_CD_RIP" in sources
+    assert "Disc 01 / Track 01 — 01 - Air.flac" in sources
+    assert "Verification method not recorded" in sources
+    assert "CTDB: not checked by OSCAR" in sources
     assert (destination / "ExtractionEvidence" / "audio" / "original.cue").read_bytes() == original_cue
     assert 'FILE "01 - Air.flac" WAVE' in (destination / "album.cue").read_text()
     assert 'FILE "02 - Aria.flac" WAVE' in (destination / "album.cue").read_text()
@@ -405,6 +409,107 @@ def test_safe_publisher_writes_verified_new_files_and_preserves_original(publish
     with pytest.raises(archive_publish.PublishError, match="exists"):
         archive_publish._do_publish(plan, "c" * 32,
                                     allow_metadata_observations=True)
+
+
+@pytest.fixture
+def recovered_disc(publishable, monkeypatch):
+    job, copy, archive, _ = publishable
+    original_id, diagnostic_id = "1" * 32, "2" * 32
+    disc_id = "1FGELhYaLaSf9MIPUxtlZGDbQU8-"
+    preview_path = copy / "metadata-preview.json"
+    preview = json.loads(preview_path.read_text())
+    preview["album"]["musicbrainz_disc_id"] = disc_id
+    preview["album"]["title"] = "The Symphonies"
+    manifest_path = copy / "metadata-manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    template = (copy / "audio/01 - Unknown track.flac").read_bytes()
+    preview["tracks"] = []
+    manifest["files"] = {}
+    hashes, sources, verified, cue = {}, [], [], []
+    for n in range(1, 18):
+        relative = f"audio/{n:02d} - Unknown track.flac"
+        path = copy / relative
+        path.write_bytes(template)
+        tagged = FLAC(str(path))
+        tagged["TITLE"] = [f"Movement {n}"]
+        tagged.save()
+        source_hash = hashlib.sha256(f"raw rip track {n}".encode()).hexdigest()
+        manifest["files"][relative] = {
+            "source_sha256": source_hash,
+            "tagged_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+            "audio_streaminfo_md5": archive_publish._streaminfo_md5_hex(tagged.info.md5_signature),
+        }
+        preview["tracks"].append({"number": n, "original_file": relative,
+                                  "tags": {"DISCNUMBER": "11", "DISCTOTAL": "11"}})
+        cue.append(f'FILE "{path.name}" WAVE\n  TRACK {n:02d} AUDIO\n    INDEX 01 00:00:00\n')
+        source_job = diagnostic_id if n == 7 else original_id
+        hashes[relative] = source_hash
+        sources.append({"track": n, "source_job_id": source_job, "source_path": relative,
+                        "source_sha256": source_hash, "recovered_sha256": source_hash})
+        verified.append({"number": n, "file": relative, "source_job_id": source_job,
+                         "checks_passed": True, "accuraterip": {
+                             "v1": {"status": "accurately_ripped", "confidence": 30},
+                             "v2": {"status": "accurately_ripped", "confidence": 28},
+                         }})
+    preview_path.write_text(json.dumps(preview))
+    manifest_path.write_text(json.dumps(manifest))
+    (job / "audio/original.cue").write_text("".join(cue))
+    parents = {"original_job_id": original_id, "diagnostic_job_id": diagnostic_id}
+    report = {"job_id": JOB, "status": "checks_passed", "accuraterip_coverage": "both_versions",
+              "verification_method": "independent_trackverify_R_v1_v2",
+              "tracks": verified, "recovery_sources": parents}
+    (job / "verification-report.json").write_text(json.dumps(report))
+    (job / "recovery-sources.json").write_text(json.dumps({
+        **parents, "format": "OSCAR_TRACK_RECOVERY_V1", "disc_id": disc_id,
+        "track_count": len(sources), "tracks": sources,
+    }))
+    (job / "state.json").write_text(json.dumps({
+        "id": JOB, "disc_id": disc_id, "status": "needs_verification",
+        "returncode": 0, "files_sha256": hashes,
+    }))
+    (job / "trackverify-console.log").write_text("saved independent verifier transcript")
+    monkeypatch.setattr(verification, "report", lambda _: report)
+    return job, archive
+
+
+def test_recovered_disc_11_sources_preview_matches_publication(recovered_disc):
+    job, archive = recovered_disc
+    plan = archive_publish.prepare(JOB, COPY, profile="standard")
+    plan["_release_match_status"] = "INFERRED_OPERATOR_ACCEPTED"
+    preview = archive_publish.render_sources(plan, plan["_release_match_status"])
+    published = archive_publish._do_publish(plan, "c" * 32, allow_metadata_observations=True)
+    destination = archive / published["relative_directory"]
+    assert destination.name == "Disc 11"
+    assert (destination / "SOURCES.txt").read_text() == preview
+    assert "SOURCE_TYPE: HYBRID_REPAIRED_CD_RIP" in preview
+    assert "Medium: Disc 11 of 11" in preview
+    assert "Independent trackverify -R (AccurateRip v1 and v2, offset 0)" in preview
+    assert preview.count("Audio source: original full-disc rip") == 16
+    assert preview.count("Audio source: diagnostic replacement") == 1
+    track7 = preview.split("Disc 11 / Track 07")[1].split("Disc 11 / Track 08")[0]
+    assert "Audio source: diagnostic replacement" in track7
+    assert f"Source job: {'2' * 32}" in track7
+    assert "Source file: audio/07 - Unknown track.flac" in track7
+    assert hashlib.sha256(b"raw rip track 7").hexdigest() in track7
+    assert "AccurateRip v1: accurately ripped (confidence 30)" in track7
+    assert "AccurateRip v2: accurately ripped (confidence 28)" in track7
+    for name in ("verification-report.json", "recovery-sources.json", "trackverify-console.log"):
+        assert (destination / "ExtractionEvidence" / name).read_bytes() == (job / name).read_bytes()
+    from oscar.archive_audit import audit_release
+    audit = audit_release(destination)
+    assert audit["source_type"] == "HYBRID_REPAIRED_CD_RIP"
+    assert not audit["errors"]
+
+
+def test_recovery_with_misattributed_track_cannot_be_published(recovered_disc):
+    job, archive = recovered_disc
+    evidence = job / "recovery-sources.json"
+    recovery = json.loads(evidence.read_text())
+    recovery["tracks"][5]["source_job_id"] = recovery["diagnostic_job_id"]
+    evidence.write_text(json.dumps(recovery))
+    with pytest.raises(archive_publish.PublishError, match="Inconsistent track recovery evidence"):
+        archive_publish.prepare(JOB, COPY, profile="standard")
+    assert not list(archive.iterdir())
 
 
 def test_publish_without_review_confirmation_rejected(publishable):

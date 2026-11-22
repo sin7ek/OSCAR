@@ -3019,6 +3019,12 @@ async function goAdvance(){
      section.append(issues);
      const cueTitle=document.createElement('h4');cueTitle.textContent='Proposed archive CUE';section.append(cueTitle);
      const cue=document.createElement('pre');cue.textContent=r.cue?.archive_cue_proposal||'No CUE proposal';section.append(cue);
+     if(info.sources_preview){
+      const sources=document.createElement('details');
+      const summary=document.createElement('summary');summary.textContent='Proposed SOURCES.txt';sources.append(summary);
+      const text=document.createElement('pre');text.textContent=info.sources_preview;sources.append(text);
+      section.append(sources);
+     }
      const fingerprint=document.createElement('p');
      fingerprint.textContent='Publication fingerprint: '+p.fingerprint;section.append(fingerprint);
      const approval=document.createElement('button');approval.type='button';
