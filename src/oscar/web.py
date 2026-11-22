@@ -2349,6 +2349,20 @@ function addGoAction(parent,label,handler){
  button.type='button';button.textContent=label;button.onclick=handler;
  parent.append(button);return button;
 }
+async function stopGoRip(jobId){
+ if(!window.confirm('Really STOP rip '+jobId+'? This leaves a permanently incomplete job for review. Partial FLACs and logs are preserved; nothing is deleted.'))return;
+ const headers=requestAuthHeaders('Stop extraction, preserve staging');if(!headers)return;
+ const out=document.getElementById('go-result');
+ try{
+  const response=await fetch('/api/rip/jobs/'+jobId+'/stop',{method:'POST',
+   headers:{'Content-Type':'application/json',...headers},
+   body:JSON.stringify({confirmation:'STOP_RIP_KEEP_STAGING'})});
+  const data=await response.json();
+  if(!response.ok)throw new Error(data.detail||'Stop unavailable');
+  out.textContent='Stop requested for '+jobId+'. Wait for the drive to become idle. Partial staging is retained.';
+  await refreshGoCards(false);
+ }catch(error){out.textContent='Stop blocked: '+error.message}
+}
 async function controlGoTray(stableId, action){
  const headers=requestAuthHeaders('Control optical drive tray');if(!headers)return;
  const out=document.getElementById('go-result');
@@ -2460,6 +2474,9 @@ async function refreshGoCards(interactive=true){
      if(button.disabled)button.title='Blocked while this drive is busy';
     }
     card.append(controls);
+   }
+   if(drive.status==='ripping'&&drive.job?.id&&['queued','running'].includes(drive.job.status)){
+    addGoAction(card,'Stop rip…',()=>stopGoRip(drive.job.id));
    }
    const start=addGoAction(card,'Go! · '+drive.label,()=>startGoForDrive(drive.stable_id));
    start.disabled=!ready;
