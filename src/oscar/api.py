@@ -901,6 +901,34 @@ def archive_revision_boxset_verify(body: ArchiveBoxsetReconcileRequest, request:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
+class GenreEvidencePreviewRequest(BaseModel):
+    archive_path: str = Field(min_length=5, max_length=2048)
+    discogs_release_id: int | None = Field(default=None, ge=1, le=99999999)
+    workflow: str = Field(default="semi_automatic",
+                          pattern=r"^(best_guess|semi_automatic|secure)$")
+
+
+@app.post("/api/collection/genre-evidence/preview")
+def preview_archive_genre_evidence(body: GenreEvidencePreviewRequest, request: Request,
+                                   x_oscar_rip_token: str | None = Header(default=None)):
+    """Read-only report; no metadata approval, no SOURCES or FLAC writes."""
+    from oscar.genre_evidence import GenreEvidenceError, report_for_archive
+    from oscar.archive_metadata_scan import ScanError
+    from oscar.collection_catalog import CatalogError
+    from oscar.musicbrainz import MusicBrainzError, lookup_enabled
+    from oscar.discogs_readonly import DiscogsError
+    _rip_auth(x_oscar_rip_token, request)
+    if not lookup_enabled():
+        raise HTTPException(status_code=403, detail="MusicBrainz lookup disabled")
+    try:
+        return report_for_archive(body.archive_path,
+                                  discogs_release_id=body.discogs_release_id,
+                                  workflow=body.workflow)
+    except (GenreEvidenceError, ScanError, CatalogError,
+            MusicBrainzError, DiscogsError, OSError, ValueError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
 class ArchiveRevisionVerifyRequest(BaseModel):
     operation_id: str = Field(pattern=r"^[a-f0-9]{32}$")
 

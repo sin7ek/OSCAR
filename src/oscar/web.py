@@ -127,6 +127,15 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 </details>
 <button type="button" id="archive-scan-additions">Scan archive for metadata additions</button>
 <button type="button" id="archive-scan-changes">Scan archive for metadata changes</button>
+<details class="oscar-advanced"><summary>Genre evidence — source comparison (read-only)</summary>
+<p>Compare MusicBrainz release/release-group genre votes and optionally a catalog-matched Discogs CD release. Reported agreement is not the statistical probability of correctness. This does not modify tags, publication evidence or Collection.</p>
+<label for="genre-evidence-discogs">Discogs release ID (optional; exact catalog and CD required)</label>
+<input type="number" id="genre-evidence-discogs" min="1" max="99999999" placeholder="e.g. 123456" />
+<label for="genre-evidence-workflow">Review policy</label>
+<select id="genre-evidence-workflow"><option value="semi_automatic">Semi Automatic</option><option value="best_guess">Best Guess</option><option value="secure">Secure</option></select>
+<button type="button" id="genre-evidence-preview">Compare genre sources (read-only)</button>
+<div id="genre-evidence-result" aria-live="polite"></div>
+</details>
 <button type="button" id="archive-scan-review">Review pending metadata proposals</button>
 <button type="button" id="archive-scan-history">View decision history</button>
 <div id="archive-scan-result" aria-live="polite"></div>
@@ -1682,6 +1691,55 @@ async function showArchiveProposals(){
   box.append(article);
  }
 }
+async function previewGenreEvidence(){
+ const output=document.getElementById('genre-evidence-result');
+ const path=document.getElementById('archive-scan-album').value;
+ if(!path){output.textContent='Select an indexed published archive album first.';return}
+ const value=document.getElementById('genre-evidence-discogs').value.trim();
+ if(value&&!/^[0-9]{1,8}$/.test(value)){output.textContent='Discogs release ID must be a positive number.';return}
+ const auth=requestAuthHeaders('Compare archival genre evidence');if(!auth)return;
+ output.textContent='Reading verified archive and provider genre evidence (read-only)…';
+ const body={archive_path:path,
+  workflow:document.getElementById('genre-evidence-workflow').value};
+ if(value)body.discogs_release_id=Number(value);
+ try{
+  const response=await fetch('/api/collection/genre-evidence/preview',{
+   method:'POST',headers:{'Content-Type':'application/json',...auth},
+   body:JSON.stringify(body)
+  });
+  const result=await response.json();
+  if(!response.ok)throw Error(result.detail||'Genre evidence unavailable');
+  output.replaceChildren();
+  const summary=document.createElement('p');
+  summary.textContent='Read-only genre evidence · '+result.independent_sources_with_genres+
+   ' independent provider(s) with usable genre data · '+
+   result.sources_without_applicable_genres+' without applicable genres. No archive writes.';
+  output.append(summary);
+  for(const finding of result.findings){
+   const p=document.createElement('p');
+   p.textContent=finding.genre+' · '+finding.confidence+' · '+
+    finding.agreement_fraction+' independent applicable sources ('+
+    finding.agreement_percent+'% agreement; not a probability)';
+   output.append(p);
+  }
+  if(!result.findings.length){
+   const p=document.createElement('p');p.textContent='No supported genres found. Keep Unclassified unless independently reviewed.';output.append(p);
+  }
+  for(const claim of result.sources){
+   const p=document.createElement('p');
+   p.textContent=claim.provider+' / '+claim.scope+' · '+claim.status+
+    ' · Original: '+(claim.raw_genres.join('; ')||'(no genre)')+
+    ' · Normalized: '+(claim.genres.join('; ')||'(none)')+
+    ' · Identity: '+claim.identity_evidence+' · Independence group: '+claim.independence_group;
+   const link=document.createElement('a');link.href=claim.reference;
+   link.target='_blank';link.rel='noopener noreferrer';link.textContent=' · Open source';
+   p.append(link);output.append(p);
+  }
+  const note=document.createElement('p');note.textContent=result.note;
+  output.append(note);
+ }catch(error){output.textContent='Read-only genre comparison could not complete: '+error.message}
+}
+document.getElementById('genre-evidence-preview').onclick=previewGenreEvidence;
 async function runArchiveScan(mode){
  const box=document.getElementById('archive-scan-result');
  const path=document.getElementById('archive-scan-album').value;
