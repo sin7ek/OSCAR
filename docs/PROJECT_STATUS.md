@@ -6,6 +6,8 @@
 
 **CTDB and Discogs:** [PR #145](https://github.com/sin7ek/OSCAR/pull/145) ships independent, operator-triggered CTDB verification and read-only Discogs pressing comparison. PR Tests and Docker build passed. The Linux/amd64 `ghcr.io/sin7ek/oscar:main` OCI revision matched merge `ca4bfe47ad3e6cacd232c0d5448417300da8619c` at manifest digest `sha256:8ba24a6c041843fb48f3557eaf627df1808d531e548922acaecd99bdab184f7d`. A live lookup with a two-track test signal produced the expected CTDB no-audio-match result (`0/1`). Known-good audio and Discogs variant acceptance on Tower are pending.
 
+**Discogs coverage:** Combined identifier search inspects up to 20 Discogs releases and accepts an optional known release ID or URL. The review exposes provider country differences and shows physical comparisons for unlinked Discogs entries. The Équinoxe regression fixture exercises Discogs 4709815 outside the first five results. Live Tower retest remains open.
+
 **Combined identifier search:** Go! identifier search combines the staged disc lookup, MusicBrainz catalog, barcode and matrix searches, and Discogs links or matching release identifiers. It suggests a unique leading MusicBrainz candidate for manual selection and staging metadata review. Test provider lookups and the handoff on Tower.
 
 **Rip working titles:** Completed staging jobs use a display-only artist and album working title when enabled MusicBrainz lookup has a majority album identity. The title is saved beside the staged rip and shown in Go! and Review, with lazy lookup for older jobs. Working titles provide no release approval and do not enter tags or archive paths. Tower acceptance is pending.

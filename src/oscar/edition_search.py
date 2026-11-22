@@ -1,5 +1,6 @@
 """Cross-reference physical identifiers without accepting a release."""
 import re
+import unicodedata
 import urllib.parse
 import urllib.request
 
@@ -12,6 +13,11 @@ from oscar.pressing_evidence import observed_matrix
 
 def _digits(value):
     return re.sub(r"[^0-9]", "", str(value or ""))
+
+
+def _name_key(value):
+    normalized = unicodedata.normalize("NFKD", str(value or "").casefold())
+    return "".join(char for char in normalized if char.isalnum())
 
 
 def _discogs_links(ids):
@@ -37,14 +43,15 @@ def _discogs_links(ids):
     return result
 
 
-def _discogs_candidates(catalog, barcode, matrix, mastering_sid, mould_sid):
+def _discogs_candidates(catalog, barcode, matrix, mastering_sid, mould_sid, discogs_release):
     return discogs_readonly.search_pressings(
         catalog=catalog, barcode=barcode, matrix=matrix,
         mastering_sid=mastering_sid, mould_sid=mould_sid,
-    )["releases"]
+        discogs_release=discogs_release, expanded=True,
+    )
 
 
-def search(job_id, *, catalog, barcode, matrix, mastering_sid, mould_sid):
+def search(job_id, *, catalog, barcode, matrix, mastering_sid, mould_sid, discogs_release=""):
     if not musicbrainz.lookup_enabled():
         raise ValueError("MusicBrainz lookup is disabled")
     rip = ripping.status(job_id)
@@ -55,8 +62,9 @@ def search(job_id, *, catalog, barcode, matrix, mastering_sid, mould_sid):
     barcode = re.sub(r"[ -]", "", barcode or "")
     if barcode and not re.fullmatch(r"[0-9]{8,14}", barcode):
         raise ValueError("Enter the full printed barcode")
-    if not any((catalog, barcode, matrix)):
-        raise ValueError("Enter a catalog number, barcode or matrix")
+    pinned = discogs_readonly.pressing_release_id(discogs_release)
+    if not any((catalog, barcode, matrix, pinned)):
+        raise ValueError("Enter a catalog number, barcode, matrix or Discogs release")
     from oscar.go_controller import _source_plan
     plan = _source_plan(job_id)
     if plan.get("disc_id") != rip.get("disc_id"):
@@ -87,10 +95,16 @@ def search(job_id, *, catalog, barcode, matrix, mastering_sid, mould_sid):
                 notices.append(f"MusicBrainz {field}: {exc}")
     discogs = []
     links = {}
-    if catalog or barcode:
+    if catalog or barcode or pinned:
         if discogs_readonly.configured():
             try:
-                discogs = _discogs_candidates(catalog, barcode, matrix, mastering_sid, mould_sid)
+                found = _discogs_candidates(catalog, barcode, matrix, mastering_sid, mould_sid,
+                                            discogs_release)
+                discogs = found["releases"]
+                notices.extend(found.get("errors", []))
+                if found.get("truncated"):
+                    notices.append("Discogs results were limited to 20 inspected releases. "
+                                   "Enter a known Discogs release ID or URL to include it directly.")
                 links = _discogs_links([item["id"] for item in discogs])
             except (discogs_readonly.DiscogsError, musicbrainz.MusicBrainzError) as exc:
                 notices.append("Discogs cross-reference: " + str(exc))
@@ -115,12 +129,15 @@ def search(job_id, *, catalog, barcode, matrix, mastering_sid, mould_sid):
         references = []
         for item in discogs:
             linked = item["id"] in links.get(row["id"], ())
-            shared = (cat_matches and barcode_matches
-                      and _normalized_catalog(row.get("title")) == _normalized_catalog(item.get("title"))
-                      and _normalized_catalog(row.get("artist")) == _normalized_catalog(item.get("artist"))
-                      and _digits(item.get("barcode")) == barcode
-                      and _normalized_catalog(catalog) in {
-                          _normalized_catalog(value) for value in item.get("catalog_numbers", [])})
+            item_catalogs = {_normalized_catalog(value)
+                             for value in item.get("catalog_numbers", [])} - {""}
+            shared = (_digits(row.get("barcode")) in {
+                          _digits(value) for value in item.get("barcodes", []) if _digits(value)}
+                      and any(_normalized_catalog(label.get("catalog_number")) in item_catalogs
+                              for label in labels)
+                      and _name_key(row.get("title")) == _name_key(item.get("title"))
+                      and bool(_name_key(row.get("artist")))
+                      and _name_key(row.get("artist")) == _name_key(item.get("artist")))
             if linked or shared:
                 references.append({**item, "link": "MusicBrainz URL relation" if linked else
                                    "Shared artist, title, barcode and catalog number"})
