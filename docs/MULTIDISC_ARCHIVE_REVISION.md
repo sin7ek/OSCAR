@@ -1,10 +1,10 @@
 # Coordinated multidisc archive revision — implementation contract
 
-Status: PR #110 development branch now contains a **first opt-in group Apply, background worker, durable group journal, and explicit reconcile implementation**, plus synthetic journal/failure-injection tests. This remains **draft / not merged / not Unraid accepted**. Revisit CI and run a sacrificial archive acceptance before real Boulez use.
+**Status:** [#110](https://github.com/sin7ek/OSCAR/pull/110) merged the opt-in group LABEL Apply and explicit reconciliation. On Tower, the Boulez group changed 39 tracks on CDs 4 and 6, retaining the originals. The read-only verifier from [#112](https://github.com/sin7ek/OSCAR/pull/112) returned `Integrity PASS` for both revised discs. [#116](https://github.com/sin7ek/OSCAR/pull/116) records this result. Interruption/reconciliation and separate coordinated GENRE Apply still require live acceptance.
 
 ## Problem and scope
 
-An archived MusicBrainz release may have only some physical CDs published. The real Boulez fixture has discs 4 and 6 of 6, both with approved `LABEL=Deutsche Grammophon` proposals. The operator may rip discs 1, 2 and 3 during development, so the affected set **must be discovered dynamically** for every preview and inside the locked apply. A fingerprint obtained with two discs must become stale when a fifth disc is indexed.
+An archived MusicBrainz release may have only some physical CDs published. The initial Boulez preview showed discs 4 and 6 of 6, both with approved `LABEL=Deutsche Grammophon` proposals. The later complete preview had six discs and only 4 and 6 required changes. The affected set **must be discovered dynamically** for every preview and inside the locked apply. A fingerprint obtained with two discs must become stale when a fifth disc is indexed.
 
 ## Strict transaction boundaries
 
@@ -39,7 +39,7 @@ Independent CTDB verification in staging and read-only post-publication review (
 Never mutate, re-encode, rename or delete original Unraid archive audio without explicit operator approval. This document specifies behavior; it is not evidence that multi-disc Apply is implemented.
 
 
-## Current implementation notes (PR #110 draft)
+## LABEL implementation notes (PR #110)
 
 - Module: `src/oscar/archive_revision_boxset_apply.py`. Uses the existing archive lock and single-disc verified FLAC copy/retag helper, but does **not** run single-disc Apply.
 - Enable using the distinct `OSCAR_ENABLE_BOXSET_ARCHIVE_REVISIONS=1` setting **only in a controlled test environment initially**. Existing single-disc and cleanup flags are separate.
@@ -50,6 +50,6 @@ Never mutate, re-encode, rename or delete original Unraid archive audio without 
 - Initial limitation: only accepted release-scope `LABEL` changes are migrated. Every present disc is checked; already-correct discs remain byte-identical and unversioned, while each changed disc needs exactly one accepted label proposal. No other metadata fields, no album rename, no automated rollback or cleanup. These restrictions intentionally fail closed.
 - Worker progress state is in-memory; the durable group journal survives restarts. If worker status is lost, inspect group history.
 - Tests presently include synthetic fake-FLAC journal transitions for partial failures and stale plans. They are **not a substitute for real-FLAC end-to-end tests**.
-- **Next gates before merge:** Python+Docker CI green at final head, real FLAC tests with interruption injection, careful Unraid/FUSE validation on sacrificial albums, then operator-reviewed Boulez preview and explicit Apply. Archive originals must never be deleted automatically.
+- **Remaining acceptance:** inject an interruption with real FLACs on a sacrificial Unraid/FUSE fixture and verify journal reconciliation and both generations. Archive originals must remain retained.
 
 - A newly ripped CD already containing the exact reviewed `LABEL` is included in the group fingerprint but is not rewritten, moved or backed up by this metadata-only migration.

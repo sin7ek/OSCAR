@@ -1,6 +1,6 @@
 # OSCAR safe archive publisher (first opt-in version)
 
-**Status:** Code shipped via the feature PR after CI; hardware deployment **not yet proven**. This feature is explicitly disabled by default and never deletes originals. Use initially with the known-good Anastacia 12-track staging copy; after that, the Boulez Classical v2 copy (32 tracks).
+**Status:** Explicitly approved archive publication was observed on Tower for Anastacia, Boulez and Carmen Gomes. The publisher is opt-in and preserves original rip evidence. [#138](https://github.com/sin7ek/OSCAR/pull/138) shipped structured source provenance with green PR Tests and Docker build. The new Go! SOURCES preview and publication of a recovered disc still need separate Tower acceptance. See [project status](PROJECT_STATUS.md).
 
 ## How it works
 
@@ -32,7 +32,9 @@ For Unraid acceptance, open the recovered Mahler/Bernstein Disc 11 in Go! Archiv
 - If publishing fails halfway through, a hidden `.oscar-unpublished-<id>` directory may remain for inspection. OSCAR does **not** automatically delete or reuse partial files. You can inspect or separately remove only clearly identified failed temporary directories after reviewing them, but never delete original staging.
 - The output path is `<album artist>/<catalog prefix> <album title> (<year>) [release-uuid-prefix]/`, with `Disc NN/` for multidisc sets. A second publish of the same album/disc is **refused**. An overwrite is never the default behavior.
 
-## Hardware acceptance sequence
+[PR #139](https://github.com/sin7ek/OSCAR/pull/139) is open. It adds selected and excluded source-attempt details for new recoveries. It explicitly identifies unavailable historical details for earlier recovery jobs. Existing production source input is a local diagnostic rip.
+
+## Initial hardware fixtures
 
 ### Anastacia
 
