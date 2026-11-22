@@ -1,8 +1,10 @@
 # OSCAR — Development progress dashboard
 
-## Current status — 2026-11-22, through PR #149
+## Current status — 2026-11-22, through PR #151
 
-**Latest feature on `main` and GHCR:** [PR #149](https://github.com/sin7ek/OSCAR/pull/149) adds display-only rip working titles and integrated MusicBrainz/Discogs edition review. Python Tests and Docker build passed. The registry Linux/amd64 image `ghcr.io/sin7ek/oscar:main` reports revision `db0df556f9743d0b02c0f13a86e5ee205d80ba08` at digest `sha256:d44a401ad2d106340ebc637d420e24aaa47604bbe147a42d8dec46e47d4b15bf`. Live Tower acceptance remains open.
+**Latest feature on `main` and GHCR:** [PR #151](https://github.com/sin7ek/OSCAR/pull/151) expands Discogs coverage and shows release country disagreements. Python Tests and Docker build passed. The Linux/amd64 `ghcr.io/sin7ek/oscar:main` OCI revision matched merge `9678bd5767960468cf9f65de8af94dc1e8f850b0` at manifest digest `sha256:a41bdd7f6832b480290441092ed298b650b4d8afa76fed8d996ffe339cfdce43`. Live Tower retest of Équinoxe remains open.
+
+**Working titles and combined search:** [PR #149](https://github.com/sin7ek/OSCAR/pull/149) adds display-only rip working titles and integrated MusicBrainz/Discogs edition review. Python Tests and Docker build passed. The registry Linux/amd64 image `ghcr.io/sin7ek/oscar:main` reports revision `db0df556f9743d0b02c0f13a86e5ee205d80ba08` at digest `sha256:d44a401ad2d106340ebc637d420e24aaa47604bbe147a42d8dec46e47d4b15bf`. Live Tower acceptance remains open.
 
 **CTDB and Discogs:** [PR #145](https://github.com/sin7ek/OSCAR/pull/145) ships independent, operator-triggered CTDB verification and read-only Discogs pressing comparison. PR Tests and Docker build passed. The Linux/amd64 `ghcr.io/sin7ek/oscar:main` OCI revision matched merge `ca4bfe47ad3e6cacd232c0d5448417300da8619c` at manifest digest `sha256:8ba24a6c041843fb48f3557eaf627df1808d531e548922acaecd99bdab184f7d`. A live lookup with a two-track test signal produced the expected CTDB no-audio-match result (`0/1`). Known-good audio and Discogs variant acceptance on Tower are pending.
 
