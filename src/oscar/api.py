@@ -218,6 +218,7 @@ from pydantic import BaseModel, Field
 class RipRequest(BaseModel):
     stable_id: str = Field(min_length=1, max_length=256)
     confirmation: str
+    selected_tracks: list[int] | None = Field(default=None, max_length=99)
 
 
 def _rip_auth(token: str | None, request: Request | None = None):
@@ -280,10 +281,47 @@ def get_rip_plan(stable_id: str, request: Request, x_oscar_rip_token: str | None
 def start_rip(request: RipRequest, http_request: Request, x_oscar_rip_token: str | None = Header(default=None)):
     from oscar.ripping import RipError, start
     _rip_auth(x_oscar_rip_token, http_request)
-    if request.confirmation != "RIP_TO_STAGING":
+    expected = "RIP_DIAGNOSTIC_TRACKS" if request.selected_tracks is not None else "RIP_TO_STAGING"
+    if request.confirmation != expected:
         raise HTTPException(status_code=422, detail="Explicit staging confirmation required")
     try:
-        return start(request.stable_id)
+        return start(request.stable_id, selected_tracks=request.selected_tracks)
+    except (RipError, OSError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+class DriveTrayRequest(BaseModel):
+    stable_id: str = Field(min_length=1, max_length=256)
+    action: str = Field(pattern=r"^(eject|close)$")
+    confirmation: str
+
+
+@app.post("/api/rip/tray")
+def rip_tray_action(body: DriveTrayRequest, request: Request,
+                    x_oscar_rip_token: str | None = Header(default=None)):
+    from oscar.ripping import RipError, control_tray
+    _rip_auth(x_oscar_rip_token, request)
+    if body.confirmation != "CONTROL_TRAY":
+        raise HTTPException(status_code=422, detail="Explicit tray confirmation required")
+    try:
+        return control_tray(body.stable_id, body.action)
+    except (RipError, OSError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+class StopRipRequest(BaseModel):
+    confirmation: str
+
+
+@app.post("/api/rip/jobs/{job_id}/stop")
+def rip_stop_job(job_id: str, body: StopRipRequest, request: Request,
+                 x_oscar_rip_token: str | None = Header(default=None)):
+    from oscar.ripping import RipError, stop
+    _rip_auth(x_oscar_rip_token, request)
+    if body.confirmation != "STOP_RIP_KEEP_STAGING":
+        raise HTTPException(status_code=422, detail="Explicit stop-and-retain-staging confirmation required")
+    try:
+        return stop(job_id)
     except (RipError, OSError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
@@ -1448,8 +1486,8 @@ def go_start(request: RipRequest, http_request: Request,
     from oscar.ripping import RipError
     from oscar.workflow_ledger import WorkflowError
     _rip_auth(x_oscar_rip_token,http_request)
-    if request.confirmation != "RIP_TO_STAGING":
-        raise HTTPException(status_code=422, detail="Explicit rip-to-staging confirmation required")
+    if request.selected_tracks is not None or request.confirmation != "RIP_TO_STAGING":
+        raise HTTPException(status_code=422, detail="Go! only accepts complete-disc rips")
     try:
         return start(request.stable_id)
     except (GoError,RipError,WorkflowError,OSError,ValueError) as exc:

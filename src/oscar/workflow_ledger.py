@@ -115,6 +115,8 @@ def _observed_phase(job_id, state):
         return "RIP_FAILED"
     if phase == "interrupted":
         return "RIP_INTERRUPTED"
+    if phase == "partial_diagnostic":
+        raise WorkflowError("Selected-track diagnostic cannot enter Go workflow")
     if phase in ("queued", "running"):
         return "RIP_IN_PROGRESS"
     if phase != "needs_verification" or state.get("returncode") != 0:

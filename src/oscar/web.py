@@ -28,6 +28,13 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 .go-drive-card{border:1px solid #42556b;border-radius:13px;background:#121c28;padding:16px;min-width:0}
 .go-drive-card h3{margin:0 0 8px}.go-drive-card small{display:block;overflow-wrap:anywhere;margin:6px 0}
 .go-drive-card button{width:100%;margin:8px 0 0}
+.go-drive-controls{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:8px 0}
+.go-drive-controls button{margin:0}
+.go-drive-card button:disabled{opacity:.5;cursor:not-allowed}
+.go-drive-diagnostic{margin-top:12px;border-top:1px solid #42556b;padding-top:8px}
+.go-drive-diagnostic summary{cursor:pointer;font-size:.85rem}
+.go-drive-diagnostic input{max-width:100%;box-sizing:border-box;width:100%}
+.go-drive-diagnostic p{font-size:.82rem}
 .go-drive-card .drive-ready{color:#9ce4b3}.go-drive-card .drive-busy{color:#f1d393}
 .go-rip-progress{margin:12px 0 6px}
 .go-rip-progress label{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;font-size:.84rem;color:#d1def2}
@@ -2346,6 +2353,55 @@ function addGoAction(parent,label,handler){
  button.type='button';button.textContent=label;button.onclick=handler;
  parent.append(button);return button;
 }
+async function startGoDiagnosticTracks(stableId, raw){
+ const out=document.getElementById('go-result');
+ const parts=raw.split(',').map(n=>n.trim());
+ if(!parts.length||parts.length>99||parts.some(n=>!(/^[0-9]{1,2}$/.test(n)))){
+  out.textContent='Enter unique comma-separated track numbers, e.g. 7 or 1,5,17.';return;
+ }
+ const selected=raw.split(',').map(n=>Number(n.trim()));
+ if(new Set(selected).size!==selected.length||selected.some(n=>n<1||n>99)){
+  out.textContent='Track numbers must be unique and between 1 and 99.';return;
+ }
+ if(!window.confirm('Start SELECTED-TRACK diagnostic rip ('+selected.join(', ')+')? It is NOT a complete CD and cannot enter Go verification or publication. Existing files will remain untouched.'))return;
+ const headers=requestAuthHeaders('Start selected-track diagnostic rip');if(!headers)return;
+ try{
+  const response=await fetch('/api/rip/start',{method:'POST',
+   headers:{'Content-Type':'application/json',...headers},
+   body:JSON.stringify({stable_id:stableId,selected_tracks:selected,confirmation:'RIP_DIAGNOSTIC_TRACKS'})});
+  const data=await response.json();
+  if(!response.ok)throw new Error(data.detail||'Diagnostic rip unavailable');
+  out.textContent='Diagnostic job '+data.id+' · selected tracks '+selected.join(', ')+'. Separate staging; not a Go workflow.';
+  await refreshGoCards(false);
+ }catch(error){out.textContent='Diagnostic rip blocked: '+error.message}
+}
+async function stopGoRip(jobId){
+ if(!window.confirm('Really STOP rip '+jobId+'? This leaves a permanently incomplete job for review. Partial FLACs and logs are preserved; nothing is deleted.'))return;
+ const headers=requestAuthHeaders('Stop extraction, preserve staging');if(!headers)return;
+ const out=document.getElementById('go-result');
+ try{
+  const response=await fetch('/api/rip/jobs/'+jobId+'/stop',{method:'POST',
+   headers:{'Content-Type':'application/json',...headers},
+   body:JSON.stringify({confirmation:'STOP_RIP_KEEP_STAGING'})});
+  const data=await response.json();
+  if(!response.ok)throw new Error(data.detail||'Stop unavailable');
+  out.textContent='Stop requested for '+jobId+'. Wait for the drive to become idle. Partial staging is retained.';
+  await refreshGoCards(false);
+ }catch(error){out.textContent='Stop blocked: '+error.message}
+}
+async function controlGoTray(stableId, action){
+ const headers=requestAuthHeaders('Control optical drive tray');if(!headers)return;
+ const out=document.getElementById('go-result');
+ try{
+  const response=await fetch('/api/rip/tray',{method:'POST',
+   headers:{'Content-Type':'application/json',...headers},
+   body:JSON.stringify({stable_id:stableId,action,confirmation:'CONTROL_TRAY'})});
+  const data=await response.json();
+  if(!response.ok)throw new Error(data.detail||'Tray command unavailable');
+  out.textContent='Drive '+action+' command sent. Actual tray response depends on hardware.';
+  await refreshGoCards(false);
+ }catch(error){out.textContent='Tray command blocked: '+error.message}
+}
 let goDashboardTimer=null,goDashboardHeaders=null;
 function ripDuration(seconds){
  if(!Number.isFinite(seconds)||seconds<0)return 'unknown';
@@ -2420,6 +2476,7 @@ async function refreshGoCards(interactive=true){
    state.className=ready?'drive-ready':'drive-busy';
    state.textContent=drive.status==='ripping'?'Ripping in progress':
       !drive.present?'Drive not detected':
+      drive.status==='drive_control'?'Tray command in progress':
       !drive.offset_set?'Read offset required':
       dashboard.slots_available===0?'All ripping slots occupied':'Ready to rip';
    card.append(state);
@@ -2429,10 +2486,50 @@ async function refreshGoCards(interactive=true){
     const info=document.createElement('small');
     info.textContent='Last rip: '+last.id+' · '+(last.status||'unknown');
     card.append(info);
-    addGoAction(card,'Open last job',()=>{
-     document.getElementById('go-job').value=last.id;
-     showOscarTab('go');goAdvance();
-    });
+    if(Array.isArray(last.selected_tracks)&&last.selected_tracks.length){
+     addGoAction(card,'Inspect diagnostic job',async()=>{
+      const headers=requestAuthHeaders('Read diagnostic extraction status');if(!headers)return;
+      const out=document.getElementById('go-result');
+      try{
+       const response=await fetch('/api/rip/jobs/'+last.id,{headers});
+       const data=await response.json();
+       if(!response.ok)throw new Error(data.detail||'Cannot inspect job');
+       out.textContent='Diagnostic '+data.id+' · tracks '+data.selected_tracks.join(', ')+
+         ' · '+data.status+' · '+(data.error||data.warning||'Staging only, not a Go workflow');
+      }catch(error){out.textContent='Diagnostic job unavailable: '+error.message}
+     });
+    }else{
+     addGoAction(card,'Open last job',()=>{
+      document.getElementById('go-job').value=last.id;
+      showOscarTab('go');goAdvance();
+     });
+    }
+   }
+   if(drive.present){
+    const controls=document.createElement('div');controls.className='go-drive-controls';
+    for(const action of ['eject','close']){
+     const button=addGoAction(controls,action==='eject'?'Eject':'Close tray',
+       ()=>controlGoTray(drive.stable_id,action));
+     button.disabled=!drive.offset_set||drive.status==='ripping'||drive.status==='drive_control';
+     if(button.disabled)button.title='Blocked while this drive is busy';
+    }
+    card.append(controls);
+   }
+   if(ready){
+    const advanced=document.createElement('details');advanced.className='go-drive-diagnostic';
+    const heading=document.createElement('summary');heading.textContent='Advanced · rip selected tracks (diagnostic only)';
+    advanced.append(heading);
+    const hint=document.createElement('p');
+    hint.textContent='Example: 7 or 1,5,17. Creates a new partial-disc staging job; it cannot be archived by Go!.';
+    advanced.append(hint);
+    const input=document.createElement('input');input.type='text';input.placeholder='7 or 1,5,17';
+    input.maxLength=200;input.setAttribute('aria-label','Selected track numbers');
+    advanced.append(input);
+    addGoAction(advanced,'Rip selected tracks',()=>startGoDiagnosticTracks(drive.stable_id,input.value));
+    card.append(advanced);
+   }
+   if(drive.status==='ripping'&&drive.job?.id&&['queued','running'].includes(drive.job.status)){
+    addGoAction(card,'Stop rip…',()=>stopGoRip(drive.job.id));
    }
    const start=addGoAction(card,'Go! · '+drive.label,()=>startGoForDrive(drive.stable_id));
    start.disabled=!ready;
