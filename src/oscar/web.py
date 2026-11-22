@@ -385,7 +385,7 @@ const settingsSectionTitles=new Set(['Ripping profile','Release identification &
  'Language & names','Optical drives']);
 for(const section of [...document.body.querySelectorAll(':scope > section')]){
  const title=section.querySelector('h2')?.textContent.trim()||'';
- if(title.startsWith('Go! ·'))mainGo.append(section);
+ if(title.startsWith('Go! ·')||title.startsWith('Track Recovery ·'))mainGo.append(section);
  else if(title.startsWith('Collection Library'))oscarPanelsByName.get('collection').append(section);
  else if(settingsSectionTitles.has(title))oscarPanelsByName.get('settings').append(section);
  else oscarAdvanced.append(section);
