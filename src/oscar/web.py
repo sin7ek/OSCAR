@@ -2999,8 +2999,10 @@ function renderGoPhysicalFields(output, job, selectedRelease){
   'physical-catalog':draft.catalog||'','physical-barcode':(draft.barcode||'').replace(/[ -]/g,''),
   'metadata-matrix':draft.matrix||''
  },'physical-compare-btn',{focus:selectedRelease()?'physical-compare-btn':'physical-release'}));
- addGoAction(fields,'Search MusicBrainz matrix annotations',()=>openAdvanced(
-  {'matrix-search':draft.matrix||''},'matrix-search-button',{focus:'matrix-search'}));
+ addGoAction(fields,'Search MusicBrainz matrix annotations',()=>openAdvanced({
+  'matrix-search':draft.matrix||'','metadata-job':job,
+  'metadata-release':'','metadata-matrix':draft.matrix||''
+ },'matrix-search-button',{focus:'matrix-search'}));
  addGoAction(fields,'Compare Discogs pressings',()=>openAdvanced(Object.fromEntries(
   ['catalog','barcode','matrix','mastering_sid','mould_sid'].map(key=>
    ['discogs-pressing-'+key,draft[key]||''])),'discogs-pressing-search'));
