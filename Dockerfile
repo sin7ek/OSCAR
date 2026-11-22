@@ -4,7 +4,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     OSCAR_CONFIG_PATH=/config/settings.json
 
-RUN apt-get update && apt-get install -y --no-install-recommends libdiscid0 cyanrip flac \
+RUN apt-get update && apt-get install -y --no-install-recommends libdiscid0 cyanrip flac audiotools \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -13,7 +13,7 @@ COPY pyproject.toml README.md ./
 COPY src/ ./src/
 RUN pip install --no-cache-dir .
 # Fail the image build if this Debian cyanrip version lacks a flag OSCAR uses.
-RUN python -m oscar.cyanrip_compat
+RUN python -m oscar.cyanrip_compat && command -v trackverify
 
 RUN groupadd --system oscar && useradd --system --gid oscar --home-dir /app oscar \
     && mkdir -p /config && chown oscar:oscar /config
