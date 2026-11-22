@@ -841,6 +841,19 @@ def get_archive_publish_status(job_id: str, publish_id: str, request: Request,
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+@app.get("/api/diagnostics/drivefit")
+def drivefit_diagnostics(request: Request,
+                         x_oscar_rip_token: str | None = Header(default=None)):
+    """Read-only historical drive observations; no drive/media is probed."""
+    from oscar.drivefit import report
+    from oscar.ripping import RipError
+    _rip_auth(x_oscar_rip_token, request)
+    try:
+        return report()
+    except (RipError, OSError, ValueError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
 @app.get("/api/rip/dashboard")
 def rip_drives_dashboard(request: Request, x_oscar_rip_token: str | None = Header(default=None)):
     """Observe active/idle optical drives; read-only and never starts a rip."""
