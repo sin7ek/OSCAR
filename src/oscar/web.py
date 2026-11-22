@@ -2536,6 +2536,37 @@ async function goAdvance(){
            inspectedNote.textContent='Actual FLAC tags and hashes: '+inspected.status+
              ' · '+inspected.track_count+' tracks. Historical archive remains untouched.';
            panel.append(inspectedNote);
+           if(inspected.status==='tags_match_preview' &&
+              state.phase==='METADATA_READY' && !state.archive_publish_id){
+            const useButton=document.createElement('button');
+            useButton.type='button';
+            useButton.textContent='Use verified refreshed copy for FIRST Go publication';
+            panel.append(useButton);
+            useButton.onclick=async()=>{
+             if(!window.confirm('Replace the active Go metadata COPY reference before its FIRST publication? Both old and new tagged copies, original rip, and archives remain untouched. Verify physical edition and review a NEW archive preview afterwards.'))return;
+             const approval=requestAuthHeaders('Select reviewed metadata copy for first Go publication');
+             if(!approval)return;
+             useButton.disabled=true;
+             try{
+              const response=await fetch('/api/go/jobs/'+id+'/musicbrainz/adopt-refreshed-copy',{
+               method:'POST',headers:{'Content-Type':'application/json',...approval},
+               body:JSON.stringify({copy_id:started.copy_id,fingerprint:info.fingerprint,
+                confirmation:'USE_REVIEWED_COPY_FOR_FIRST_PUBLICATION'})
+              });
+              const result=await response.json();
+              if(!response.ok)throw Error(result.detail||'Refreshed copy adoption refused');
+              const success=document.createElement('p');
+              success.textContent='Go uses refreshed copy '+result.active_copy_id+
+               ' for its FIRST publication only. No archive writes. Reopen Go and review the NEW archive preview before publishing.';
+              panel.append(success);
+             }catch(error){
+              useButton.disabled=false;
+              const warning=document.createElement('p');
+              warning.textContent='Go copy selection blocked safely: '+error.message;
+              panel.append(warning);
+             }
+            };
+           }
           }
          }catch(error){const warning=document.createElement('p');
           warning.textContent='Copy status: '+error.message;panel.append(warning)}

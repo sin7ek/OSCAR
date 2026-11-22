@@ -534,6 +534,30 @@ def musicbrainz_reprocess_copy(job_id: str, body: MetadataReprocessRequest,
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
+class AdoptRefreshedMetadataRequest(BaseModel):
+    copy_id: str = Field(min_length=32, max_length=32, pattern=r"^[a-f0-9]{32}$")
+    fingerprint: str = Field(min_length=64, max_length=64, pattern=r"^[a-f0-9]{64}$")
+    confirmation: str
+
+
+@app.post("/api/go/jobs/{job_id}/musicbrainz/adopt-refreshed-copy")
+def go_adopt_refreshed_metadata(job_id: str, body: AdoptRefreshedMetadataRequest,
+                               request: Request,
+                               x_oscar_rip_token: str | None = Header(default=None)):
+    """Explicitly select a verified refreshed copy before first Go publish."""
+    from oscar.metadata_reprocess import ReprocessError, adopt_new_staging_copy_for_go
+    from oscar.metadata_staging import MetadataError
+    from oscar.workflow_ledger import WorkflowError
+    from oscar.ripping import RipError
+    _rip_auth(x_oscar_rip_token, request)
+    try:
+        return adopt_new_staging_copy_for_go(
+            job_id, body.copy_id, body.fingerprint, body.confirmation)
+    except (ReprocessError, MetadataError, WorkflowError, RipError,
+            OSError, KeyError, TypeError, ValueError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
 @app.post("/api/rip/jobs/{job_id}/metadata/copy")
 def create_tagged_staging_copy(job_id: str, request: MetadataCopyRequest,
                                http_request: Request, x_oscar_rip_token: str | None = Header(default=None)):

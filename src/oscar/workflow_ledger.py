@@ -426,6 +426,52 @@ def complete_metadata_copy(job_id, copy_id, *, checked, reason):
 
 
 
+
+def adopt_refreshed_metadata_copy(job_id, old_copy_id, new_copy_id, release_id,
+                                  new_fingerprint, confirmation):
+    """Atomically use an already verified isolated copy for first Go publication.
+
+    The prior copy is retained. A pending or completed publication reservation
+    permanently closes this path, even if the archive is not currently visible.
+    """
+    if confirmation != "USE_REVIEWED_COPY_FOR_FIRST_PUBLICATION":
+        raise WorkflowError("Explicit refreshed-copy adoption confirmation required")
+    if not all(isinstance(value, str) and _JOB_ID.fullmatch(value)
+               for value in (job_id, old_copy_id, new_copy_id)):
+        raise WorkflowError("Invalid metadata copy or rip job ID")
+    if old_copy_id == new_copy_id:
+        raise WorkflowError("Refreshed copy must differ from original")
+    if not isinstance(release_id, str) or not re.fullmatch(
+            r"[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}", release_id):
+        raise WorkflowError("Invalid accepted release UUID")
+    if not isinstance(new_fingerprint, str) or not re.fullmatch(r"[a-f0-9]{64}", new_fingerprint):
+        raise WorkflowError("Invalid new copy preview fingerprint")
+    with _db() as db:
+        db.execute("BEGIN IMMEDIATE")
+        row = db.execute("SELECT * FROM workflow_jobs WHERE job_id=?", (job_id,)).fetchone()
+        if not row or row["phase"] != "METADATA_READY":
+            raise WorkflowError("Only ready, unpublished Go jobs can select a refreshed copy")
+        if row["identification_mode"] != "semi_automatic" or row["accepted_release_id"] != release_id:
+            raise WorkflowError("The original accepted Semi Automatic release must remain unchanged")
+        if row["metadata_release_id"] != release_id or row["metadata_copy_id"] != old_copy_id:
+            raise WorkflowError("Existing metadata copy/release changed; refresh Go before retrying")
+        if row["archive_publish_id"]:
+            raise WorkflowError("An archive publication was already reserved; adoption prohibited")
+        stamp = _now()
+        updated = db.execute("""UPDATE workflow_jobs
+            SET metadata_copy_id=?,metadata_fingerprint=?,updated_at=?
+            WHERE job_id=? AND metadata_copy_id=? AND metadata_release_id=?
+              AND phase='METADATA_READY' AND archive_publish_id=''""",
+            (new_copy_id, new_fingerprint, stamp, job_id, old_copy_id, release_id))
+        if updated.rowcount != 1:
+            raise WorkflowError("Concurrent metadata or publication change; retry review")
+        db.execute("""INSERT INTO workflow_events
+            (job_id,phase_before,phase_after,reason,happened_at)
+            VALUES (?,?,?,?,?)""", (job_id, "METADATA_READY", "METADATA_READY",
+                "operator_adopted_refreshed_copy:" + old_copy_id + "->" + new_copy_id, stamp))
+        return _view(db, job_id)
+
+
 def reserve_archive_publish(job_id, copy_id, release_id, fingerprint,
                             relative_directory, *, automatic=False):
     """Single durable publication reservation, committed before any archive worker.
