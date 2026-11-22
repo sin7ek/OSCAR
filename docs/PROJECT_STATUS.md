@@ -1,12 +1,13 @@
 # OSCAR — project status and handoff
 
-## Current status — 2026-11-22, through PR #142
+## Current status — 2026-11-22, through PR #145
 
-**Latest feature on `main` and GHCR:** Matrix/runout [PR #142](https://github.com/sin7ek/OSCAR/pull/142) adds release-annotation search and disc-level transcription in the [archive publishing workflow](ARCHIVE_PUBLISHER.md). [PR Tests](https://github.com/sin7ek/OSCAR/actions/runs/45077525913), [PR Docker build](https://github.com/sin7ek/OSCAR/actions/runs/45077525924) and the [main image build](https://github.com/sin7ek/OSCAR/actions/runs/45077599992) passed. The registry's Linux/amd64 `ghcr.io/sin7ek/oscar:main` OCI revision was checked against merge `cfd01bf79b079b88aa28bf008b066fbac406e308` at manifest digest `sha256:b88d8607e6337987a77ca3494f79d24b69de4cc5aed4b25e8342ff0e63ef9aea`. 
+**Latest feature on `main` and GHCR:** [PR #145](https://github.com/sin7ek/OSCAR/pull/145) ships independent, operator-triggered CTDB verification and read-only Discogs pressing comparison. PR Tests and Docker build passed. The Linux/amd64 `ghcr.io/sin7ek/oscar:main` OCI revision matched merge `ca4bfe47ad3e6cacd232c0d5448417300da8619c` at manifest digest `sha256:8ba24a6c041843fb48f3557eaf627df1808d531e548922acaecd99bdab184f7d`. A live lookup with a two-track test signal produced the expected CTDB no-audio-match result (`0/1`). Known-good audio and Discogs variant acceptance on Tower are pending.
+
+**Matrix/runout:** [PR #142](https://github.com/sin7ek/OSCAR/pull/142) adds release-annotation search and disc-level transcription in the [archive publishing workflow](ARCHIVE_PUBLISHER.md). [PR Tests](https://github.com/sin7ek/OSCAR/actions/runs/45077525913), [PR Docker build](https://github.com/sin7ek/OSCAR/actions/runs/45077525924) and the [main image build](https://github.com/sin7ek/OSCAR/actions/runs/45077599992) passed. The registry's Linux/amd64 `ghcr.io/sin7ek/oscar:main` OCI revision was checked against merge `cfd01bf79b079b88aa28bf008b066fbac406e308` at manifest digest `sha256:b88d8607e6337987a77ca3494f79d24b69de4cc5aed4b25e8342ff0e63ef9aea`. 
 
 On Tower, the manual Metadata & tagging preview for *Jagged Little Pill* showed the operator-transcribed `MATRIX_RUNOUT` value `936245901-2.2 WME` and successfully created 13 tagged staging copies for MusicBrainz release `fbf0a5ee-f9ef-3077-a38a-f990a1b9c8eb` (copy `25b4b47c4f814b4a96498e4b4767c96b`). Manual Proposed SOURCES.txt also displayed the matrix correctly for the same copy. Direct FLAC readback, publication, annotation search and Go! matrix entry remain open.
 
-**CTDB and Discogs:** The [archive publishing workflow](ARCHIVE_PUBLISHER.md) includes operator-triggered CTDB evidence and the read-only Discogs matrix/SID comparison. Live Tower acceptance is pending.
 
 **DriveFit:** [#140 DriveFit](https://github.com/sin7ek/OSCAR/pull/140) merged as `5368f6489da5755fe7fb53f99c41d0af7d01b17d`. GitHub [Tests](https://github.com/sin7ek/OSCAR/actions/runs/45072660464) and [Docker build](https://github.com/sin7ek/OSCAR/actions/runs/45072660444) passed. The OCI revision of `ghcr.io/sin7ek/oscar:main` for Linux/amd64 matched that commit at registry digest `sha256:ecbd840da41f318446145ce686f73d73baf2a20f9492d5545a75b39878150e56`. Tower pull and DriveFit acceptance remain open.
 
