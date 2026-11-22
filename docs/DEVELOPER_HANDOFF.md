@@ -4,12 +4,14 @@ Last reconciled 2026-11-22 through feature PR [#142](https://github.com/sin7ek/O
 
 ## Build and deployment
 
-- Matrix/runout [PR #142](https://github.com/sin7ek/OSCAR/pull/142) adds annotation search and operator transcription in FLAC tags and archive evidence. [PR Tests](https://github.com/sin7ek/OSCAR/actions/runs/45077525913), [PR Docker build](https://github.com/sin7ek/OSCAR/actions/runs/45077525924) and the [main image build](https://github.com/sin7ek/OSCAR/actions/runs/45077599992) passed. The registry's Linux/amd64 `ghcr.io/sin7ek/oscar:main` OCI revision was checked against merge `cfd01bf79b079b88aa28bf008b066fbac406e308` at manifest digest `sha256:b88d8607e6337987a77ca3494f79d24b69de4cc5aed4b25e8342ff0e63ef9aea`. Tower acceptance is pending.
+- Matrix/runout [PR #142](https://github.com/sin7ek/OSCAR/pull/142) adds annotation search and operator transcription in FLAC tags and archive evidence. [PR Tests](https://github.com/sin7ek/OSCAR/actions/runs/45077525913), [PR Docker build](https://github.com/sin7ek/OSCAR/actions/runs/45077525924) and the [main image build](https://github.com/sin7ek/OSCAR/actions/runs/45077599992) passed. The registry's Linux/amd64 `ghcr.io/sin7ek/oscar:main` OCI revision was checked against merge `cfd01bf79b079b88aa28bf008b066fbac406e308` at manifest digest `sha256:b88d8607e6337987a77ca3494f79d24b69de4cc5aed4b25e8342ff0e63ef9aea`. Tower manual preview and copy creation passed.
 - DriveFit [#140](https://github.com/sin7ek/OSCAR/pull/140) is merged as `5368f6489da5755fe7fb53f99c41d0af7d01b17d`. [Python Tests](https://github.com/sin7ek/OSCAR/actions/runs/45072660464) and [Docker build](https://github.com/sin7ek/OSCAR/actions/runs/45072660444) passed. The GHCR `main` Linux/amd64 image's OCI revision was checked against that merge. The Tower pull and DriveFit acceptance have no recorded result.
 - [#138](https://github.com/sin7ek/OSCAR/pull/138) is merged and included in that image. It renders the proposed and published `SOURCES.txt` from the same logic and preserves per-track recovery origin plus independent verification evidence. Tower preview and new publication remain open.
 - [#139](https://github.com/sin7ek/OSCAR/pull/139) is open with green PR CI. It adds details for both the selected diagnostic and excluded original attempts to new recoveries, with an explicit missing-history marker for older jobs. It is outside the #140 image. See [archive publishing](ARCHIVE_PUBLISHER.md).
 
 ## Tower acceptance already recorded
+
+On Tower, the manual Metadata & tagging preview for *Jagged Little Pill* showed the operator-transcribed `MATRIX_RUNOUT` value `936245901-2.2 WME` and successfully created 13 tagged staging copies for MusicBrainz release `fbf0a5ee-f9ef-3077-a38a-f990a1b9c8eb` (copy `25b4b47c4f814b4a96498e4b4767c96b`). Direct FLAC tag readback, Proposed SOURCES.txt, publication, annotation search and Go! matrix entry remain open.
 
 | Fixture | Observed result | Acceptance boundary |
 | --- | --- | --- |
@@ -22,7 +24,7 @@ See [#116](https://github.com/sin7ek/OSCAR/pull/116) and [#137](https://github.c
 
 ## Next on Tower
 
-- On Tower, search for `936245901-2.2 WME` in MusicBrainz release annotations. Enter the disc’s full matrix transcription in Go! release review or manual Metadata & tagging, then check the tagged copy and **Proposed SOURCES.txt**. Live MusicBrainz API lookup and Tower acceptance are pending.
+- On Tower, search for `936245901-2.2 WME` in MusicBrainz release annotations. Check the tagged copy and **Proposed SOURCES.txt** from manual publication preview, and exercise matrix entry in Go! release review.
 
 1. Open **DriveFit** on the #140 image. Check real per-drive samples and normalized GH42 speed. In the LG diagnostic drive history look for Mahler Disc 11 Track 07 while its staging evidence exists. See [DriveFit](DRIVEFIT.md) for thresholds and the limits of historical data.
 2. Open the recovered Disc 11 in **Go! → Archive Review → Proposed SOURCES.txt** on the same image. Check Track 07 for the LG source, the other 16 for Optiarc, and independent `trackverify` attribution. Publication requires separate physical-edition review and explicit approval. The physical box is catalog `477 8668` / `00289 477 8668`; distinguish its barcode from a per-disc MCN. Track attempt details from #139 require that PR to ship and may need a fresh recovery fixture.
