@@ -1,10 +1,10 @@
 # OSCAR — Development progress dashboard
 
-**Matrix/runout:** MusicBrainz release-annotation search and optional disc-level operator transcription are available in the [archive publishing workflow](ARCHIVE_PUBLISHER.md). A new tagged copy carries `MATRIX_RUNOUT` through to the publication preview, archived `SOURCES.txt` and manifest. Tower acceptance is pending.
+## Current status — 2026-11-22, through PR #142
 
-## Current status — 2026-11-22, through PR #140
+**Latest feature on `main` and GHCR:** Matrix/runout [PR #142](https://github.com/sin7ek/OSCAR/pull/142) adds release-annotation search and disc-level transcription in the [archive publishing workflow](ARCHIVE_PUBLISHER.md). [PR Tests](https://github.com/sin7ek/OSCAR/actions/runs/45077525913), [PR Docker build](https://github.com/sin7ek/OSCAR/actions/runs/45077525924) and the [main image build](https://github.com/sin7ek/OSCAR/actions/runs/45077599992) passed. The registry's Linux/amd64 `ghcr.io/sin7ek/oscar:main` OCI revision was checked against merge `cfd01bf79b079b88aa28bf008b066fbac406e308` at manifest digest `sha256:b88d8607e6337987a77ca3494f79d24b69de4cc5aed4b25e8342ff0e63ef9aea`. On Tower, search for `936245901-2.2 WME` in MusicBrainz release annotations. Enter the disc’s full matrix transcription in Go! release review or manual Metadata & tagging, then check the tagged copy and **Proposed SOURCES.txt**. Live MusicBrainz API lookup and Tower acceptance are pending.
 
-**Latest feature on `main` and GHCR:** [#140 DriveFit](https://github.com/sin7ek/OSCAR/pull/140) merged as `5368f6489da5755fe7fb53f99c41d0af7d01b17d`. GitHub [Tests](https://github.com/sin7ek/OSCAR/actions/runs/45072660464) and [Docker build](https://github.com/sin7ek/OSCAR/actions/runs/45072660444) passed. The OCI revision of `ghcr.io/sin7ek/oscar:main` for Linux/amd64 matched that commit at registry digest `sha256:ecbd840da41f318446145ce686f73d73baf2a20f9492d5545a75b39878150e56`. Tower pull and DriveFit acceptance remain open.
+**DriveFit:** [#140 DriveFit](https://github.com/sin7ek/OSCAR/pull/140) merged as `5368f6489da5755fe7fb53f99c41d0af7d01b17d`. GitHub [Tests](https://github.com/sin7ek/OSCAR/actions/runs/45072660464) and [Docker build](https://github.com/sin7ek/OSCAR/actions/runs/45072660444) passed. The OCI revision of `ghcr.io/sin7ek/oscar:main` for Linux/amd64 matched that commit at registry digest `sha256:ecbd840da41f318446145ce686f73d73baf2a20f9492d5545a75b39878150e56`. Tower pull and DriveFit acceptance remain open.
 
 | Change | GitHub and image | Tower evidence |
 | --- | --- | --- |
