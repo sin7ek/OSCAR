@@ -1,3 +1,23 @@
+# OSCAR — Development progress dashboard
+
+## Current status — 2026-11-22, through PR #140
+
+**Latest feature on `main` and GHCR:** [#140 DriveFit](https://github.com/sin7ek/OSCAR/pull/140) merged as `5368f6489da5755fe7fb53f99c41d0af7d01b17d`. GitHub [Tests](https://github.com/sin7ek/OSCAR/actions/runs/45072660464) and [Docker build](https://github.com/sin7ek/OSCAR/actions/runs/45072660444) passed. The OCI revision of `ghcr.io/sin7ek/oscar:main` for Linux/amd64 matched that commit at registry digest `sha256:ecbd840da41f318446145ce686f73d73baf2a20f9492d5545a75b39878150e56`. Tower pull and DriveFit acceptance remain open.
+
+| Change | GitHub and image | Tower evidence |
+| --- | --- | --- |
+| [#140 DriveFit](https://github.com/sin7ek/OSCAR/pull/140) | Merged, both checks green, GHCR revision confirmed. Replaces draft #111 as the shipped implementation. | Check samples, normalized GH42 speed and LG diagnostic Track 07. Historical metrics depend on surviving staging; new summaries persist in SQLite. |
+| [#139 Both Track Recovery attempts in provenance](https://github.com/sin7ek/OSCAR/pull/139) | Open at `023e06b`; [Tests](https://github.com/sin7ek/OSCAR/actions/runs/45070962329) and [Docker build](https://github.com/sin7ek/OSCAR/actions/runs/45070962389) passed. Outside the #140 image. | Pending. New jobs capture both attempted sources and their available extraction evidence; older jobs can identify unavailable history. Digital acquisition remains a future input. |
+| [#138 Per-track archival SOURCES](https://github.com/sin7ek/OSCAR/pull/138) | Merged as `255c4f1`; [Tests](https://github.com/sin7ek/OSCAR/actions/runs/45067284484) and [Docker build](https://github.com/sin7ek/OSCAR/actions/runs/45067284462) passed; included in #140. | Read-only **Proposed SOURCES.txt** and subsequent publication remain open. Track 07 should name the LG diagnostic job, other tracks the Optiarc job, with verification attributed separately to `trackverify`. |
+| [#134](https://github.com/sin7ek/OSCAR/pull/134) / [#136](https://github.com/sin7ek/OSCAR/pull/136) Track Recovery | Merged and shipped. #136 fixes the bundled verifier's runtime extraction failure. | Mahler Disc 11 reached Archive Review after 17/17 independent AccurateRip v1/v2 matches. Physical edition approval and publication are open for Disc 11. |
+| [#132 Optical controls](https://github.com/sin7ek/OSCAR/pull/132), [#131 Tracked Go jobs](https://github.com/sin7ek/OSCAR/pull/131), [#130 USB drive IDs](https://github.com/sin7ek/OSCAR/pull/130), [#127 ETA](https://github.com/sin7ek/OSCAR/pull/127), [#126 Refreshed-copy adoption](https://github.com/sin7ek/OSCAR/pull/126) | Merged and included in #140; PR checks passed. | LG selected-track extraction worked. Tray/Stop, full four-drive UI regression check, tracked job filtering, ETA and refreshed-copy adoption still need distinct acceptance results. |
+
+**Tower archive maintenance:** Carmen Gomes and Anastacia single-CD Verify passed, including the superseded Anastacia generation after #120. Anastacia showed Pop / Popular in Collection. Boulez's initial 2/6-disc preview progressed to 6/6; CDs 4 and 6 alone were revised (39 FLACs), then read-only Integrity Verify passed. Cleanup, boxset GENRE Apply and controlled failure recovery have separate acceptance gates. See the [work document](PROJECT_STATUS.md) and [handoff](DEVELOPER_HANDOFF.md).
+
+## Milestone history
+
+The dated entries below retain the state at the time of each report. See the current status above for later results and superseded acceptance gates.
+
 ## 2026-11-22 — Track Recovery v1 verified on Unraid through Archive Review
 
 On Tower, the operator reported that recovery job `3c13772b6d104964ac71eb19e881668b` reused 16 tracks from Optiarc job `26766340b2a04813a27d6081f8eff3c1` and replaced track 7 from LG diagnostic job `033f1207b6ba4184b7130e20ff75b181`. OSCAR reported 17/17 independent AccurateRip v1 and v2 matches, CUE and SHA-256 checked. The integrated verifier requires both versions at offset zero. The supplied Go! Archive Review shows all 17 classical FLAC tag rows and 17 CUE tracks for Mahler/Bernstein, *The Symphonies* (2010), Disc 11, Disc ID `1FGELhYaLaSf9MIPUxtlZGDbQU8-`. The release is still INFERRED and publication remains pending explicit physical-edition review and approval.
@@ -12,13 +32,13 @@ PR #134 implemented recovery and registers verified jobs in Semi Automatic. PR #
 
 **Observed on real Unraid after plugging fourth optical drive:** /dev/sr3 HL-DT-ST DVDRAM GP95NB70 firmware RC00 detected and mapped into OSCAR Docker correctly, but both `GET /api/settings` and `GET /api/media` raised 500 on `discover_settings()`: `DriveSettings.stable_id` regex `^[A-Za-z0-9_.-]+$` rejected real persistent udev symlink basename `usb-HL-DT-ST_DVDRAM_GP95NB70_K0LKBCC3829-0:0` due to the colon in USB SCSI-LUN suffix `-0:0`. Fix: minimally accept colon in otherwise restricted drive IDs while rejecting paths, whitespace, shell metacharacters; preserve complete udev identifier and independently stored offset. Add tests for exact real USB ID, settings save/read/merge, `/api/settings` and `/api/media`, and invalid IDs. No changes to Docker `:r` mappings or the operator's working media/staging. **GitHub CI is not equivalent to Unraid acceptance**; after merge operator should pull rebuilt main and reload GUI, ensure four drives appear and no 500. Operator has set `OSCAR_MAX_CONCURRENT_RIPS: "4"` as correct override of the default 3. No user archive changes.
 
-## 2026-11-22 — Live per-drive cyanrip progress/ETA (PR #127)
+## 2026-11-22 — Live per-drive cyanrip progress/ETA (PR #127 merged)
 
-**Implemented on feature branch; Unraid acceptance pending:** Go! cards for concurrent drives now show a read-only extraction bar, current/finished track counts, elapsed time and *rough* dynamic ETA, refreshed every ~3.5 seconds with previously authorized dashboard headers while the Go tab is visible. Backend `src/oscar/ripping.py::_progress` uses existing per-job `plan.json` track count and contiguous numbered FLAC output files. A currently opened/actively written FLAC is **not** considered completed until the next numbered track appears. Percentage counts **tracks** (not disc sectors/audio duration) and never claims 100% while cyanrip is still running. ETA is shown only after >=2 completed tracks and derives from elapsed/finished track average; severe inaccuracy possible for long Mahler movements, repairs/retries and last track. Unavailable data yields an unknown ETA, not a fabricated value. No changes to optical drive commands, staging files, archive or integrity verification. New tests and `docs/RIP_PROGRESS_ETA.md`; passing GitHub CI and real three-drive Unraid acceptance must be logged separately. Current operator hardware: HL-DT-ST GH24NS95, Optiarc AD-7200S, hp DH16AAL. **User requested ETA during three concurrent Mahler boxset rips.** Never confuse a progress estimate with AccurateRip/CTDB verification.
+**Merged in [#127](https://github.com/sin7ek/OSCAR/pull/127); GitHub Tests and Docker build passed; Unraid acceptance pending.** Go! cards for concurrent drives now show a read-only extraction bar, current/finished track counts, elapsed time and *rough* dynamic ETA, refreshed every ~3.5 seconds with previously authorized dashboard headers while the Go tab is visible. Backend `src/oscar/ripping.py::_progress` uses existing per-job `plan.json` track count and contiguous numbered FLAC output files. A currently opened/actively written FLAC is **not** considered completed until the next numbered track appears. Percentage counts **tracks** (not disc sectors/audio duration) and never claims 100% while cyanrip is still running. ETA is shown only after >=2 completed tracks and derives from elapsed/finished track average; severe inaccuracy possible for long Mahler movements, repairs/retries and last track. Unavailable data yields an unknown ETA, not a fabricated value. No changes to optical drive commands, staging files, archive or integrity verification. New tests and `docs/RIP_PROGRESS_ETA.md`; passing GitHub CI and real three-drive Unraid acceptance must be logged separately. Current operator hardware: HL-DT-ST GH24NS95, Optiarc AD-7200S, hp DH16AAL. **User requested ETA during three concurrent Mahler boxset rips.** Never confuse a progress estimate with AccurateRip/CTDB verification.
 
 ## 2026-11-22 — PR #126: Select refreshed Go metadata copy before first archive publication
 
-**New code (pending Unraid acceptance):** For an accepted Semi Automatic Go job still in `METADATA_READY` and never previously reserved for archive publication, after an explicitly generated and readback-verified refreshed MusicBrainz tagged staging copy, a new authenticated operator-confirmed action can atomically replace Go's active `metadata_copy_id` and metadata fingerprint before its FIRST publication. Original rip and previous tagged copy are retained; no publication/archival writes happen. In SQLite, publication reservation interlock and durable event prevent silent history rewriting. Identity checks cover exact release, Disc ID, track ordering, original rip file SHA evidence, new tagged SHA/STREAMINFO MD5/Vorbis tags; a fresh Go archive preview is required afterwards. **Physical edition remains INFERRED; no pressing proof.** See `docs/GO_REFRESHED_COPY_ADOPTION.md` and PR #126. Existing already-published Carmen Gomes reprocessing remains separate and cannot be adopted into its former Go job.
+**Merged in [#126](https://github.com/sin7ek/OSCAR/pull/126); GitHub Tests and Docker build passed; Unraid acceptance pending.** For an accepted Semi Automatic Go job still in `METADATA_READY` and never previously reserved for archive publication, after an explicitly generated and readback-verified refreshed MusicBrainz tagged staging copy, a new authenticated operator-confirmed action can atomically replace Go's active `metadata_copy_id` and metadata fingerprint before its FIRST publication. Original rip and previous tagged copy are retained; no publication/archival writes happen. In SQLite, publication reservation interlock and durable event prevent silent history rewriting. Identity checks cover exact release, Disc ID, track ordering, original rip file SHA evidence, new tagged SHA/STREAMINFO MD5/Vorbis tags; a fresh Go archive preview is required afterwards. **Physical edition remains INFERRED; no pressing proof.** See `docs/GO_REFRESHED_COPY_ADOPTION.md` and PR #126. Existing already-published Carmen Gomes reprocessing remains separate and cannot be adopted into its former Go job.
 
 **Mahler/Bernstein (2010 DG *The Symphonies*, physical 11-CD box, catalogs 477 8668 / 00289 477 8668) operator-supplied exact staging mapping:** CD **02** `5b48c63b756a473197af192b65505a63`; CD **03** `e4ca0a116f744e0799d2dbf04161f6f1`; CD **04** `8665644102f241c69d981abb640ef8f1`. None published as of operator confirmation. Three other CDs currently being ripped; disc/job identities not yet reported. Operator added physical-spine photo and alternate catalog `477 8668` in MusicBrainz. Updated metadata comparison for Disc 03 showed added catalog in album/labels/three track tags. The first catalog field remains `002894778668`, so **the current archive destination may still use that number**; do not claim `477 8668` is automatically preferred. Test all three independently in staging before any publishing.
 
@@ -47,8 +67,6 @@ PR #134 implemented recovery and registers verified jobs in Semi Automatic. PR #
 **Operator-reported real Unraid verification: PASS.** The operator ran **Verify original, audio, metadata and Collection (read-only)** for the completed *Boulez Conducts Stravinsky* (MusicBrainz release `423f636d-742d-47b0-9ba2-51515a6fdfd2`) group operation `7e20981bad8a4145bc7e3ad6d9cecd61`. OSCAR returned `Integrity PASS`; **Disc 4: pass (7 tracks)** and **Disc 6: pass (32 tracks)**. The read-only verifier checks retained originals and revised generations, decoded-audio identity, manifest and FLAC hashes, non-audio evidence, every Vorbis comment against the approved LABEL-only change, and Collection state/decisions. Earlier operator checks reported 90/90 correct LABEL across six discs and 39/39 decoder tests for the revised CDs, with all six group preview statuses `already_correct`.
 
 **Scope:** this is genuine operator-reported Unraid acceptance of this specific completed multidisc metadata migration and its read-only integrity verification; it is **not** a guarantee that all failure/recovery paths or other releases have been hardware-tested. The exact physical MusicBrainz edition is **not** independently authenticated by archive-integrity Verify. PRs #112/#113 were merged and had green PR Python/Docker CI, but genre search and library section UI still await Unraid acceptance. A physical Classical/Popular archive split is deferred and may only be opt-in (PR #115 documentation decision pending). Retained generations must not be cleaned or moved as part of this test.
-
-# OSCAR — Development progress dashboard
 
 **Last assessed:** 2026-11-20  
 **Assessment type:** qualitative estimates by the project team / ChatGPT, **not measured engineering KPIs**.  
@@ -124,7 +142,7 @@ An explicitly operator-triggered maintenance layer is being added to Collection'
 
 ---
 
-## Read-only coordinated label preview for incomplete multidisc releases (2026-11-20; PR #108 merged (GitHub Tests and Docker build green, real Unraid preview pending))
+## Initial coordinated LABEL preview for incomplete releases (2026-11-20, PR #108)
 
 The next implementation adds `src/oscar/archive_revision_boxset.py` plus an authenticated Collection **Preview coordinated multidisc labels (read-only)** action. The operator selects any archived disc of the release in the existing Advanced Collection album selector. OSCAR verifies **all indexed/published leaves** under the same physical MusicBrainz release ID, each live FLAC manifest SHA-256 and Disc ID/CD medium/recording identity, exact current MusicBrainz release labels, and corresponding accepted per-disc label decisions. One group summary reports available and missing disc numbers, target label, each disc's tag status and approval fingerprint. Specifically, the operator's *Boulez Conducts Stravinsky* 6CD can show discs **4 and 6 present**, discs **1, 2, 3 and 5 missing**, with approved **Deutsche Grammophon** proposals on available discs if current metadata still agrees.
 
@@ -134,7 +152,7 @@ The next implementation adds `src/oscar/archive_revision_boxset.py` plus an auth
 
 ## Open-source beginner onboarding — draft only (2026-11-20)
 
-Created an explicitly **unreviewed** commented Unraid/Portainer Compose example: [`compose.unraid.example.yml`](../compose.unraid.example.yml). It is a documentation baseline, **not** a tested/recommended replacement for the operator's existing working stack. Required next steps: review exact Docker/Portainer compatibility, network/access controls, mounting and permissions, drives, token handling, archive revision opt-in and safe defaults. **Planned:** [`docs/GETTING_STARTED.md`](GETTING_STARTED.md) (not yet written), a true beginner guide to Docker concepts, prerequisite checks, selecting bridge vs br0 networking, secure secrets, first rip, first archive publish, maintenance, updates and troubleshooting. See [PROJECT_STATUS.md](PROJECT_STATUS.md) for the full checklist. No maturity percentage increase for an untested documentation draft.
+Created an explicitly **unreviewed** commented Unraid/Portainer Compose example: [`compose.unraid.example.yml`](../compose.unraid.example.yml). It is a documentation baseline, **not** a tested/recommended replacement for the operator's existing working stack. Required next steps: review exact Docker/Portainer compatibility, network/access controls, mounting and permissions, drives, token handling, archive revision opt-in and safe defaults. **Planned:** `GETTING_STARTED.md` (planned) (not yet written), a true beginner guide to Docker concepts, prerequisite checks, selecting bridge vs br0 networking, secure secrets, first rip, first archive publish, maintenance, updates and troubleshooting. See [PROJECT_STATUS.md](PROJECT_STATUS.md) for the full checklist. No maturity percentage increase for an untested documentation draft.
 
 ---
 
@@ -230,15 +248,15 @@ The operator tested PR #84 against existing Carmen Gomes Inc. *Desire* and saw t
 
 | Area | Progress | Visual progress | Evidence / remaining gaps |
 |---|---:|---|---|
-| CD ripping on Unraid | **90%** | `█████████░` | Multiple optical drives and successful physical rips; unattended detection and recovery remain |
-| FLAC & staging verification | **85%** | `████████▌░` | FLAC decode, SHA-256, CUE and cyanrip evidence; independent verification is separate |
+| CD ripping on Unraid | **90%** | `█████████░` | Concurrent physical rips and an isolated LG diagnostic extraction observed; unattended detection and tray/Stop acceptance remain |
+| FLAC & staging verification | **85%** | `████████▌░` | FLAC decode, SHA-256, CUE and cyanrip evidence verified on Tower; independent verification also exercised in Track Recovery |
 | MusicBrainz & release selection | **80%** | `████████░░` | Boulez multi-disc media 4/6 and 6/6 archived; operator-accepted single-CD missing Disc ID fallback and user-controlled MusicBrainz TOC attach handoff (#74–#76); fresh read-only Disc ID match refresh accepted on real Unraid Carmen Gomes job (#79); unattended edition certainty remains |
 | Classical metadata | **70%** | `███████░░░` | Works, performers and multidisc review; further edge cases remain |
-| Archive publishing | **90%** | `█████████░` | Anastacia and Boulez discs 4 and 6 independently published_verified in Collection and confirmed as separate folders inside same physical boxset on Unraid; recovery, additional releases and full audit remain |
-| Independent AccurateRip / CTDB | **20%** | `██░░░░░░░░` | Cyanrip AccurateRip evidence is parsed; no independent full verification engine |
+| Archive publishing | **90%** | `█████████░` | Reviewed publication and versioned revision observed on Tower; new SOURCES preview and recovered publication pending |
+| Independent AccurateRip / CTDB | **20%** | `██░░░░░░░░` | Independent AccurateRip v1/v2 passed 17/17 on Tower for Track Recovery; general independent verification and CTDB remain open |
 | Automatic end-to-end workflow | **45%** | `████▌░░░░░` | Three-mode Go! workflow with durable release acceptance, isolated tagged copies and human-approved archive publish demonstrated; still user-advanced, no automatic CD insertion/fully unattended orchestration |
-| Recovery, resume & cleanup | **20%** | `██░░░░░░░░` | Delayed cleanup, crash recovery and safe resume remain major work |
-| Local & multi-platform collection management | **25%** | `██▌░░░░░░░` | Local published-archive catalog, export, Discogs read-only PAK discovery in code; MusicBrainz OAuth and collection sync not yet implemented |
+| Recovery, resume & cleanup | **20%** | `██░░░░░░░░` | Local selected-track recovery verified through Archive Review; versioned revision Verify passed. Controlled interruption, resume and cleanup acceptance remain open |
+| Local & multi-platform collection management | **25%** | `██▌░░░░░░░` | Local catalog, export, logical genre sections and read-only Discogs PAT support; external collection sync and MusicBrainz OAuth remain open |
 
 ### Bar chart
 
@@ -246,7 +264,7 @@ This Mermaid chart uses the same baseline estimates as the table above (scale 0�
 
 ```mermaid
 xychart-beta
-    title "OSCAR development maturity estimates — 2026-11-20"
+    title "OSCAR development maturity estimates — reviewed 2026-11-22"
     x-axis ["Ripping", "FLAC staging", "MusicBrainz", "Classical", "Publishing", "AR/CTDB", "Automation", "Recovery", "Collection"]
     y-axis "Estimated progress (%)" 0 --> 100
     bar [90, 85, 80, 70, 90, 20, 45, 20, 25]
@@ -265,6 +283,7 @@ xychart-beta
 
 | Date | Change | Evidence |
 |---|---|---|
+| 2026-11-22 | Reviewed through #140; no percentage change. | Recorded the narrow Tower Track Recovery and archive-revision results. Broader verification, hardware acceptance, cleanup and orchestration remain open. |
 | 2026-11-20 | Reassessed MusicBrainz 75 → 80, archive 85 → 90, Go! automation 30 → 45; added separate collection-management 25. These are **subjective** domain maturity estimates, not completion or CI coverage. | Real Unraid: Boulez CD 4 and CD 6 both `published_verified`, separate `Disc 04`/`Disc 06` folders under one boxset; Disc ID of Carmen Gomes *Desire* attached to MusicBrainz via human-confirmed handoff; #74–#76 merged/tested. MusicBrainz OAuth, automated insertion, error recovery still not built. |
 
 | Date | Change | Evidence |
@@ -302,25 +321,10 @@ Local database of OSCAR published archives, ODS/CSV export, sortable UI, read-on
 
 [Discogs and OSCAR local catalog design](DISCOGS_COLLECTION_CATALOG.md) covers secondary physical-edition discovery, optional collection sync, condition/sleeve/notes/folder entry, per-copy identity and sortable **ODS-first** export. **Design only: no implementation or progress-percentage change** until concrete features and tests exist. The initial eight baseline maturity estimates remain unchanged for that earlier design-only proposal; collection management is now tracked separately.
 
-## Current functional boundaries (2026-11-20)
+## Current development priorities
 
-- **Proven on Unraid:** reviewed archive publication of Anastacia and two discs of Boulez 6-CD boxset; Collection records three individual published discs. `published_verified` is an archive/audio state, **not** independent proof of the exact pressing.
-- **Disc ID workflow:** original libdiscid TOC is saved and MusicBrainz's official attach page is offered with accepted release prefilter (#75–#76). Carmen Gomes's 12-track physical Disc ID `VxfLacbEsNFCv5Ua4bvIeBIQ3jQ-` is now linked to MB release `fa89edc1-32f9-4290-8788-bbac2e366a46` by the user. Its older OSCAR workflow may still show `INFERRED_OPERATOR_ACCEPTED`; fresh lookup and persistent evidence reconciliation are a next task.
-- **MusicBrainz collection OAuth:** **planned, not implemented**. Proposed environment names `OSCAR_MUSICBRAINZ_ID` (client ID) and `OSCAR_MUSICBRAINZ_CS` (client secret), not `..._CI` or `..._CLIENT_ID`. An OAuth registered application/secret does not itself mean OSCAR can connect yet. Discogs uses `OSCAR_DISCOGS_PAK`.
-- **Edit notes:** manual user confirmation on MusicBrainz is still required; deterministic, factual, English edit-note template and copy-to-clipboard are **planned in OSCAR**, without a paid AI dependency.
-- **Collection sync:** external MusicBrainz and Discogs inventory comparison, read-only OAuth collection fetch, idempotent opt-in writes and physical-copy vs boxset distinction remain **planned**. Local published archive catalog is already implemented.
-
-## Development priorities
-
-1. Fresh MusicBrainz Disc ID match refresh for already accepted jobs, without misrepresenting earlier inference as physical verification.
-2. Deterministic edit-note generator and copy UX for MusicBrainz submissions; never invent evidence.
-3. MusicBrainz OAuth connection (secure server-side secret/token handling, CSRF `state`, redirect URI, collection scope) using `OSCAR_MUSICBRAINZ_ID` and `OSCAR_MUSICBRAINZ_CS`; first read-only collection listing.
-4. OSCAR × Discogs × MusicBrainz read-only collection comparisons before any opt-in writes; account-specific collection semantics and multiple owned copies must be preserved.
-
-- Test PR #51 embedded extraction evidence in a *new* archive publication; PR #52's initial read-only audit has now passed on real Unraid for Anastacia.
-- Add archive audit results to the web UI without overstating verification.
-- Investigate independent AccurateRip/CTDB checks and source confidence.
-- Build resumable workflow orchestration and safe, evidence-based automatic progression.
-- Allow conservative, explicit cleanup only after proven archival integrity.
+1. Test DriveFit and the read-only recovered Disc 11 SOURCES preview on Tower. Review the physical edition separately before any publication.
+2. Verify the remaining tracked Go jobs, ETA, tray/Stop, refreshed metadata adoption and genre workflows on hardware. Test journal interruption and restart on designated fixtures.
+3. Finish the public onboarding guide after reviewing the example Compose. Keep artwork, broader independent verification including CTDB, and external Collection integration on the roadmap.
 
 *This is a planning aid, not a substitute for releases, CI logs, actual test reports or documented source evidence.*
