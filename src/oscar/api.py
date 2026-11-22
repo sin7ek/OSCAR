@@ -288,6 +288,25 @@ def start_rip(request: RipRequest, http_request: Request, x_oscar_rip_token: str
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
+class DriveTrayRequest(BaseModel):
+    stable_id: str = Field(min_length=1, max_length=256)
+    action: str = Field(pattern=r"^(eject|close)$")
+    confirmation: str
+
+
+@app.post("/api/rip/tray")
+def rip_tray_action(body: DriveTrayRequest, request: Request,
+                    x_oscar_rip_token: str | None = Header(default=None)):
+    from oscar.ripping import RipError, control_tray
+    _rip_auth(x_oscar_rip_token, request)
+    if body.confirmation != "CONTROL_TRAY":
+        raise HTTPException(status_code=422, detail="Explicit tray confirmation required")
+    try:
+        return control_tray(body.stable_id, body.action)
+    except (RipError, OSError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
 @app.get("/api/rip/jobs/{job_id}")
 def get_rip_status(job_id: str, request: Request, x_oscar_rip_token: str | None = Header(default=None)):
     from oscar.ripping import RipError, status
