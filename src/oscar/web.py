@@ -29,6 +29,12 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 .go-drive-card h3{margin:0 0 8px}.go-drive-card small{display:block;overflow-wrap:anywhere;margin:6px 0}
 .go-drive-card button{width:100%;margin:8px 0 0}
 .go-drive-card .drive-ready{color:#9ce4b3}.go-drive-card .drive-busy{color:#f1d393}
+.go-rip-progress{margin:12px 0 6px}
+.go-rip-progress label{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;font-size:.84rem;color:#d1def2}
+.go-rip-progress progress{display:block;width:100%;height:14px;margin:7px 0 5px;accent-color:#94bfff}
+.go-rip-progress small{color:#b7c6d8}
+.go-rip-progress .go-progress-unknown{font-size:.82rem;color:#b7c6d8}
+
 .go-workflow-row{border:1px solid #3c4b60;border-radius:10px;padding:11px;margin:10px 0;background:#131c29;overflow-wrap:anywhere}
 .go-workflow-row button{padding:7px 12px;margin:6px 8px 0 0}
 .oscar-advanced{border:1px solid #344559;border-radius:12px;padding:12px;margin:14px 0}
@@ -2328,13 +2334,56 @@ function addGoAction(parent,label,handler){
  button.type='button';button.textContent=label;button.onclick=handler;
  parent.append(button);return button;
 }
+let goDashboardTimer=null,goDashboardHeaders=null;
+function ripDuration(seconds){
+ if(!Number.isFinite(seconds)||seconds<0)return 'unknown';
+ seconds=Math.round(seconds);
+ return seconds>=3600?Math.floor(seconds/3600)+'h '+Math.floor(seconds%3600/60)+'m':
+  seconds>=60?Math.floor(seconds/60)+'m '+seconds%60+'s':seconds+'s';
+}
+function appendGoRipProgress(card,drive){
+ const progress=drive.job?.progress;
+ if(drive.status!=='ripping'||!progress)return;
+ const wrap=document.createElement('div');wrap.className='go-rip-progress';
+ const heading=document.createElement('label');
+ const percent=progress.percent;
+ const percentText=Number.isFinite(percent)?percent+'% (tracks)':'Preparing rip…';
+ const title=document.createElement('span');title.textContent='Extraction progress';
+ const pct=document.createElement('strong');pct.textContent=percentText;
+ heading.append(title,pct);wrap.append(heading);
+ const bar=document.createElement('progress');bar.max=100;
+ if(Number.isFinite(percent))bar.value=Math.max(0,Math.min(99,percent));
+ bar.setAttribute('aria-label','Estimated completed tracks');
+ wrap.append(bar);
+ const tracks=document.createElement('small');
+ tracks.textContent=Number.isFinite(progress.total_tracks)?
+  progress.completed_tracks+' / '+progress.total_tracks+' tracks finished · currently track '+
+  (progress.current_track??'?'):'Waiting for track information';
+ wrap.append(tracks);
+ const eta=document.createElement('small');
+ eta.textContent='Elapsed: '+ripDuration(progress.elapsed_seconds)+
+  ' · ETA: '+(progress.eta_kind==='rough_track_average'?
+   'roughly '+ripDuration(progress.eta_seconds):'calculating…');
+ wrap.append(eta);
+ const caveat=document.createElement('small');
+ caveat.className='go-progress-unknown';
+ caveat.textContent='Track-based estimate; long tracks, re-reads and verification can change the ETA.';
+ wrap.append(caveat);card.append(wrap);
+}
+function scheduleGoDashboardRefresh(){
+ if(goDashboardTimer)clearTimeout(goDashboardTimer);
+ goDashboardTimer=null;
+ if(!goDashboardHeaders||document.getElementById('panel-go').hidden)return;
+ goDashboardTimer=setTimeout(()=>refreshGoCards(false),3500);
+}
 async function refreshGoCards(interactive=true){
  const target=document.getElementById('go-drive-cards');
  const workflows=document.getElementById('go-workflows');
  if(!target||!workflows||!settings)return;
  let headers;
  if(interactive)headers=requestAuthHeaders('Read OSCAR drive and Go! status');
- else if(trustedLocalUI)headers={'X-OSCAR-UI-ACTION':'confirmed'};
+ else headers=goDashboardHeaders||(trustedLocalUI?{'X-OSCAR-UI-ACTION':'confirmed'}:null);
+ if(headers)goDashboardHeaders=headers;
  if(!headers){
   if(interactive)target.textContent='Authentication required to refresh drive status.';
   return;
@@ -2362,6 +2411,7 @@ async function refreshGoCards(interactive=true){
       !drive.offset_set?'Read offset required':
       dashboard.slots_available===0?'All ripping slots occupied':'Ready to rip';
    card.append(state);
+   appendGoRipProgress(card,drive);
    const last=drive.job;
    if(last&&last.id){
     const info=document.createElement('small');
@@ -2377,6 +2427,8 @@ async function refreshGoCards(interactive=true){
    if(!ready)start.title='Available only for a detected, enabled, calibrated and idle drive';
    target.append(card);
   }
+  if((dashboard.drives||[]).some(d=>d.status==='ripping'))scheduleGoDashboardRefresh();
+  else if(goDashboardTimer){clearTimeout(goDashboardTimer);goDashboardTimer=null}
   if(!(dashboard.drives||[]).length)
    target.textContent='No enabled optical drives. Configure them under Settings.';
   const jobs=ledger.jobs||[];
