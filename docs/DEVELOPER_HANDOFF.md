@@ -27,6 +27,8 @@ See [#116](https://github.com/sin7ek/OSCAR/pull/116) and [#137](https://github.c
 
 ## Next on Tower
 
+- DriveFit tags are shown on the corresponding Go! drive cards with their evidence available on hover. Verify card-to-drive correspondence on Tower.
+
 - Edition search evidence is captured on lookup and included in proposed and published SOURCES.txt and the manifest for the actual MusicBrainz release and disc. Verify the Équinoxe comparison and country discrepancy in the Tower archive preview.
 
 - Combined identifier search inspects up to 20 Discogs releases and accepts an optional known release ID or URL. The review exposes provider country differences and shows physical comparisons for unlinked Discogs entries. The Équinoxe regression fixture exercises Discogs 4709815 outside the first five results. Tower acceptance (Équinoxe, #151): with catalog `800 025-2` and barcode `3259180002527`, the combined search suggested MusicBrainz `e410a90a-d96c-3ac1-a65c-ac947016ffb1` and displayed Discogs `4709815` via shared identifiers. Matrix `800 025-2 02` matched variant 1 and differed from variant 2. The review displayed MusicBrainz Canada versus Discogs Germany and showed other entries sharing the identifiers. This confirms search, ranking and evidence display. Release approval, tagging and publication were not reported.
