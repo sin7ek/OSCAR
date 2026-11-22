@@ -474,6 +474,21 @@ def recovered_disc(publishable, monkeypatch):
 
 def test_recovered_disc_11_sources_preview_matches_publication(recovered_disc):
     job, archive = recovered_disc
+    path = job / "recovery-sources.json"
+    recovery = json.loads(path.read_text())
+    track = recovery["tracks"][6]
+    discarded_sha = hashlib.sha256(b"discarded original track 7").hexdigest()
+    track["selected_attempt"] = {
+        "source_type": "physical_cd_rip", "job_id": recovery["diagnostic_job_id"],
+        "file": track["source_path"], "sha256": track["source_sha256"],
+        "drive_id": "usb-LG", "read_offset_samples": 6,
+    }
+    track["excluded_attempt"] = {
+        "source_type": "physical_cd_rip", "job_id": recovery["original_job_id"],
+        "file": track["source_path"], "sha256": discarded_sha,
+        "drive_id": "ata-Optiarc", "read_offset_samples": 48, "checks_passed": False,
+    }
+    path.write_text(json.dumps(recovery))
     plan = archive_publish.prepare(JOB, COPY, profile="standard")
     plan["_release_match_status"] = "INFERRED_OPERATOR_ACCEPTED"
     preview = archive_publish.render_sources(plan, plan["_release_match_status"])
@@ -493,12 +508,35 @@ def test_recovered_disc_11_sources_preview_matches_publication(recovered_disc):
     assert hashlib.sha256(b"raw rip track 7").hexdigest() in track7
     assert "AccurateRip v1: accurately ripped (confidence 30)" in track7
     assert "AccurateRip v2: accurately ripped (confidence 28)" in track7
+    assert "Excluded original attempt (physical_cd_rip)" in track7
+    assert discarded_sha in track7
+    assert "Drive ID: usb-LG" in track7
+    assert "Drive ID: ata-Optiarc" in track7
+    assert "Read offset (samples): 6" in track7
+    assert "Read offset (samples): 48" in track7
+    assert "Saved track checks: did not pass" in track7
     for name in ("verification-report.json", "recovery-sources.json", "trackverify-console.log"):
         assert (destination / "ExtractionEvidence" / name).read_bytes() == (job / name).read_bytes()
     from oscar.archive_audit import audit_release
     audit = audit_release(destination)
     assert audit["source_type"] == "HYBRID_REPAIRED_CD_RIP"
     assert not audit["errors"]
+
+
+def test_legacy_recovery_preview_reports_unrecorded_excluded_attempt(recovered_disc):
+    plan = archive_publish.prepare(JOB, COPY, profile="standard")
+    preview = archive_publish.render_sources(plan, "INFERRED_OPERATOR_ACCEPTED")
+    assert preview.count("Excluded original attempt: details not recorded in this recovery job") == 1
+
+
+def test_digital_attempt_can_describe_an_origin_without_optical_fields():
+    lines = archive_publish._attempt_lines("Selected attempt", {
+        "source_type": "digital_acquisition", "origin": "Operator-provided lossless download",
+        "file": "07.flac", "sha256": "d" * 64,
+    })
+    assert any("Operator-provided lossless download" in line for line in lines)
+    assert any("d" * 64 in line for line in lines)
+    assert not any("Drive ID" in line or "Read offset" in line for line in lines)
 
 
 def test_recovery_with_misattributed_track_cannot_be_published(recovered_disc):

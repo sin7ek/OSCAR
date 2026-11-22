@@ -19,6 +19,8 @@
 - A Track Recovery publication uses `HYBRID_REPAIRED_CD_RIP`. Each row identifies the source job and file and records the identical raw-source and recovery-copy SHA-256. The verification section attributes the saved v1/v2 results to the independent `trackverify -R` run. `ExtractionEvidence/` contains the recovery source map, saved verification report and available verifier transcript.
 - Publication checks the archived FLACs and CUE references against the reviewed staging inputs. OSCAR does not run another AccurateRip or CTDB lookup during publication. Physical edition identification requires separate evidence.
 
+New Track Recovery jobs save the selected attempt and, for each replacement, the excluded original. Both record the source file and SHA-256, the optical job, drive ID and read offset when recorded, and saved verification evidence. The final independent AccurateRip results remain separate. Older jobs can still publish with an explicit missing-history line. Digital candidates are reserved for a future importer. That importer must record the acquisition origin and original candidate hash and use independent verification before selection. Optical fields apply only to optical attempts.
+
 For Unraid acceptance, open the recovered Mahler/Bernstein Disc 11 in Go! Archive Review and expand **Proposed SOURCES.txt**. Expect 16 tracks from the original full-disc job and **Disc 11 / Track 07** from the replacement diagnostic job, with v1/v2 results and both source and published file hashes. If publishing to a test archive, compare the resulting text with the preview and confirm the archived recovery evidence matches the saved staging records.
 
 ## Unraid / Portainer requirements

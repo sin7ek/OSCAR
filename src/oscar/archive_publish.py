@@ -238,6 +238,16 @@ def prepare(job_id, copy_id, kind="original_tags", profile="auto",
     return plan
 
 
+def _valid_rip_attempt(attempt, job_id):
+    return (
+        attempt["source_type"] == "physical_cd_rip"
+        and attempt["job_id"] == job_id
+        and re.fullmatch(r"audio/[^/\r\n]+\.flac", attempt["file"])
+        and re.fullmatch(r"[a-f0-9]{64}", attempt["sha256"])
+        and (attempt.get("read_offset_samples") is None or type(attempt["read_offset_samples"]) is int)
+    )
+
+
 def _recovery_provenance(job, album, records, report):
     path = job / "recovery-sources.json"
     is_recovery = report.get("verification_method") == "independent_trackverify_R_v1_v2"
@@ -279,6 +289,20 @@ def _recovery_provenance(job, album, records, report):
                 or verification.accuraterip_assessment(verified["accuraterip"])["status"] != "both_versions_matched"
             ):
                 raise ValueError
+            if "selected_attempt" in track:
+                selected = track["selected_attempt"]
+                if (not _valid_rip_attempt(selected, track["source_job_id"])
+                        or selected["file"] != source_path or selected["sha256"] != source_hash):
+                    raise ValueError
+                if track["source_job_id"] == parent_ids["diagnostic_job_id"]:
+                    excluded = track["excluded_attempt"]
+                    if (not _valid_rip_attempt(excluded, parent_ids["original_job_id"])
+                            or excluded["file"] != record["source"]):
+                        raise ValueError
+                elif "excluded_attempt" in track:
+                    raise ValueError
+            elif "excluded_attempt" in track:
+                raise ValueError
     except (ValueError, TypeError, KeyError, AttributeError) as exc:
         raise PublishError("Inconsistent track recovery evidence") from exc
     return recovery
@@ -286,6 +310,33 @@ def _recovery_provenance(job, album, records, report):
 
 def _source_type(plan):
     return "HYBRID_REPAIRED_CD_RIP" if plan["provenance"]["recovery"] else "PHYSICAL_CD_RIP"
+
+
+def _attempt_lines(label, attempt):
+    lines = [f"  {label} ({attempt['source_type']}):"]
+    if attempt.get("job_id"):
+        lines.append(f"    Job: {attempt['job_id']}")
+    if attempt.get("origin"):
+        lines.append(f"    Origin: {attempt['origin']}")
+    lines.extend([f"    File: {attempt['file']}", f"    SHA-256: {attempt['sha256']}"])
+    if attempt["source_type"] == "physical_cd_rip":
+        drive = attempt.get("drive_id") or "not recorded"
+        offset = attempt.get("read_offset_samples")
+        lines.append(f"    Drive ID: {drive}")
+        lines.append(f"    Read offset (samples): {offset if offset is not None else 'not recorded'}")
+    if attempt.get("checks_passed") is not None:
+        result = "passed" if attempt["checks_passed"] else "did not pass"
+        lines.append(f"    Saved track checks: {result}")
+    verifier = attempt.get("verification_source")
+    if verifier:
+        lines.append(f"    Saved verification source: {verifier}")
+    if attempt.get("eac_crc32"):
+        lines.append(f"    EAC CRC32: {attempt['eac_crc32']}")
+    for version, match in attempt.get("accuraterip", {}).items():
+        confidence = match.get("confidence")
+        suffix = f" (confidence {confidence})" if confidence is not None else ""
+        lines.append(f"    AccurateRip {version}: {match['status'].replace('_', ' ')}{suffix}")
+    return lines
 
 
 def render_sources(plan, release_match_status):
@@ -345,6 +396,12 @@ def render_sources(plan, release_match_status):
                 f"  Source file: {source['source_path']}",
                 f"  Source and recovered-copy SHA-256: {source['source_sha256']}",
             ])
+            if source.get("selected_attempt"):
+                lines.extend(_attempt_lines("Selected attempt", source["selected_attempt"]))
+            if source.get("excluded_attempt"):
+                lines.extend(_attempt_lines("Excluded original attempt", source["excluded_attempt"]))
+            elif job_id == recovery["diagnostic_job_id"]:
+                lines.append("  Excluded original attempt: details not recorded in this recovery job")
         else:
             lines.append(f"  Audio source: {plan['job_id']}/{item['source']}")
             if item.get("rip_sha256"):
