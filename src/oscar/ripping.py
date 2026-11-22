@@ -3,6 +3,7 @@
 Never archives, deletes, overwrites, or modifies existing audio. Metadata and
 audio verification have independent status. No hardware activity on import.
 """
+import fcntl
 import hashlib
 import hmac
 import json
@@ -20,6 +21,7 @@ from oscar.toc import read_toc
 
 _LOCK = threading.Lock()
 _ACTIVE = set()
+_TRAY_BUSY = set()
 _JOBS = {}
 _DISC = re.compile(r"^[A-Za-z0-9._-]{28}$")
 
@@ -120,6 +122,7 @@ def dashboard():
     detected = {str(d["stable_id"]): d for d in inspect_drives()}
     with _LOCK:
         active = set(_ACTIVE)
+        tray_busy = set(_TRAY_BUSY)
         jobs = [_snapshot(dict(job)) for job in _JOBS.values()]
     drives = []
     for stable_id, drive in configured.items():
@@ -135,6 +138,7 @@ def dashboard():
             "device": present.get("device"), "present": bool(present),
             "offset_set": drive.offset_samples is not None,
             "status": "ripping" if stable_id in active else
+                      "drive_control" if stable_id in tray_busy else
                       "ready" if present and drive.offset_samples is not None else "not_ready",
             "job": latest,
         })
@@ -182,6 +186,35 @@ def selected_drive(stable_id):
     if not stat.S_ISBLK(os.stat(device).st_mode):
         raise RipError("Optical device not accessible as a block device")
     return device, preference.offset_samples
+
+
+def control_tray(stable_id, action, *, opener=os.open, closer=os.close, ioctl=fcntl.ioctl):
+    """Issue a Linux CD-ROM tray command only on a persistently identified idle drive.
+
+    Never unmounts, shells out, modifies archive/staging, or permits a
+    concurrent rip on this drive while the ioctl is in flight.
+    """
+    if action not in ("eject", "close"):
+        raise RipError("Unsupported tray action")
+    if not enabled():
+        raise RipError("Experimental ripping disabled")
+    with _LOCK:
+        if stable_id in _ACTIVE or stable_id in _TRAY_BUSY:
+            raise RipError("Drive busy; tray control is disabled")
+        _TRAY_BUSY.add(stable_id)
+    try:
+        device, _offset = selected_drive(stable_id)
+        fd = opener(device, os.O_RDONLY | os.O_NONBLOCK | getattr(os, "O_CLOEXEC", 0))
+        try:
+            ioctl(fd, 0x5309 if action == "eject" else 0x5319)
+        finally:
+            closer(fd)
+        return {"stable_id": stable_id, "action": action, "status": "command_sent"}
+    except OSError as exc:
+        raise RipError(f"Tray {action} failed or is unsupported: {exc}") from exc
+    finally:
+        with _LOCK:
+            _TRAY_BUSY.discard(stable_id)
 
 
 def make_command(device, offset):
@@ -266,6 +299,9 @@ def _run(job, device, offset, workdir, runner, on_completed=None):
 def plan(stable_id):
     if not enabled():
         raise RipError("Experimental ripping disabled")
+    with _LOCK:
+        if stable_id in _TRAY_BUSY or stable_id in _ACTIVE:
+            raise RipError("Drive busy")
     device, offset = selected_drive(stable_id)
     root = staging_root()
     toc = read_toc(device)
@@ -283,8 +319,8 @@ def start(stable_id, *, runner=subprocess.run, on_created=None, on_completed=Non
     information = plan(stable_id)
     root = staging_root()
     with _LOCK:
-        if stable_id in _ACTIVE:
-            raise RipError("A rip is already running on this drive")
+        if stable_id in _ACTIVE or stable_id in _TRAY_BUSY:
+            raise RipError("A rip or tray action is already running on this drive")
         if len(_ACTIVE) >= max_concurrent_rips():
             raise RipError("All concurrent rip slots are in use; finish a rip before starting another")
         _ACTIVE.add(stable_id)
