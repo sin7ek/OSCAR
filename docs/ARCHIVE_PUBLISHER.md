@@ -38,6 +38,8 @@ The OSCAR container bundles a self-contained Linux build of [ctdb-cli](https://g
 
 For cyanrip CUEs with pregaps stored in the preceding FLAC, OSCAR accepts the repeated track header and removes the duplicate in a temporary CUE used only by the verifier. File order, INDEX positions and original files are preserved. The report records both CUE hashes.
 
+For cyanrip CD-Extra layouts with a trailing Mode 1 data session, OSCAR checks the FLAC sector lengths and CUE audio starts against the saved audio TOC. CTDB receives a temporary audio-only CUE. The original CUE and data file are unchanged. The result covers audio only and does not verify the data session.
+
 A completed lookup result is saved as `ctdb-report.json` with the original CUE and FLAC hashes. Rerun **Proposed SOURCES.txt** after verification. Publication includes the compatible report under `ExtractionEvidence/` and its result in `SOURCES.txt` and the manifest. A transient lookup failure is shown immediately and preserves any previous completed lookup.
 
 Use **Compare physical pressings with Discogs** in Advanced tools, or open it from Semi Automatic Go! review. Enter barcode or catalog number and any observed matrix, mastering SID and mould SID. OSCAR uses the private `OSCAR_DISCOGS_PAT` already supported by the container. It compares identifiers within each numbered Discogs variant for the first five CD candidates. Discogs comparison is read-only. Release approval and tag sources still use the reviewed MusicBrainz edition.

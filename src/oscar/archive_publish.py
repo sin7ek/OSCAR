@@ -359,6 +359,8 @@ def render_sources(plan, release_match_status):
         lines.append(f"CTDB: {ctdb['status']}{detail} via {ctdb['method']}{trigger}{message}")
         if ctdb.get("cue_layout") == "cyanrip_split_pregaps":
             lines.append("CTDB input: compatible copy of cyanrip CUE; original indexes preserved")
+        elif ctdb.get("cue_layout") == "cd_extra_audio_session":
+            lines.append("CTDB input: CD-Extra audio session; data track outside verification scope")
     else:
         lines.append("CTDB: not checked by OSCAR")
     if provenance["accuraterip_coverage"]:
