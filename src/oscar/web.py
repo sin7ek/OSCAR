@@ -1045,7 +1045,8 @@ async function verifyExistingJob(jobOverride=null, targetOverride=null){
     const result=data.ctdb;
     ctdb.textContent='CTDB: '+result.status.replaceAll('_',' ')+
      (result.confidence!=null?' · '+result.confidence+'/'+result.total+' confidence':'')+
-     (result.message?' · '+result.message:'');
+     (result.cue_layout==='cd_extra_audio_session'?' · CD-Extra audio session only':'')+
+   (result.message?' · '+result.message:'');
     target.append(ctdb);
    }
    if(data.tracks?.length){
@@ -1347,6 +1348,7 @@ document.getElementById('ctdb-verify').onclick=async(event)=>{
   if(!response.ok)throw Error(data.detail);
   target.textContent='CTDB: '+data.status.replaceAll('_',' ')+
    (data.confidence!=null?' · confidence '+data.confidence+'/'+data.total:'')+
+   (data.cue_layout==='cd_extra_audio_session'?' · CD-Extra audio session only':'')+
    (data.message?' · '+data.message:'');
  }catch(error){target.textContent='CTDB verification unavailable: '+error.message}
  finally{button.disabled=false}

@@ -11,6 +11,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from xml.etree import ElementTree
 
+from mutagen import MutagenError
+from mutagen.flac import FLAC
+
 from oscar import ripping, verification
 
 REPORT = "ctdb-report.json"
@@ -103,6 +106,41 @@ def _cue_layout(contents, count):
         return "".join(line for index, line in enumerate(lines) if index not in repeated)
 
 
+_CD_EXTRA_SUFFIX = re.compile(
+    r'^FILE "([0-9]{1,2}) - [^"\r\n/\\]+\.bin" BINARY[ \t]*\r?\n'
+    r'[ \t]+TRACK ([0-9]{1,2}) MODE1/2352[ \t]*\r?\n'
+    r'[ \t]+PREGAP 02:32:00[ \t]*\r?\n'
+    r'[ \t]+INDEX 01 00:00:00[ \t]*(?:\r?\n)*\Z',
+    re.I | re.M,
+)
+
+
+def _check_audio_session(directory, refs, contents, toc):
+    """Confirm the CD-Extra audio-only CUE matches the drive's saved TOC."""
+    try:
+        first, last, leadout, *offsets = map(int, toc.split())
+        if first != 1 or last != len(refs) or len(offsets) != last:
+            raise ValueError("unexpected track count")
+        indexes = [parsed.groups()[1:] for line in contents.splitlines()
+                   if (parsed := _CUE_INDEX.fullmatch(line)) and parsed[1] == "01"]
+        if len(indexes) != last or re.search(r"^[ \t]*(?:PREGAP|POSTGAP)\b", contents, re.I | re.M):
+            raise ValueError("unsupported audio gap layout")
+        cursor = 150
+        for ref, index, offset in zip(refs, indexes, offsets, strict=True):
+            minute, second, frame = map(int, index)
+            path = verification._file_readonly(directory, "audio/" + ref)
+            stream = FLAC(path).info
+            if ((stream.sample_rate, stream.channels, stream.bits_per_sample) != (44100, 2, 16)
+                    or stream.total_samples <= 0 or stream.total_samples % 588 != 0
+                    or cursor + (minute * 60 + second) * 75 + frame != offset):
+                raise ValueError("audio track does not match the saved TOC")
+            cursor += stream.total_samples // 588
+        if cursor != leadout:
+            raise ValueError("audio lead-out differs from the saved TOC")
+    except (OSError, ValueError, AttributeError, MutagenError) as exc:
+        raise ripping.RipError("CTDB could not confirm the CD-Extra audio session against the saved TOC") from exc
+
+
 @contextmanager
 def _verification_cue(directory, cue, normalized, manifest):
     if normalized is None:
@@ -134,6 +172,12 @@ def _inputs(job_id, directory):
     cue = verification._file_readonly(directory, "audio/" + cues[0].name)
     raw = cue.read_bytes()
     contents = raw.decode("utf-8-sig")
+    extra = _CD_EXTRA_SUFFIX.search(contents)
+    if extra and int(extra[1]) == int(extra[2]) == count + 1:
+        contents = contents[:extra.start()]
+        layout = "cd_extra_audio_session"
+    else:
+        layout = None
     refs = verification._cue_refs(contents)
     normalized = _cue_layout(contents, count)
     if len(refs) != count:
@@ -143,7 +187,13 @@ def _inputs(job_id, directory):
         if (Path(ref).name != ref or "\\" in ref or relative not in manifest
                 or not re.fullmatch(rf"0*{number} - .+\.flac", ref)):
             raise ripping.RipError("CUE files differ from the saved disc layout")
-    return cue, manifest, hashlib.sha256(raw).hexdigest(), normalized
+    if layout == "cd_extra_audio_session":
+        _check_audio_session(directory, refs, contents, plan.get("toc_string"))
+        if normalized is None:
+            normalized = contents
+    elif normalized is not None:
+        layout = "cyanrip_split_pregaps"
+    return cue, manifest, hashlib.sha256(raw).hexdigest(), normalized, layout
 
 
 def automatic(job_id, directory):
@@ -175,7 +225,7 @@ def _run(job_id, directory, *, automatic, runner):
 
 def _verify(job_id, directory, *, previous, automatic, runner):
     executable = os.environ.get("OSCAR_CTDB_EXECUTABLE", "").strip()
-    cue, manifest, cue_hash, normalized = _inputs(job_id, directory)
+    cue, manifest, cue_hash, normalized, layout = _inputs(job_id, directory)
     for relative, digest in manifest.items():
         if verification._digest(verification._file_readonly(directory, relative)) != digest:
             raise ripping.RipError("Staged audio differs from its original SHA-256")
@@ -199,12 +249,13 @@ def _verify(job_id, directory, *, previous, automatic, runner):
         for rel, digest in manifest.items()
     ):
         raise ripping.RipError("Staging changed during CTDB verification")
+    if layout:
+        result["cue_layout"] = layout
     record = {**result, "job_id": job_id, "method": "ctdb-cli verify",
               "trigger": "automatic" if automatic else "manual",
               "cue_sha256": cue_hash, "files_sha256": manifest,
               "checked_at": datetime.now(timezone.utc).isoformat()}
     if normalized is not None:
-        record["cue_layout"] = "cyanrip_split_pregaps"
         record["verifier_cue_sha256"] = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
     destination = directory / REPORT
     # A failed retry does not overwrite previously obtained database evidence.
@@ -230,11 +281,14 @@ def saved_evidence(job_id, directory):
     raw = path.read_bytes()
     value = json.loads(raw)
     try:
-        _, manifest, cue_hash, _ = _inputs(job_id, directory)
+        _, manifest, cue_hash, normalized, layout = _inputs(job_id, directory)
     except ripping.RipError:
         return None
     if (value.get("job_id") != job_id or value.get("files_sha256") != manifest
-            or value.get("cue_sha256") != cue_hash):
+            or value.get("cue_sha256") != cue_hash
+            or (layout == "cd_extra_audio_session" and
+                (value.get("cue_layout") != layout or value.get("verifier_cue_sha256") !=
+                 hashlib.sha256(normalized.encode("utf-8")).hexdigest()))):
         return None
     result = {key: value[key] for key in ("status", "method", "confidence", "total", "toc", "trigger", "message", "cue_layout", "verifier_cue_sha256")
               if key in value}
