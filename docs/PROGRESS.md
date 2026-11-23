@@ -4,6 +4,8 @@
 
 **Collection editions:** Collection imports verified archives with and without a known release year. Distinct archive paths keep editions separate. On Tower, re-import the existing Équinoxe archives and confirm both catalog numbers appear.
 
+**Discogs genre fallback:** MusicBrainz release and release-group genres take precedence. When both lack a curated genre, matching Discogs CDs can suggest a genre at staging review or as a Collection metadata addition for a published single CD. Verify the Electronic proposal and source URL for Équinoxe on Tower before approving it alongside DATE and RELEASECOUNTRY.
+
 **Archive date and country revision:** Exact MusicBrainz date and country can be reviewed together for an already published single CD. After MusicBrainz exposes the reviewed 1985 date and DE country for Équinoxe `800 025-2` (`e410a90a`), run both selected-album metadata scans on Tower. Approve the date and country proposals and preview the new folder `[800 025-2] Équinoxe (1985) [e410a90a]`. Apply and Verify together. Check both Équinoxe editions remain in Collection and the original archive generation is retained.
 
 **Previous builds on `main` and GHCR:** [PR #154](https://github.com/sin7ek/OSCAR/pull/154) archives edition search evidence in SOURCES.txt and the manifest. [PR #155](https://github.com/sin7ek/OSCAR/pull/155) shows the historical DriveFit labels on Go! drive cards. Python Tests and Docker build passed for both PRs. The Linux/amd64 `ghcr.io/sin7ek/oscar:main` OCI revision matched merge `d415045d2497548fd92e5b179b2b58a3ec7199c6` at manifest digest `sha256:1787063c75fe98df4b942286e82b0808cb36981ac7afc88b1380ac15cf93800b`. Live Tower checks remain open.

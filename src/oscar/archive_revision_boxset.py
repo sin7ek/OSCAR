@@ -64,7 +64,7 @@ def preview(release_id, *, lookup=None, field="LABEL"):
         source = json.loads((leaf / "manifest.json").read_text(encoding="utf-8"))
         if source.get("disc_total") != total:
             raise BoxsetReviewError("Published disc-total metadata differs from Collection")
-        candidates = scanner._fresh_values(snapshot, provider)
+        candidates, _ = scanner._fresh_values(snapshot, provider)
         match = [item for item in candidates if item[:3] == ("release", 0, field)]
         if len(match) != 1:
             raise BoxsetReviewError("Could not obtain one exact physical release " + field)

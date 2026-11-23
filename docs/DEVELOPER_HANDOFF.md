@@ -1,6 +1,6 @@
 # OSCAR — Developer handoff
 
-Last reconciled 2026-11-23 through the Collection edition fix [#157](https://github.com/sin7ek/OSCAR/pull/157) and open PR [#139](https://github.com/sin7ek/OSCAR/pull/139). Read the [work document](PROJECT_STATUS.md) for evidence and project decisions and the [dashboard](PROGRESS.md) for test and deployment status.
+Last reconciled 2026-11-23 through the Collection edition fix [#157](https://github.com/sin7ek/OSCAR/pull/157) and archive date and country revisions [#158](https://github.com/sin7ek/OSCAR/pull/158) and open PR [#139](https://github.com/sin7ek/OSCAR/pull/139). Read the [work document](PROJECT_STATUS.md) for evidence and project decisions and the [dashboard](PROGRESS.md) for test and deployment status.
 
 ## Build and deployment
 
@@ -27,6 +27,8 @@ On Tower, the manual Metadata & tagging preview for *Jagged Little Pill* showed 
 See [#116](https://github.com/sin7ek/OSCAR/pull/116) and [#137](https://github.com/sin7ek/OSCAR/pull/137) for the documented Boulez and recovery results. The work document keeps exact job IDs, accepted values and the historical sequence.
 
 ## Next on Tower
+
+- MusicBrainz release and release-group genres take precedence. When both lack a curated genre, matching Discogs CDs can suggest a genre at staging review or as a Collection metadata addition for a published single CD. Verify the Electronic proposal and source URL for Équinoxe on Tower before approving it alongside DATE and RELEASECOUNTRY.
 
 - After MusicBrainz exposes the reviewed 1985 date and DE country for Équinoxe `800 025-2` (`e410a90a`), run both selected-album metadata scans on Tower. Approve the date and country proposals and preview the new folder `[800 025-2] Équinoxe (1985) [e410a90a]`. Apply and Verify together. Check both Équinoxe editions remain in Collection and the original archive generation is retained.
 

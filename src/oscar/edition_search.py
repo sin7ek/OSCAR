@@ -20,6 +20,17 @@ def _name_key(value):
     return "".join(char for char in normalized if char.isalnum())
 
 
+def shares_release_identifiers(artist, title, barcode, labels, candidate):
+    catalogs = {_normalized_catalog(value) for value in candidate.get("catalog_numbers", [])} - {""}
+    return (
+        bool(_name_key(artist) and _name_key(title) and _digits(barcode))
+        and _digits(barcode) in {_digits(value) for value in candidate.get("barcodes", [])}
+        and any(_normalized_catalog(label.get("catalog_number")) in catalogs for label in labels)
+        and _name_key(title) == _name_key(candidate.get("title"))
+        and _name_key(artist) == _name_key(candidate.get("artist"))
+    )
+
+
 def _discogs_links(ids):
     if not ids:
         return {}
@@ -129,15 +140,8 @@ def search(job_id, *, catalog, barcode, matrix, mastering_sid, mould_sid, discog
         references = []
         for item in discogs:
             linked = item["id"] in links.get(row["id"], ())
-            item_catalogs = {_normalized_catalog(value)
-                             for value in item.get("catalog_numbers", [])} - {""}
-            shared = (_digits(row.get("barcode")) in {
-                          _digits(value) for value in item.get("barcodes", []) if _digits(value)}
-                      and any(_normalized_catalog(label.get("catalog_number")) in item_catalogs
-                              for label in labels)
-                      and _name_key(row.get("title")) == _name_key(item.get("title"))
-                      and bool(_name_key(row.get("artist")))
-                      and _name_key(row.get("artist")) == _name_key(item.get("artist")))
+            shared = shares_release_identifiers(row.get("artist"), row.get("title"),
+                                                row.get("barcode"), labels, item)
             if linked or shared:
                 references.append({**item, "link": "MusicBrainz URL relation" if linked else
                                    "Shared artist, title, barcode and catalog number"})
