@@ -28,6 +28,8 @@ See [#116](https://github.com/sin7ek/OSCAR/pull/116) and [#137](https://github.c
 
 ## Next on Tower
 
+- Collection imports verified archives with and without a known release year. Distinct archive paths keep editions separate. On Tower, re-import the existing Équinoxe archives and confirm both catalog numbers appear.
+
 - DriveFit tags are shown on the corresponding Go! drive cards with their evidence available on hover. Verify card-to-drive correspondence on Tower.
 
 - Edition search evidence is captured on lookup and included in proposed and published SOURCES.txt and the manifest for the actual MusicBrainz release and disc. Verify the Équinoxe comparison and country discrepancy in the Tower archive preview.
