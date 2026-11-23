@@ -43,9 +43,12 @@ def _digest(p):
 
 
 @pytest.fixture
-def fixture(tmp_path, monkeypatch):
+def fixture(tmp_path, monkeypatch, request):
     root = tmp_path / "archive"
-    old = root / "Carmen Gomes Inc" / "Desire (2010) [fa89edc1]"
+    undated = getattr(request, "param", None) == "undated"
+    year = "" if undated else "2010"
+    edition = "Desire" if undated else "Desire (2010)"
+    old = root / "Carmen Gomes Inc" / f"{edition} [fa89edc1]"
     old.mkdir(parents=True)
     db_root = tmp_path / "config"; db_root.mkdir()
     monkeypatch.setenv("OSCAR_ARCHIVE_ROOT", str(root))
@@ -72,6 +75,7 @@ def fixture(tmp_path, monkeypatch):
             "MUSICBRAINZ_TRACKID": [f"rec-{number}"],
             "TITLE": ["Song"], "ARTIST": ["Carmen Gomes Inc."],
             "ALBUM": ["Desire"],
+            **({"RELEASECOUNTRY": ["CA"]} if undated else {}),
         }, sort_keys=True))
         source_bytes[name] = target.read_bytes()
         files.append({"track": number, "filename": name,
@@ -103,7 +107,7 @@ def fixture(tmp_path, monkeypatch):
             "INSERT INTO archive_items "
             "(archive_path,artist,title,year,musicbrainz_release_id,track_count,archive_status,imported_at) "
             "VALUES (?,?,?,?,?,?,?,?)",
-            (str(old), "Carmen Gomes Inc", "Desire", "2010", RELEASE, 2,
+            (str(old), "Carmen Gomes Inc", "Desire", year, RELEASE, 2,
              "published_verified", "2026-11-20T00:00:00+00:00"),
         )
     def lookup(release, disc, count):
@@ -586,3 +590,40 @@ def test_verify_and_clean_api_require_auth_and_opt_in(fixture, monkeypatch):
                            json=clean_request, headers=headers)
     assert response.status_code == 409
     assert Path(done["original_retained_at"]).exists()
+
+
+@pytest.mark.parametrize("fixture", ["undated"], indirect=True)
+def test_date_and_country_revision_moves_undated_archive(fixture, monkeypatch):
+    from oscar import archive_revision_verify
+
+    _, old, original, lookup = fixture
+
+    def corrected_release(*args):
+        return {**lookup(*args), "date": "1985", "country": "DE"}
+
+    monkeypatch.setattr(scanner, "lookup_release_medium", corrected_release)
+    monkeypatch.setattr(archive_revision_verify, "FLAC", FakeFlac)
+
+    for mode, field in [("additions", "DATE"), ("changes", "RELEASECOUNTRY")]:
+        proposals = scanner.scan(mode, str(old))["pending"]
+        proposal = next(item for item in proposals if item["field"] == field)
+        scanner.decide(proposal["fingerprint"], "accept")
+    plan = revision.preview(str(old))
+    current = old.with_name("Desire (1985) [fa89edc1]")
+    assert plan["dest_path"] == str(current)
+    assert old.exists() and not current.exists()
+
+    done = revision.apply(str(old), plan["fingerprint"], "APPLY_VERIFIED_ARCHIVE_REVISION")
+    assert done["status"] == "completed"
+    assert not old.exists()
+    historical = Path(done["original_retained_at"])
+    for name, data in original.items():
+        assert (historical / name).read_bytes() == data
+        actual = FakeFlac(current / name)
+        assert actual.get("DATE") == ["1985"]
+        assert actual.get("RELEASECOUNTRY") == ["DE"]
+
+    entry, = catalog.list_items()["items"]
+    assert (entry["archive_path"], entry["year"], entry["musicbrainz_release_id"]) == (str(current), "1985", RELEASE)
+    assert archive_revision_verify.verify(done["operation_id"])["status"] == "verified"
+    assert catalog.import_published()["imported"] == 0
