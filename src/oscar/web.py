@@ -405,7 +405,7 @@ advancedTitle.textContent='Advanced tools · verification, tagging, physical rel
 oscarAdvanced.append(advancedTitle);
 const mainReview=oscarPanelsByName.get('review');
 const reviewIntro=document.createElement('section');
-reviewIntro.innerHTML='<h2>Jobs requiring review</h2><p>Find blocked, uncertain or historical jobs here. Only explicit actions change metadata or publish an archive.</p><div id="review-jobs"></div><button type="button" id="review-refresh">Refresh review queue</button>';
+reviewIntro.innerHTML='<h2>Jobs requiring review</h2><p>Find blocked, uncertain or historical jobs here. Only explicit actions change metadata or publish an archive.</p><div id="review-jobs"></div><button type="button" id="review-refresh">Refresh review queue</button><section id="review-job-detail" aria-live="polite" hidden></section>';
 mainReview.append(reviewIntro,oscarAdvanced);
 const mainGo=oscarPanelsByName.get('go');
 const goIntro=document.createElement('p');
@@ -3024,36 +3024,164 @@ async function refreshReviewQueue(interactive=true){
    const id=document.createElement('small');id.textContent=job.phase+' · '+job.identification_mode+
     ' · '+job.job_id.slice(0,8);id.title=job.job_id;
    row.append(title,id);
-   addGoAction(row,'Inspect in Go!',()=>{
-    document.getElementById('go-job').value=job.job_id;
-    showOscarTab('go');goAdvance();
-   });
-   if(job.phase==='VERIFICATION_PENDING'){
-    const status=document.createElement('div');
-    status.setAttribute('aria-live','polite');
-    row.append(status);
-    const reverify=addGoAction(row,'Reverify saved rip',async()=>{
-     if(!window.confirm('Reverify this saved rip from existing FLAC files and cyanrip log? The original audio, CUE and rip log will not change. The prior verification report is backed up; this does not start a new rip or publish an archive.'))return;
-     reverify.disabled=true;
-     try{
-      await verifyExistingJob(job.job_id,status);
-     }finally{reverify.disabled=false}
-    });
-   }
+   addGoAction(row,'Open job in Review',()=>openTrackedReview(job.job_id));
    target.append(row);
   }
   if(!matching.length)target.textContent='No tracked jobs currently require review.';
  }catch(error){target.textContent='Review queue unavailable: '+error.message}
 }
+async function reviewRequest(path, headers, options={}){
+ const response=await fetch(path,{...options,headers:{...headers,...options.headers}});
+ const data=await response.json();
+ if(!response.ok)throw Error(data.detail||'Review action unavailable');
+ return data;
+}
+
+function continueJobInGo(id){
+ document.getElementById('go-job').value=id;
+ showOscarTab('go');
+ goAdvance();
+}
+
+let reviewGeneration=0;
+async function openTrackedReview(id, previousMessage='', expectedMedium=null){
+ const headers=requestAuthHeaders('Open OSCAR job review');
+ if(!headers)return;
+ const generation=++reviewGeneration;
+ const detail=document.getElementById('review-job-detail');
+ showOscarTab('review');
+ detail.hidden=false;
+ detail.textContent='Loading job and checking the next available action…';
+ const workflowPath='/api/workflow/jobs/'+id;
+ const musicbrainzPath='/api/go/jobs/'+id+'/musicbrainz';
+ try{
+  const job=await reviewRequest(workflowPath+'/refresh',headers,{method:'POST'});
+  if(generation!==reviewGeneration)return;
+  detail.replaceChildren();
+  detail.append(metadataElement('h3',job.working_title||'Rip review'));
+  detail.append(metadataElement('small','Job '+id.slice(0,8)));
+  const actions=metadataElement('div','');
+  detail.append(actions);
+  if(previousMessage)actions.append(metadataElement('p',previousMessage));
+  const reviewAction=action=>reviewRequest(workflowPath+'/review',headers,{
+   method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action})});
+  if(job.phase==='DEFERRED_REVIEW'){
+   actions.append(metadataElement('p','Edition review was saved for later.'));
+   addGoAction(actions,'Resume edition review',async()=>{
+    try{await reviewAction('resume');await openTrackedReview(id)}
+    catch(error){actions.append(metadataElement('p',error.message))}
+   });
+   return;
+  }
+  if(job.phase==='VERIFICATION_PENDING'){
+   const report=await reviewRequest('/api/rip/jobs/'+id+'/verification',headers);
+   const ar=report.accuraterip_coverage?' · AccurateRip: '+report.accuraterip_coverage.replaceAll('_',' '):'';
+   const ctdb=report.ctdb?' · CTDB: '+report.ctdb.status.replaceAll('_',' '):'';
+   actions.append(metadataElement('p','Audio verification: '+report.status.replaceAll('_',' ')+ar+ctdb));
+   const result=metadataElement('div','');
+   addGoAction(actions,'Reverify saved rip',()=>{
+    if(window.confirm('Reverify this saved rip? The prior verification report is backed up.'))
+     verifyExistingJob(id,result);
+   });
+   actions.append(result);
+   return;
+  }
+  if(job.phase==='RELEASE_REVIEW_PENDING' && job.candidate_options?.length){
+   actions.append(metadataElement('p','Choose the edition that matches the physical CD.'));
+   if(job.matrix_runout&&!goPhysicalDrafts.has(id))
+    goPhysicalDrafts.set(id,{enabled:true,matrix:job.matrix_runout});
+   renderSemiReleaseSelection(actions,id,{candidates:job.candidate_options,release_id:job.proposed_release_id},
+    ()=>openTrackedReview(id),()=>openTrackedReview(id));
+   return;
+  }
+  if(job.phase!=='RELEASE_ACCEPTED' || !job.accepted_release_id){
+   actions.append(metadataElement('p',job.next_action||'This job needs review.'));
+   addGoAction(actions,'Continue in Go!',()=>continueJobInGo(id));
+   return;
+  }
+  const info=await reviewRequest(musicbrainzPath+'/refresh-match',headers,{method:'POST'});
+  if(generation!==reviewGeneration)return;
+  if(info.release_title)detail.querySelector('h3').textContent=info.release_title;
+  const release=metadataElement('a','View accepted release in MusicBrainz');
+  release.href=info.release_url;release.target='_blank';release.rel='noopener noreferrer';
+  actions.append(release);
+  actions.append(metadataElement('p','Saved rip: '+info.track_count+' tracks · Disc ID '+info.disc_id));
+  if(info.lookup_status==='disc_id_now_attached'){
+   if(expectedMedium!==null && expectedMedium!==info.matched_medium_position){
+    actions.append(metadataElement('p','The Disc ID is on CD '+info.matched_medium_position+
+     ', but you were reviewing CD '+expectedMedium+'. Check the physical disc before continuing.'));
+   }else{
+    actions.append(metadataElement('p','Disc ID is attached to CD '+info.matched_medium_position+'.'));
+    addGoAction(actions,'Continue tagging in Go!',()=>continueJobInGo(id));
+   }
+  }else{
+   const available=info.media.filter(medium=>medium.compatible);
+   actions.append(metadataElement('p',available.length
+    ?'Tagging is waiting for the saved Disc ID to be linked to the correct CD in MusicBrainz.'
+    :info.lookup_status==='disc_id_not_attached'
+    ?'Tagging is paused because no CD in the accepted release matches this rip’s track count and format.'
+    :'MusicBrainz lists an ambiguous or incompatible Disc ID match. Check the linked medium.'));
+   const selection=metadataElement('select','');
+   selection.setAttribute('aria-label','Physical CD to link');
+   if(available.length>1)selection.append(new Option('Choose the physical CD',''));
+   for(const medium of info.media){
+    const label='CD '+(medium.position??'?')+' · '+(medium.title?medium.title+' · ':'')+
+     (medium.track_count??'?')+' tracks · '+(medium.format||'unknown format');
+    const line=metadataElement('div',label);
+    if(medium.duration_differences.length){
+     const details=metadataElement('details','');
+     details.append(metadataElement('summary','Track durations differing by at least 1 second'));
+     for(const item of medium.duration_differences){
+      details.append(metadataElement('p','Track '+item.track+' · rip '+(item.rip_ms/1000).toFixed(1)+
+       ' s · MusicBrainz '+(item.musicbrainz_ms/1000).toFixed(1)+' s'));
+     }
+     line.append(details);
+    }
+    actions.append(line);
+    if(medium.compatible)selection.append(new Option(label,medium.position));
+   }
+   if(available.length){
+    if(expectedMedium!==null)actions.append(metadataElement('p','MusicBrainz does not show the new link yet. Check again after the edit is visible.'));
+    const attach=metadataElement('a','');
+    attach.target='_blank';attach.rel='noopener noreferrer';
+    const update=()=>{
+     const position=Number(selection.value);
+     attach.hidden=!position;
+     attach.href=info.musicbrainz_attach_url;
+     attach.textContent='Link Disc ID to CD '+position+' in MusicBrainz';
+    };
+    if(available.some(medium=>medium.position===expectedMedium))selection.value=String(expectedMedium);
+   if(available.length>1)actions.append(selection);
+    selection.onchange=update;update();
+    actions.append(attach,metadataElement('p','On MusicBrainz, select the indicated CD and confirm the edit.'));
+    addGoAction(actions,'Check Disc ID link',()=>openTrackedReview(id,'',Number(selection.value)||null));
+   }
+  }
+  if(job.phase==='RELEASE_ACCEPTED' && !job.metadata_copy_id){
+   addGoAction(actions,'Choose another edition',async()=>{
+    if(!window.confirm('Reopen the release choice for this rip?'))return;
+    try{await reviewAction('reopen_edition');await openTrackedReview(id)}
+    catch(error){actions.append(metadataElement('p',error.message))}
+   });
+  }
+ }catch(error){
+  if(generation===reviewGeneration){
+   detail.append(metadataElement('p','Could not complete the job check. '+error.message));
+   addGoAction(detail,'Try again',()=>openTrackedReview(id,previousMessage,expectedMedium));
+  }
+ }
+}
+
 document.getElementById('go-refresh-drives').onclick=()=>refreshGoCards(true);
 document.getElementById('review-refresh').onclick=()=>refreshReviewQueue(true);
 const goPhysicalDrafts=new Map();
-function renderGoPhysicalFields(output, job, selectedRelease){
+function renderGoPhysicalFields(output, job, selectedRelease, releaseSelect=null){
  const draft=goPhysicalDrafts.get(job)||{};
+ const prefix=output.closest('#review-job-detail')?'review-pressing':'go-pressing';
  goPhysicalDrafts.set(job,draft);
  const toggle=document.createElement('input');
  toggle.type='checkbox';toggle.checked=Boolean(draft.enabled);
- toggle.id='go-physical-identifiers';
+ toggle.id=prefix+'-identifiers';
  const label=metadataElement('label','Use catalog, barcode and optional other identifiers');
  label.htmlFor=toggle.id;
  output.append(toggle,label);
@@ -3065,7 +3193,7 @@ function renderGoPhysicalFields(output, job, selectedRelease){
   ['matrix','Matrix/runout',250],['mastering_sid','Mastering SID',32],
   ['mould_sid','Mould SID',32],['discogs_release','Known Discogs release ID or URL (optional)',300]]){
   const input=document.createElement('input');
-  input.id='go-pressing-'+key;input.value=draft[key]||'';input.maxLength=maxLength;
+  input.id=prefix+'-'+key;input.value=draft[key]||'';input.maxLength=maxLength;
   input.oninput=()=>{draft[key]=input.value.trim()};
   const caption=metadataElement('label',labelText);
   caption.htmlFor=input.id;fields.append(caption,input);
@@ -3126,7 +3254,7 @@ function renderGoPhysicalFields(output, job, selectedRelease){
        .map(([key,value])=>key+' '+value.replaceAll('_',' ')).join(' · ')));
      }
     }
-    const select=document.getElementById('go-semi-candidate');
+    const select=releaseSelect;
     if(select&&Array.from(select.options).some(option=>option.value===release.id)){
      addGoAction(row,'Select for Go! release review',()=>{
       select.value=release.id;select.focus();
@@ -3184,6 +3312,57 @@ function renderGoPhysicalFields(output, job, selectedRelease){
  return ()=>draft.enabled?draft.matrix||'':'';
 }
 
+function renderSemiReleaseSelection(output,id,data,afterAccept,afterDefer){
+   const label=document.createElement('label');
+   label.textContent='Review the MusicBrainz candidate (this is NOT physical-edition verification)';
+   const select=document.createElement('select');
+   label.append(select);output.append(label);
+   for(const candidate of data.candidates||[]){
+    const option=document.createElement('option');
+    option.value=candidate.release_id;
+    option.textContent=(candidate.title||candidate.release_id)+' · '+candidate.release_id;
+    select.append(option);
+   }
+   select.value=data.release_id||'';
+   const matrixValue=renderGoPhysicalFields(output,id,()=>select.value,select);
+   const accept=document.createElement('button');accept.type='button';
+   accept.textContent='Accept selected INFERRED release (no tags or publication)';
+   accept.onclick=async()=>{
+    const release_id=select.value;
+    if(!release_id||!window.confirm(
+     'Accept this MusicBrainz release as INFERRED for this verified rip? '+
+     'It may be a different physical edition. No tags or archive will be written.'))return;
+    const headers=requestAuthHeaders('Accept inferred Semi Automatic release');
+    if(!headers)return;
+    try{
+     const response=await fetch('/api/go/jobs/'+id+'/accept-release',{
+      method:'POST',headers:{'Content-Type':'application/json',...headers},
+      body:JSON.stringify({release_id,confirmation:'ACCEPT_INFERRED_RELEASE',
+       matrix_runout:matrixValue()||null})
+     });
+     const result=await response.json();
+     if(!response.ok)throw new Error(result.detail||'Approval rejected');
+     await afterAccept();
+    }catch(error){const p=document.createElement('p');p.textContent='Approval stopped: '+error.message;output.append(p)}
+   };
+   output.append(accept);
+   const defer=document.createElement('button');defer.type='button';
+   defer.textContent='Save verified rip for later';
+   defer.onclick=async()=>{
+    const headers=requestAuthHeaders('Defer Semi Automatic release review');if(!headers)return;
+    try{
+     const response=await fetch('/api/workflow/jobs/'+id+'/review',{
+      method:'POST',headers:{'Content-Type':'application/json',...headers},
+      body:JSON.stringify({action:'defer'})
+     });
+     const result=await response.json();
+     if(!response.ok)throw new Error(result.detail||'Unable to defer');
+     await afterDefer();
+    }catch(error){const p=document.createElement('p');p.textContent='Deferral stopped: '+error.message;output.append(p)}
+   };
+   output.append(defer);
+}
+
 async function goAdvance(){
  const output=document.getElementById('go-result');
  const id=document.getElementById('go-job').value.trim().toLowerCase();
@@ -3205,6 +3384,10 @@ async function goAdvance(){
    const selected=document.createElement('p');
    selected.textContent=(data.action==='semi_release_accepted'?'Operator accepted release ':'MusicBrainz release ')+data.release_id+
     ' · '+(data.release_match_status||state.release_match_status||'INFERRED, NOT physically verified');output.append(selected);
+  }
+  if(['metadata_review_required','verification_review','missing_release',
+      'archive_review_required','failed'].includes(data.action)){
+   addGoAction(output,'Open this job in Review',()=>openTrackedReview(id,data.message||''));
   }
   if(state.identification_mode==='semi_automatic' &&
      state.accepted_release_id && state.release_match_status==='INFERRED_OPERATOR_ACCEPTED'){
@@ -3353,40 +3536,7 @@ async function goAdvance(){
      output.append(warning);
     }finally{matchRefresh.disabled=false}
    };
-   const attach=document.createElement('button');attach.type='button';
-   attach.textContent='Add missing Disc ID to MusicBrainz (manual review)';
-   output.append(attach);
-   attach.onclick=async()=>{
-    const auth=requestAuthHeaders('Prepare MusicBrainz Disc ID submission link');
-    if(!auth)return;
-    attach.disabled=true;
-    try{
-     const response=await fetch('/api/go/jobs/'+id+'/musicbrainz/discid-attach',{headers:auth});
-     const data=await response.json();
-     if(!response.ok)throw new Error(data.detail||'Disc ID submission link unavailable');
-     const section=document.createElement('section');
-     const note=document.createElement('p');
-     note.textContent='Disc ID '+data.disc_id+' · '+data.track_count+
-      ' tracks. Check the physical CD release and correct medium on MusicBrainz. '+
-      'OSCAR does not submit edits, and this does not change existing tags or verification.';
-     section.append(note);
-     const link=document.createElement('a');
-     link.href=data.musicbrainz_attach_url;
-     link.textContent='Open MusicBrainz: review and attach this CD TOC';
-     link.target='_blank';link.rel='noopener noreferrer';
-     section.append(link);
-     const release=document.createElement('p');
-     const releaseLink=document.createElement('a');
-     releaseLink.href=data.release_url;releaseLink.target='_blank';
-     releaseLink.rel='noopener noreferrer';
-     releaseLink.textContent='Review accepted MusicBrainz release '+data.release_id;
-     release.append(releaseLink);section.append(release);
-     output.append(section);
-    }catch(error){
-     const message=document.createElement('p');
-     message.textContent='Disc ID attachment unavailable: '+error.message;output.append(message);
-    }finally{attach.disabled=false}
-   };
+
   }
   if(data.copy_id){
    const copy=document.createElement('p');
@@ -3519,55 +3669,7 @@ async function goAdvance(){
    renderGoPhysicalFields(output,id,()=>select.value);
   }
   if(data.action==='semi_release_review'){
-   const label=document.createElement('label');
-   label.textContent='Review the MusicBrainz candidate (this is NOT physical-edition verification)';
-   label.htmlFor='go-semi-candidate';output.append(label);
-   const select=document.createElement('select');select.id='go-semi-candidate';
-   for(const candidate of data.candidates||[]){
-    const option=document.createElement('option');
-    option.value=candidate.release_id;
-    option.textContent=(candidate.title||candidate.release_id)+' · '+candidate.release_id;
-    select.append(option);
-   }
-   select.value=data.release_id||'';
-   output.append(select);
-   const matrixValue=renderGoPhysicalFields(output,id,()=>select.value);
-   const accept=document.createElement('button');accept.type='button';
-   accept.textContent='Accept selected INFERRED release (no tags or publication)';
-   accept.onclick=async()=>{
-    const release_id=select.value;
-    if(!release_id||!window.confirm(
-     'Accept this MusicBrainz release as INFERRED for this verified rip? '+
-     'It may be a different physical edition. No tags or archive will be written.'))return;
-    const headers=requestAuthHeaders('Accept inferred Semi Automatic release');
-    if(!headers)return;
-    try{
-     const response=await fetch('/api/go/jobs/'+id+'/accept-release',{
-      method:'POST',headers:{'Content-Type':'application/json',...headers},
-      body:JSON.stringify({release_id,confirmation:'ACCEPT_INFERRED_RELEASE',
-       matrix_runout:matrixValue()||null})
-     });
-     const result=await response.json();
-     if(!response.ok)throw new Error(result.detail||'Approval rejected');
-     await goAdvance();
-    }catch(error){const p=document.createElement('p');p.textContent='Approval stopped: '+error.message;output.append(p)}
-   };
-   output.append(accept);
-   const defer=document.createElement('button');defer.type='button';
-   defer.textContent='Save verified rip for later';
-   defer.onclick=async()=>{
-    const headers=requestAuthHeaders('Defer Semi Automatic release review');if(!headers)return;
-    try{
-     const response=await fetch('/api/workflow/jobs/'+id+'/review',{
-      method:'POST',headers:{'Content-Type':'application/json',...headers},
-      body:JSON.stringify({action:'defer'})
-     });
-     const result=await response.json();
-     if(!response.ok)throw new Error(result.detail||'Unable to defer');
-     await goAdvance();
-    }catch(error){const p=document.createElement('p');p.textContent='Deferral stopped: '+error.message;output.append(p)}
-   };
-   output.append(defer);
+   renderSemiReleaseSelection(output,id,data,goAdvance,goAdvance);
   }
   if(['ripping','verifying','metadata_copy_running','best_guess_proposed',
       'archive_publish_running'].includes(data.action) ||

@@ -106,7 +106,7 @@ def _metadata_handoff(job_id, workflow, *, preview=None, copy_start=None,
         except (MetadataError, musicbrainz.MusicBrainzError, OSError, ValueError) as exc:
             return {"workflow": workflow, "action": "metadata_review_required",
                     "release_id": release_id,
-                    "message": "Metadata preview requires exact Disc ID or a uniquely matched operator-accepted single CD: " + str(exc)[:200]}
+                    "message": "Tagging paused. Open this job in Review for the next step. " + str(exc)[:200]}
         if plan.get("job_id") != job_id or plan.get("release_id") != release_id or not plan.get("fingerprint"):
             raise GoError("Metadata preview differs from snapshotted release identity")
         workflow = workflow_ledger.reserve_metadata_copy(
