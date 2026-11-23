@@ -2,6 +2,8 @@
 
 ## Current status — 2026-11-23
 
+**Archive metadata revisions:** The operator confirmed single-disc changes were applied and verified on Tower. The new boxset metadata preview combines LABEL, GENRE and RELEASECOUNTRY for one coordinated revision. Tower acceptance is pending for Boulez and Mahler: scan missing metadata, approve DE on affected CDs, preview the group, apply and verify it on each set.
+
 **Collection editions:** Collection imports verified archives with and without a known release year. Distinct archive paths keep editions separate. On Tower, re-import the existing Équinoxe archives and confirm both catalog numbers appear.
 
 **Discogs genre fallback:** MusicBrainz release and release-group genres take precedence. When both lack a curated genre, matching Discogs CDs can suggest a genre at staging review or as a Collection metadata addition for a published single CD. Verify the Electronic proposal and source URL for Équinoxe on Tower before approving it alongside DATE and RELEASECOUNTRY.

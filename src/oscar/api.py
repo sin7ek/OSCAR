@@ -996,7 +996,7 @@ def archive_revision_operations(request: Request,
 
 class ArchiveBoxsetPreviewRequest(BaseModel):
     release_id: str = Field(pattern=r"^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$")
-    field: str = Field(default="LABEL", pattern=r"^(LABEL|GENRE)$")
+    field: str = Field(default="LABEL", pattern=r"^(LABEL|GENRE|RELEASECOUNTRY|METADATA)$")
 
 
 @app.post("/api/collection/archive-revisions/boxset-preview")
