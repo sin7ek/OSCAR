@@ -36,7 +36,7 @@ All modes retain the same audio integrity requirements; differing release certai
 
 ## 2. Can OSCAR help add missing Disc IDs to MusicBrainz?
 
-Yes, for an operator-accepted, fully verified single-CD release. OSCAR uses the original physical disc TOC saved from libdiscid and prepares a MusicBrainz attachment page with the already accepted release as a filter. The operator chooses and confirms the correct medium on the MusicBrainz website. OSCAR never submits that external edit automatically. An exact Disc ID match still does not independently prove physical pressing identity.
+Yes, for an operator-accepted release with a fully verified staged rip. For a multidisc set, select the compatible physical disc in Review if more than one matches. OSCAR uses the original physical disc TOC saved from libdiscid and prepares a MusicBrainz attachment page with the already accepted release as a filter. The operator chooses and confirms the correct medium on the MusicBrainz website. OSCAR never submits that external edit automatically. An exact Disc ID match still does not independently prove physical pressing identity.
 
 ## 3. Can OSCAR manage MusicBrainz and Discogs collections?
 

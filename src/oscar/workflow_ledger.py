@@ -594,7 +594,25 @@ def complete_archive_publish(job_id, publish_id, *, published, catalog_status=""
 
 
 def review_action(job_id, action):
-    """The only manual transitions in v1: defer/resume edition review."""
+    """Operator decisions during release review."""
+    if action == "reopen_edition":
+        if not _JOB_ID.fullmatch(job_id):
+            raise WorkflowError("Invalid rip job ID")
+        with _db() as db:
+            item = _view(db, job_id)
+            release = item["accepted_release_id"]
+            if not release or item["identification_mode"] != "semi_automatic":
+                raise WorkflowError("An accepted Semi Automatic release is required")
+            changed = db.execute("""
+                UPDATE workflow_jobs SET accepted_release_id='', release_approved_at=''
+                WHERE job_id=? AND phase='RELEASE_ACCEPTED' AND accepted_release_id=?
+                AND metadata_copy_id='' AND archive_publish_id=''
+                """, (job_id, release))
+            if changed.rowcount != 1:
+                raise WorkflowError("Edition review can only be reopened before tagged-copy creation")
+            _transition(db, job_id, "RELEASE_ACCEPTED", "RELEASE_REVIEW_PENDING",
+                        "operator_reopened_edition_" + release)
+            return _view(db, job_id)
     if action not in {"defer", "resume"}:
         raise WorkflowError("Unsupported review action")
     after = "DEFERRED_REVIEW" if action == "defer" else "RELEASE_REVIEW_PENDING"
