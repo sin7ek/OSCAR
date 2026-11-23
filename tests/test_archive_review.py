@@ -769,7 +769,8 @@ def test_matrix_transcription_is_in_proposed_and_published_sources(publishable):
 
 def test_archive_carries_saved_ctdb_evidence(publishable):
     job, _, archive, _ = publishable
-    report = {"status": "matched", "method": "ctdb-cli verify", "confidence": 2, "total": 3}
+    report = {"status": "matched", "method": "ctdb-cli verify", "confidence": 2, "total": 3,
+              "trigger": "automatic"}
     path = job / archive_publish.ctdb_verification.REPORT
     path.write_text(json.dumps(report))
     # The separate verifier tests verify binding the report to the real input hashes.
@@ -778,7 +779,7 @@ def test_archive_carries_saved_ctdb_evidence(publishable):
                       lambda *_: (report, hashlib.sha256(path.read_bytes()).hexdigest()))
         plan = archive_publish.prepare(JOB, COPY, "original_tags", profile="standard")
         proposed = archive_publish.render_sources(plan, "EDITION_NOT_VERIFIED")
-        assert "CTDB: matched (2/3 confidence) via ctdb-cli verify" in proposed
+        assert "CTDB: matched (2/3 confidence) via ctdb-cli verify (automatic)" in proposed
         published = archive_publish._do_publish(plan, "b" * 32, allow_metadata_observations=True)
     destination = archive / published["relative_directory"]
     assert (destination / "SOURCES.txt").read_text() == proposed

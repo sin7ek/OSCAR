@@ -193,6 +193,7 @@ def prepare(job_id, copy_id, kind="original_tags", profile="auto",
         source_sha = entry.get("source_sha256")
         if kind == "original_tags" and isinstance(source_sha, str) and re.fullmatch(r"[a-f0-9]{64}", source_sha):
             records[-1]["rip_sha256"] = source_sha
+    ctdb_verification.automatic(job_id, root)
     ctdb = ctdb_verification.saved_evidence(job_id, root)
     evidence = _source_evidence(job_id, include_ctdb=bool(ctdb))
     recovery = _recovery_provenance(root, review["album"], records, verification_report)
@@ -353,7 +354,9 @@ def render_sources(plan, release_match_status):
     ctdb = provenance.get("ctdb")
     if ctdb:
         detail = f" ({ctdb['confidence']}/{ctdb['total']} confidence)" if "confidence" in ctdb else ""
-        lines.append(f"CTDB: {ctdb['status']}{detail} via {ctdb['method']}")
+        trigger = f" ({ctdb['trigger']})" if ctdb.get("trigger") else ""
+        message = f" — {ctdb['message']}" if ctdb.get("message") else ""
+        lines.append(f"CTDB: {ctdb['status']}{detail} via {ctdb['method']}{trigger}{message}")
     else:
         lines.append("CTDB: not checked by OSCAR")
     if provenance["accuraterip_coverage"]:

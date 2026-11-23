@@ -1040,6 +1040,14 @@ async function verifyExistingJob(jobOverride=null, targetOverride=null){
       ' · CUE references match: '+(data.cue?.references_match?'yes':'no')+
       (data.error?' · '+data.error:'');
    target.append(summary);
+   if(data.ctdb){
+    const ctdb=document.createElement('p');
+    const result=data.ctdb;
+    ctdb.textContent='CTDB: '+result.status.replaceAll('_',' ')+
+     (result.confidence!=null?' · '+result.confidence+'/'+result.total+' confidence':'')+
+     (result.message?' · '+result.message:'');
+    target.append(ctdb);
+   }
    if(data.tracks?.length){
     const table=document.createElement('table');table.style.width='100%';
     const header=document.createElement('tr');

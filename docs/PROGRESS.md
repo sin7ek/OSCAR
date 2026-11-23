@@ -2,6 +2,8 @@
 
 ## Current status — 2026-11-23
 
+**Automatic CTDB:** OSCAR automatically checks eligible full-disc staging rips against CTDB after extraction and records the result in Review, SOURCES.txt and publication evidence. AccurateRip keeps its existing verdict. Tower acceptance with known-good CD audio and a real CTDB lookup remains open.
+
 **Archive metadata revisions:** The operator confirmed single-disc changes were applied and verified on Tower. The new boxset metadata preview combines LABEL, GENRE and RELEASECOUNTRY for one coordinated revision. Tower acceptance is pending for Boulez and Mahler: scan missing metadata, approve DE on affected CDs, preview the group, apply and verify it on each set.
 
 **Collection editions:** Collection imports verified archives with and without a known release year. Distinct archive paths keep editions separate. On Tower, re-import the existing Équinoxe archives and confirm both catalog numbers appear.

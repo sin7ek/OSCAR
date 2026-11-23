@@ -1,4 +1,5 @@
-"""Independent, opt-in CTDB verification of already staged discs."""
+"""Independent CTDB verification of completed staging rips."""
+import fcntl
 import hashlib
 import json
 import os
@@ -68,35 +69,66 @@ def _inputs(job_id, directory):
     return cue, manifest
 
 
-def verify(job_id, *, runner=subprocess.run):
+def automatic(job_id, directory):
+    """Complete one automatic attempt for a new rip; older jobs remain manual."""
+    try:
+        state = verification._load_job(directory, job_id)
+        if state.get("ctdb_automatic") is True:
+            _run(job_id, directory, automatic=True, runner=subprocess.run)
+    except (ripping.RipError, OSError, ValueError):
+        # A malformed CUE or changed audio is ineligible for CTDB evidence.
+        # CTDB diagnostics never change an extraction or AccurateRip verdict.
+        return
+
+
+def verify(job_id, *, runner=None):
+    return _run(job_id, verification._safe_job(job_id), automatic=False,
+                runner=runner or subprocess.run)
+
+
+def _run(job_id, directory, *, automatic, runner):
+    fd = os.open(directory / ".ctdb.lock", os.O_CREAT | os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
+    with os.fdopen(fd) as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        previous = saved_evidence(job_id, directory)
+        if automatic and previous:
+            return previous[0]
+        return _verify(job_id, directory, previous=previous, automatic=automatic, runner=runner)
+
+
+def _verify(job_id, directory, *, previous, automatic, runner):
     executable = os.environ.get("OSCAR_CTDB_EXECUTABLE", "").strip()
-    if not executable or not Path(executable).is_absolute():
-        raise ripping.RipError("Set OSCAR_CTDB_EXECUTABLE to the absolute path of ctdb-cli")
-    directory = verification._safe_job(job_id)
     cue, manifest = _inputs(job_id, directory)
     cue_hash = verification._digest(cue)
     for relative, digest in manifest.items():
         if verification._digest(verification._file_readonly(directory, relative)) != digest:
             raise ripping.RipError("Staged audio differs from its original SHA-256")
-    try:
-        process = runner([executable, "--xml", "verify", str(cue)], cwd=cue.parent,
-                         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                         timeout=180, check=False)
-        if process.returncode or b"shorter than TOC" in process.stderr:
-            raise ValueError("CTDB verifier exited with an error")
-        result = parse_result(process.stdout)
-    except (OSError, subprocess.TimeoutExpired, ValueError, KeyError, ElementTree.ParseError):
-        result = {"status": "lookup_failed", "message": "CTDB verifier did not return a usable result"}
+    if not executable or not Path(executable).is_absolute():
+        if not automatic:
+            raise ripping.RipError("Set OSCAR_CTDB_EXECUTABLE to the absolute path of ctdb-cli")
+        result = {"status": "unavailable", "message": "CTDB verifier is not configured"}
+    else:
+        try:
+            process = runner([executable, "--xml", "verify", str(cue)], cwd=cue.parent,
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                             timeout=180, check=False)
+            if process.returncode or b"shorter than TOC" in process.stderr:
+                raise ValueError("CTDB verifier exited with an error")
+            result = parse_result(process.stdout)
+        except (OSError, subprocess.TimeoutExpired, ValueError, KeyError, ElementTree.ParseError):
+            result = {"status": "lookup_failed", "message": "CTDB verifier did not return a usable result"}
     if verification._digest(cue) != cue_hash or any(
         verification._digest(verification._file_readonly(directory, rel)) != digest
         for rel, digest in manifest.items()
     ):
         raise ripping.RipError("Staging changed during CTDB verification")
     record = {**result, "job_id": job_id, "method": "ctdb-cli verify",
+              "trigger": "automatic" if automatic else "manual",
               "cue_sha256": cue_hash, "files_sha256": manifest,
               "checked_at": datetime.now(timezone.utc).isoformat()}
     destination = directory / REPORT
-    if result["status"] != "lookup_failed":
+    # A failed retry does not overwrite previously obtained database evidence.
+    if not previous or result["status"] not in {"lookup_failed", "unavailable"}:
         with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=directory,
                                          prefix=".ctdb-", delete=False) as stream:
             try:
@@ -124,6 +156,6 @@ def saved_evidence(job_id, directory):
     if (value.get("job_id") != job_id or value.get("files_sha256") != manifest
             or value.get("cue_sha256") != verification._digest(cue)):
         return None
-    result = {key: value[key] for key in ("status", "method", "confidence", "total", "toc")
+    result = {key: value[key] for key in ("status", "method", "confidence", "total", "toc", "trigger", "message")
               if key in value}
     return result, hashlib.sha256(raw).hexdigest()

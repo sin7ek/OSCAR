@@ -28,6 +28,8 @@ See [#116](https://github.com/sin7ek/OSCAR/pull/116) and [#137](https://github.c
 
 ## Next on Tower
 
+- OSCAR automatically checks eligible full-disc staging rips against CTDB after extraction and records the result in Review, SOURCES.txt and publication evidence. AccurateRip keeps its existing verdict. Tower acceptance with known-good CD audio and a real CTDB lookup remains open.
+
 - The operator confirmed single-disc changes were applied and verified on Tower. The new boxset metadata preview combines LABEL, GENRE and RELEASECOUNTRY for one coordinated revision. Tower acceptance is pending for Boulez and Mahler: scan missing metadata, approve DE on affected CDs, preview the group, apply and verify it on each set.
 
 - MusicBrainz release and release-group genres take precedence. When both lack a curated genre, matching Discogs CDs can suggest a genre at staging review or as a Collection metadata addition for a published single CD. Verify the Electronic proposal and source URL for Équinoxe on Tower before approving it alongside DATE and RELEASECOUNTRY.
