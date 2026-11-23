@@ -132,3 +132,25 @@ def test_genre_evidence_api_requires_auth_and_has_ui(monkeypatch):
     html = client.get("/").text
     assert 'id="genre-evidence-preview"' in html
     assert "Compare genre sources (read-only)" in html
+
+
+def test_discogs_fallback_prefers_musicbrainz_and_abstains_on_disagreement(monkeypatch):
+    info = {"album_artist": "Jean‐Michel Jarre", "release_title": "Équinoxe",
+            "label_info": [{"catalog_number": "800 025-2"}], "barcode": "3259180002527"}
+    release = {"id": 4709815, "artist": "Jean Michel Jarre", "title": "Equinoxe",
+               "catalog_numbers": ["800 025-2"], "barcodes": ["3 259180 002527"],
+               "genres": ["Electronic"]}
+    releases = [release, {**release, "id": 11725689},
+                {**release, "id": 100, "barcodes": ["0000000000000"], "genres": ["Rock"]}]
+    monkeypatch.setattr(g.discogs, "configured", lambda: True)
+
+    def search(**kwargs):
+        assert kwargs["barcode"] == info["barcode"] and kwargs["expanded"]
+        return {"releases": releases, "truncated": False, "errors": []}
+
+    monkeypatch.setattr(g.discogs, "search_pressings", search)
+    assert g.discogs_fallback(info) == (["Electronic"], "https://www.discogs.com/release/4709815")
+    assert g.discogs_fallback({**info, "genres": ["Ambient"]}) == ([], "")
+    assert g.discogs_fallback({**info, "genre_lookup_incomplete": True}) == ([], "")
+    releases.append({**release, "id": 101, "genres": ["Jazz"]})
+    assert g.discogs_fallback(info) == ([], "")

@@ -627,3 +627,29 @@ def test_date_and_country_revision_moves_undated_archive(fixture, monkeypatch):
     assert (entry["archive_path"], entry["year"], entry["musicbrainz_release_id"]) == (str(current), "1985", RELEASE)
     assert archive_revision_verify.verify(done["operation_id"])["status"] == "verified"
     assert catalog.import_published()["imported"] == 0
+
+
+def test_discogs_genre_addition_pins_source_and_updates_collection(fixture, monkeypatch):
+    from oscar import genre_evidence
+
+    _, old, _, _ = fixture
+    source = "https://www.discogs.com/release/4709815"
+    monkeypatch.setattr(genre_evidence, "discogs_fallback", lambda info: (["Electronic"], source))
+    proposals = scanner.scan("additions", str(old))["pending"]
+    genre = next(item for item in proposals if item["field"] == "GENRE")
+    assert genre["source"] == "discogs" and genre["source_url"] == source
+
+    scanner.decide(genre["fingerprint"], "accept")
+    different_source = "https://www.discogs.com/release/11725689"
+    monkeypatch.setattr(genre_evidence, "discogs_fallback", lambda info: (["Electronic"], different_source))
+    with pytest.raises(revision.RevisionError, match="provider data"):
+        revision.preview(str(old))
+
+    monkeypatch.setattr(genre_evidence, "discogs_fallback", lambda info: (["Electronic"], source))
+    plan = revision.preview(str(old))
+    done = revision.apply(str(old), plan["fingerprint"], "APPLY_VERIFIED_ARCHIVE_REVISION")
+    current = Path(done["archive_path"])
+    assert FakeFlac(current / "01 - Song.flac").get("GENRE") == ["Electronic"]
+    assert catalog.list_items()["items"][0]["genres"] == "Electronic"
+    manifest = json.loads((current / "manifest.json").read_text())
+    assert manifest["revision"]["genre_source_url"] == source

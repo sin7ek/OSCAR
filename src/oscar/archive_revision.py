@@ -116,7 +116,9 @@ def _plan(archive_path, *, lookup=None):
         raise RevisionError("Published album must first be imported into Collection")
     if not rows:
         raise RevisionError("There are no accepted metadata changes for this published album")
-    candidates = scanner._fresh_values(snapshot, lookup or scanner.lookup_release_medium)
+    candidates, genre_source_url = scanner._fresh_values(
+        snapshot, lookup or scanner.lookup_release_medium,
+        allow_discogs=any(row["source_url"] for row in rows))
     accepted = []
     for row in rows:
         if (row["archive_revision"] != snapshot["manifest_sha256"]
@@ -125,15 +127,9 @@ def _plan(archive_path, *, lookup=None):
                 or row["field"] not in _RELEASE_FIELDS | _TRACK_FIELDS):
             raise RevisionError("Accepted proposal is stale or not supported by archive revision v1")
         before, after = json.loads(row["before_json"]), json.loads(row["after_json"])
-        matches = [
-            entry for entry in candidates
-            if entry[0] == row["scope"] and entry[1] == row["track"]
-            and entry[2] == row["field"]
-            and scanner._canonical(entry[3]) == before
-            and scanner._canonical(entry[4]) == after
-        ]
+        matches = [entry for entry in candidates if scanner._matches_proposal(entry, row, genre_source_url)]
         if len(matches) != 1 or not isinstance(after, list) or not after:
-            raise RevisionError("Accepted metadata differs from current MusicBrainz; rescan and review")
+            raise RevisionError("Accepted metadata differs from current provider data; rescan and review")
         if row["scope"] == "release" and row["field"] not in _RELEASE_FIELDS:
             raise RevisionError("Unsupported release-scope metadata change")
         if row["scope"] == "track" and (row["field"] not in _TRACK_FIELDS
@@ -143,6 +139,7 @@ def _plan(archive_path, *, lookup=None):
             "fingerprint": row["fingerprint"], "scope": row["scope"],
             "track": row["track"], "field": row["field"],
             "before": before, "after": after,
+            **({"source_url": row["source_url"]} if row["source_url"] else {}),
         })
     genre_changes = [item for item in accepted if item["field"] == "GENRE"]
     if len(genre_changes) > 1:
@@ -309,6 +306,9 @@ def _copy_and_retag(plan, temp, source, *, flac_factory=None, runner=None):
         "type": "operator_approved_metadata_only",
         "audio_bytes_unchanged_verified_by_streaminfo_md5": True,
     }
+    if genre_source := next((item["source_url"] for item in changes
+                             if item["field"] == "GENRE" and item.get("source_url")), ""):
+        original_manifest["revision"]["genre_source_url"] = genre_source
     new_manifest = json.dumps(original_manifest, ensure_ascii=False, indent=2) + "\n"
     manifest_path.write_text(new_manifest, encoding="utf-8")
     # Verify every new FLAC against its NEW whole-file digest and manifest,

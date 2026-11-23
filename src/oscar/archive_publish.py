@@ -205,6 +205,8 @@ def prepare(job_id, copy_id, kind="original_tags", profile="auto",
                                for t in verification_report.get("tracks", [])},
         "recovery": recovery,
     }
+    if genre_source_url := saved_preview.get("album", {}).get("genre_source_url"):
+        provenance["genre_source_url"] = genre_source_url
     edition_search = edition_provenance.for_release(
         root, job_id, review["album"].get("musicbrainz_disc_id"), review["release_id"])
     if edition_search:
@@ -334,6 +336,8 @@ def render_sources(plan, release_match_status):
         lines.append("Physical matrix/runout (operator transcription): " + matrix["value"])
     if album.get("genre_source"):
         lines.append(f"Genre metadata source: {album['genre_source']}")
+        if genre_source_url := provenance.get("genre_source_url"):
+            lines.append(f"Genre source release: {genre_source_url}")
     if plan["include_cover"]:
         lines.append(f"Cover art source: https://coverartarchive.org/release/{plan['release_id']}/front")
     if searches := provenance.get("edition_search"):

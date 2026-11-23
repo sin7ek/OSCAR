@@ -226,6 +226,38 @@ def discogs_claim(discogs_release_id, *, catalog, barcode="", opener=None):
                          "matched_barcode": barcode_match})
 
 
+def discogs_fallback(info):
+    """Suggest curated genres only when applicable CD results agree."""
+    from oscar.archive_genres import normalize_genres
+    from oscar.edition_search import shares_release_identifiers
+
+    if info.get("genres") or info.get("genre_lookup_incomplete") or not discogs.configured():
+        return [], ""
+    labels = info.get("label_info") or []
+    catalog = next((label["catalog_number"] for label in labels if label.get("catalog_number")), "")
+    barcode = info.get("barcode")
+    artist, title = info.get("album_artist"), info.get("release_title")
+    if not (catalog and barcode and artist and title):
+        return [], ""
+    try:
+        result = discogs.search_pressings(catalog=catalog, barcode=barcode, matrix="",
+                                         mastering_sid="", mould_sid="", expanded=True)
+    except discogs.DiscogsError:
+        return [], ""
+    if result["errors"] or result["truncated"]:
+        return [], ""
+    matches = [item for item in result["releases"]
+               if shares_release_identifiers(artist, title, barcode, labels, item)]
+    classified = {item["id"]: tuple(normalize_genres(item["genres"][:40]))
+                  for item in matches if isinstance(item.get("genres"), list)}
+    classified = {release_id: genres for release_id, genres in classified.items() if genres}
+    genre_sets = set(classified.values())
+    if len(genre_sets) != 1:
+        return [], ""
+    source_id = min(classified)
+    return list(genre_sets.pop()), f"https://www.discogs.com/release/{source_id}"
+
+
 def report_for_archive(archive_path, *, discogs_release_id=None, mb_opener=None,
                        discogs_opener=None, workflow="semi_automatic"):
     from oscar import archive_metadata_scan as scanner, collection_catalog as catalog

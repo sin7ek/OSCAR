@@ -144,7 +144,7 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 <button type="button" id="collection-csv">Export CSV</button>
 <div id="collection-result" aria-live="polite"></div>
 <h3>Archive metadata maintenance (staging-independent)</h3>
-<p>Scan the entire indexed published archive against MusicBrainz, without staging files. Each album is independently verified; errors are reported without interrupting the remaining albums. Accepted proposals remain pending migration, not applied to FLACs.</p>
+<p>Scan the indexed published archive without staging files. Discogs CD matches can suggest a missing genre when MusicBrainz has none. Each album is independently verified; errors are reported without interrupting the remaining albums. Accepted proposals remain pending migration, not applied to FLACs.</p>
 <details class="oscar-advanced"><summary>Advanced · scan only one archive album</summary>
 <label for="archive-scan-album">Published archive to scan (optional)</label>
 <select id="archive-scan-album"><option value="">Import/refresh Collection and select an album</option></select>
@@ -1125,7 +1125,7 @@ document.getElementById('metadata-preview-btn').onclick=async()=>{
   }
   output.append(metadataElement('p','Proposed FLAC GENRE tags: '+
    ((result.album.genres||[]).join(' · ')||'none available')+
-   ' · Source: '+(result.album.genre_source||'no verified genre evidence')+
+   ' · Source: '+(result.album.genre_source_url||result.album.genre_source||'no verified genre evidence')+
    '. These genres are included only in the reviewed tagged staging copies.'));
   const link=document.createElement('a');
   link.href='https://musicbrainz.org/release/'+encodeURIComponent(result.release_id);
@@ -1933,7 +1933,8 @@ async function showArchiveProposals(){
   heading.textContent=(item.scope==='track'?'Track '+item.track:'Album')+' · '+item.field;
   article.append(heading);
   const values=document.createElement('p');
-  values.textContent='Archive: '+JSON.stringify(item.before)+' · MusicBrainz: '+JSON.stringify(item.after);
+  const source=item.source==='discogs'?'Discogs':'MusicBrainz';
+  values.textContent='Archive: '+JSON.stringify(item.before)+' · '+source+': '+JSON.stringify(item.after);
   article.append(values);
   const loc=document.createElement('small');
   loc.textContent=item.archive_path+' · '+item.source_url;
@@ -2295,7 +2296,7 @@ document.getElementById('archive-revision-preview').onclick=async()=>{
   out.textContent='Select an album in Advanced · scan only one archive album, then preview its approved migration.';return;
  }
  const headers=requestAuthHeaders('Preview approved archive migration');if(!headers)return;
- out.textContent='Verifying archive integrity and approved current MusicBrainz metadata…';
+ out.textContent='Verifying archive integrity and approved metadata…';
  try{
   const response=await fetch('/api/collection/archive-revisions/preview',{
    method:'POST',headers:{'Content-Type':'application/json',...headers},
@@ -2307,7 +2308,10 @@ document.getElementById('archive-revision-preview').onclick=async()=>{
   for(const line of [
    'Original: '+plan.source_path,'New archive: '+plan.dest_path,
    'Catalog number: '+(plan.catalog_number||'(none)'),
-   'Reviewed change(s): '+plan.accepted_changes.length,
+   ...plan.accepted_changes.map(item=>
+    (item.scope==='track'?'Track '+item.track+' · ':'')+item.field+' · '+
+    (item.before.join('; ')||'(missing)')+' → '+item.after.join('; ')+
+    (item.source_url?' · '+item.source_url:'')),
    'Tracks: '+plan.track_count,
    'Original publication: '+plan.original_publish_id,
    plan.note]){

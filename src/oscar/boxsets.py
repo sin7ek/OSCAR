@@ -139,8 +139,10 @@ def lookup_release_medium(release_id: str, disc_id: str, track_count: int, opene
                     result["genres"] = musicbrainz_genres(group_data)
                     if result["genres"]:
                         result["genre_source"] = "musicbrainz_release_group"
+                else:
+                    result["genre_lookup_incomplete"] = True
             except mb.MusicBrainzError:
                 # Genre enrichment is optional; transient MusicBrainz 503/429
                 # must not prevent accurate core rip/release identification.
-                pass
+                result["genre_lookup_incomplete"] = True
     return result

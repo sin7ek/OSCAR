@@ -174,6 +174,8 @@ def build_preview(info, job_id, disc_id, track_count, *, operator_accepted=False
              "musicbrainz_disc_id": disc_id,
              "genres": list(info.get("genres") or []),
              "genre_source": info.get("genre_source") or ""}
+    if info.get("genre_source_url"):
+        album["genre_source_url"] = info["genre_source_url"]
     if matrix := observed_matrix(matrix_runout):
         album["matrix_runout"] = matrix
     if not isinstance(medium.get("position"), int) or not 1 <= medium["position"] <= info["total_media"]:
@@ -197,7 +199,7 @@ def build_preview(info, job_id, disc_id, track_count, *, operator_accepted=False
              if exact else
              "CAUTION: No matching Disc ID is attached to this MusicBrainz medium. This is an operator-accepted INFERRED edition, not Disc ID or physical-edition verification; confirm the physical catalog, track titles, ordering and durations before publishing."),
             "Classical composers, works and performers are tagged only where explicitly linked in MusicBrainz.",
-            "Genre values are curated MusicBrainz release/release-group suggestions and require this preview's explicit approval; no artist genres or free-form tags are used.",
+            "Genre values come from MusicBrainz or agreeing Discogs CD matches when MusicBrainz has no curated genre. Review the source and values before approving.",
             "Original names are preserved. English aliases and artwork are not automatically added in this first version.",
             "No source FLAC, CUE, original rip log, verification report, or archive is changed."
         ],
@@ -215,6 +217,12 @@ def preview(job_id, release_id, *, lookup=lookup_release_medium, operator_accept
     disc_id = state.get("disc_id") or json.loads((directory / "plan.json").read_text())["disc_id"]
     count = report["expected_tracks"]
     info = lookup(release_id, disc_id, count)
+    if info.get("status") == "exact_disc_id_and_track_count":
+        from oscar.genre_evidence import discogs_fallback
+        genres, source_url = discogs_fallback(info)
+        if genres:
+            info = {**info, "genres": genres, "genre_source": "discogs_release",
+                    "genre_source_url": source_url}
     result = build_preview(info, job_id, disc_id, count,
                            operator_accepted=operator_accepted, matrix_runout=matrix_runout)
     # Actual original files may have non-unknown names in future cyanrip versions:

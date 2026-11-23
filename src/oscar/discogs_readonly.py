@@ -168,6 +168,7 @@ def search_pressings(*, catalog, barcode, matrix, mastering_sid, mould_sid,
                 rows.append({"variant": name, "comparison": comparison})
         candidates.append({"id": release_id, "title": release.get("title"),
                            "country": release.get("country"), "year": release.get("year"),
+                           "genres": release.get("genres") or [],
                            "artist": " & ".join(str(a.get("name") or "")
                                                 for a in release.get("artists", [])),
                            "barcodes": [x.get("value") for x in release.get("identifiers", [])
