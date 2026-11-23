@@ -36,6 +36,8 @@ In **Review → Advanced tools → Staging verification**, enter the complete st
 
 The OSCAR container bundles a self-contained Linux build of [ctdb-cli](https://github.com/Masterisk-F/ctdb-cli/tree/627d2daae63d638c6ca9b578a2abba1290a45350) at `/opt/ctdb/ctdb-cli`. Standalone installs can configure `OSCAR_CTDB_EXECUTABLE` to the absolute path of a compatible build. The container includes the corresponding verifier source archive under `/usr/share/doc/oscar/`.
 
+For cyanrip CUEs with pregaps stored in the preceding FLAC, OSCAR accepts the repeated track header and removes the duplicate in a temporary CUE used only by the verifier. File order, INDEX positions and original files are preserved. The report records both CUE hashes.
+
 A completed lookup result is saved as `ctdb-report.json` with the original CUE and FLAC hashes. Rerun **Proposed SOURCES.txt** after verification. Publication includes the compatible report under `ExtractionEvidence/` and its result in `SOURCES.txt` and the manifest. A transient lookup failure is shown immediately and preserves any previous completed lookup.
 
 Use **Compare physical pressings with Discogs** in Advanced tools, or open it from Semi Automatic Go! review. Enter barcode or catalog number and any observed matrix, mastering SID and mould SID. OSCAR uses the private `OSCAR_DISCOGS_PAT` already supported by the container. It compares identifiers within each numbered Discogs variant for the first five CD candidates. Discogs comparison is read-only. Release approval and tag sources still use the reviewed MusicBrainz edition.
