@@ -28,6 +28,8 @@ See [#116](https://github.com/sin7ek/OSCAR/pull/116) and [#137](https://github.c
 
 ## Next on Tower
 
+- The operator confirmed single-disc changes were applied and verified on Tower. The new boxset metadata preview combines LABEL, GENRE and RELEASECOUNTRY for one coordinated revision. Tower acceptance is pending for Boulez and Mahler: scan missing metadata, approve DE on affected CDs, preview the group, apply and verify it on each set.
+
 - MusicBrainz release and release-group genres take precedence. When both lack a curated genre, matching Discogs CDs can suggest a genre at staging review or as a Collection metadata addition for a published single CD. Verify the Electronic proposal and source URL for Équinoxe on Tower before approving it alongside DATE and RELEASECOUNTRY.
 
 - After MusicBrainz exposes the reviewed 1985 date and DE country for Équinoxe `800 025-2` (`e410a90a`), run both selected-album metadata scans on Tower. Approve the date and country proposals and preview the new folder `[800 025-2] Équinoxe (1985) [e410a90a]`. Apply and Verify together. Check both Équinoxe editions remain in Collection and the original archive generation is retained.
