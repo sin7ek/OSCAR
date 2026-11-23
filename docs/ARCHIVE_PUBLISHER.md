@@ -7,9 +7,9 @@
 1. Source rip must have a saved `checks_passed` verification report. Metadata must have been copied to a completed **Original MusicBrainz tagged copy** or **Classical v2 tagged copy**, and the operator must have reviewed the physical edition.
 2. From OSCAR's **Publish verified FLAC archive (explicit opt-in)** panel, enter the original job ID, the completed tagged-copy ID, the copy kind and the music processing profile (`auto` by default).
 3. Click **Preview proposed archive (read-only)**. It shows the destination path, final FLAC filenames, full CUE including original recorded INDEX/PREGAP lines, and all outstanding metadata-review observations. The generated `fingerprint` binds this proposal to the exact source manifest and preview.
-4. Explicitly confirm the physical edition and CUE/track names. Acknowledge any listed uncertain work/recording relations separately. Optionally select **Include Cover Art Archive front image**, but only after visually comparing it to the user's physical package and explicitly accepting the exact candidate (Boulez's removable-looking sticker may differ); cover is saved as a separate `cover.jpg`/`cover.png`, **not embedded in FLACs**.
+4. Explicitly confirm the physical edition and CUE/track names. Acknowledge any listed uncertain work/recording relations separately. Review the front cover shown in Go! or Archive Review. Compare it with the physical package, switch the source or select **Upload your own cover artwork**, and explicitly approve the image before publishing.
 5. Confirm publication. A background worker copies each tagged FLAC to a **new** hidden staging directory under the destination filesystem, verifies source SHA-256 and STREAMINFO MD5, decodes the copied FLAC, compares its full SHA-256 and audio MD5 with the source, writes an `album.cue` with exact existing FILE references, verifies those references, then writes `SOURCES.txt` and `manifest.json`. Only after all checks pass is the verified directory atomically promoted with Linux `renameat2(RENAME_NOREPLACE)`. No existing album/disc may be overwritten.
-6. The UI polls status while the OSCAR process is running. The new folder contains `NN - Title.flac`, `album.cue`, `manifest.json`, `SOURCES.txt` and optionally a separately reviewed cover image.
+6. The UI polls status while the OSCAR process is running. The new folder contains `NN - Title.flac`, `album.cue`, `manifest.json`, `SOURCES.txt` and, when approved, `folder.jpg` next to the disc’s FLACs. The same JPEG is embedded as the front cover in each published FLAC.
 
 ## Audio and metadata sources
 
@@ -18,6 +18,8 @@ Use **Review → Advanced tools** to search MusicBrainz by barcode, catalog numb
 Transcribe the matrix from the inner ring in **Go!** while accepting a Semi Automatic release, or in **Metadata & tagging** while previewing a manual tagged copy. OSCAR records the optional transcription per disc as a custom Vorbis comment `MATRIX_RUNOUT` and attributes it to the operator in `SOURCES.txt` and the archive manifest. Search results do not populate the tag. Both Go and manual publication show the proposed `SOURCES.txt`.
 
 `SOURCES.txt` records the selected MusicBrainz release and edition status, disc position, audio source and AccurateRip evidence per track, published FLAC SHA-256 values, and archived evidence paths and hashes. Go! Archive Review shows the proposed text before approval.
+
+**Front cover** records the artwork source and SHA-256 in both `SOURCES.txt` and the manifest. The approval is bound to the exact JPEG. OSCAR validates the embedded pictures, FLAC decoding and audio checksums, then records new archive file hashes. Tagged staging files and original rip files are preserved. On Tower, test the Cover Art Archive result, a Discogs fallback and a replacement upload in a test archive. Open the archived FLAC and compare its embedded cover with `folder.jpg`.
 
 The **Edition search** section records saved lookup evidence for the disc and MusicBrainz release used by the tagged copy. The standard Go! Disc ID/TOC lookup records its evidence automatically. When the operator runs **Find matching editions**, the same section also includes the supplied identifiers, whether the candidate was suggested, and matched Discogs references, matrix comparisons, provider country values and lookup warnings. The archive manifest retains the same evidence. The provider results are kept as a historical comparison from the recorded date. Editing or approving an edition remains separate from discovery.
 
@@ -52,7 +54,7 @@ Use **Compare physical pressings with Discogs** in Advanced tools, or open it fr
   `/mnt/user/oscar-archive-test:/archive` on the host/container. The example uses a **separate host share**, not a subdirectory inside the existing `/mnt/user/ai-workspace` staging share. Create/verify this empty host directory first. Do not map the existing music library writable in early tests.
 - Set `OSCAR_ARCHIVE_ROOT=/archive` and `OSCAR_ENABLE_ARCHIVE_PUBLISH=1` explicitly. Publishing remains disabled when the flag or mount is absent. Original ripping opt-in/token/trusted UI settings continue to govern authorization.
 - `/archive` must exist and be writable to OSCAR's container user; paths through symlinks are rejected. A lockfile `/archive/.oscar-publish.lock` serializes publication across cooperating OSCAR processes on that filesystem.
-- No implicit network access for cover images unless you separately check the artwork checkbox and approve the cover. No automatic cover artwork edit or embedding.
+- Opening cover review looks up artwork from the accepted MusicBrainz release in Cover Art Archive. If unavailable, OSCAR tries the uniquely linked Discogs CD release when a Discogs token is configured. You can enter a Discogs release ID or URL manually or upload a JPEG, PNG or WebP. An upload and every downloaded image are normalized to JPEG for the preview and publication. The automatic Best Guess publication path does not select or approve artwork.
 - If publishing fails halfway through, a hidden `.oscar-unpublished-<id>` directory may remain for inspection. OSCAR does **not** automatically delete or reuse partial files. You can inspect or separately remove only clearly identified failed temporary directories after reviewing them, but never delete original staging.
 - The output path is `<album artist>/<catalog prefix> <album title> (<year>) [release-uuid-prefix]/`, with `Disc NN/` for multidisc sets. A second publish of the same album/disc is **refused**. An overwrite is never the default behavior.
 
@@ -87,6 +89,6 @@ Use **Compare physical pressings with Discogs** in Advanced tools, or open it fr
 - Automated full-release identification and MusicBrainz fallback cache/providers (#40), rather than manually pasting job/copy IDs.
 - Persistent publication-progress journal and restart recovery, disk-space preflight, richer metadata tracklist comparison against physical packaging, more robust cross-process device/mount selection.
 - Integrated extraction→verify→match→tag→review→publish automation profiles (#32).
-- Optional cover embedding and user-supplied cover handling, independent INDEX00/HTOA and CTDB checks, read-only post-publish revalidation UI.
+- Independent INDEX00/HTOA checks and read-only post-publish revalidation UI.
 
 This version has **no cleanup feature** and must never delete the original ripping evidence.

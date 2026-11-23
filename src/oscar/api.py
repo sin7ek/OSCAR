@@ -817,17 +817,52 @@ def inspect_classical_v2_copy(job_id: str, copy_id: str, request: Request,
 
 @app.get("/api/rip/jobs/{job_id}/archive-review/{copy_id}")
 def get_archive_review(job_id: str, copy_id: str, request: Request,
-                       kind: str = "classical_v2", profile: str = "auto",
+                       kind: str = "classical_v2", profile: str = "auto", artwork: bool = True,
                        x_oscar_rip_token: str | None = Header(default=None)):
     """Non-destructive consistency, cover candidate and index-preserving CUE preview."""
     from oscar.archive_review import ReviewError, review
     from oscar.ripping import RipError
     _rip_auth(x_oscar_rip_token, request)
     try:
-        return review(job_id, copy_id, kind, profile=profile)
+        return review(job_id, copy_id, kind, profile=profile, artwork=artwork)
     except (ReviewError, RipError, OSError, ValueError, KeyError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
+
+
+@app.post("/api/rip/jobs/{job_id}/cover-art/{copy_id}")
+async def prepare_archive_cover(job_id: str, copy_id: str, request: Request,
+                                kind: str = "original_tags", source: str = "auto",
+                                discogs_release: str = "",
+                                x_oscar_rip_token: str | None = Header(default=None)):
+    """Save a cover selection alongside this completed tagged copy."""
+    import base64
+    from starlette.concurrency import run_in_threadpool
+    from oscar import archive_review, cover_art
+    from oscar.ripping import RipError
+
+    _rip_auth(x_oscar_rip_token, request)
+    if source not in {"auto", "musicbrainz", "discogs", "upload"}:
+        raise HTTPException(status_code=422, detail="Unsupported cover source")
+    upload = bytearray()
+    if source == "upload":
+        async for chunk in request.stream():
+            if len(upload) + len(chunk) > cover_art.MAX_UPLOAD:
+                raise HTTPException(status_code=413, detail="Cover exceeds 8 MiB")
+            upload.extend(chunk)
+    try:
+        root, folder, preview, _, _ = await run_in_threadpool(
+            archive_review._load, job_id, copy_id, kind)
+        original = archive_review.original_preview(root, copy_id, kind, preview)
+        result = await run_in_threadpool(cover_art.select, folder, original["release_id"],
+                                        source, upload=bytes(upload), discogs_release=discogs_release)
+        if not result:
+            return {"artwork": None}
+        info, jpeg = result
+        return {"artwork": info, "preview": "data:image/jpeg;base64," +
+                base64.b64encode(jpeg).decode("ascii")}
+    except (archive_review.ReviewError, RipError, OSError, ValueError, TypeError, KeyError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 class ArchivePublishPreviewRequest(BaseModel):
@@ -1458,13 +1493,15 @@ def go_accept_semi_release(job_id: str, body: GoSemiReleaseApproval,
 
 
 class GoArchivePublishApproval(BaseModel):
+    include_cover: bool = False
+    approve_cover: bool = False
     fingerprint: str = Field(min_length=64, max_length=64, pattern=r"^[a-f0-9]{64}$")
     confirmation: str
     acknowledge_metadata_observations: bool = False
 
 
 @app.post("/api/go/jobs/{job_id}/archive/preview")
-def go_archive_preview(job_id: str, request: Request,
+def go_archive_preview(job_id: str, request: Request, include_cover: bool = False,
                        x_oscar_rip_token: str | None = Header(default=None)):
     """Read-only classical/track/CUE review of precisely this verified Go copy."""
     from oscar.go_controller import GoError, archive_preview
@@ -1476,7 +1513,7 @@ def go_archive_preview(job_id: str, request: Request,
     _rip_auth(x_oscar_rip_token, request)
     _archive_publish_enabled()
     try:
-        return archive_preview(job_id)
+        return archive_preview(job_id, include_cover=include_cover)
     except (GoError, WorkflowError, ReviewError, PublishError, MetadataError,
             RipError, OSError, ValueError, KeyError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -1497,7 +1534,8 @@ def go_archive_publish(job_id: str, body: GoArchivePublishApproval, request: Req
     try:
         return archive_publish_start(
             job_id, body.fingerprint, body.confirmation,
-            acknowledge_observations=body.acknowledge_metadata_observations)
+            acknowledge_observations=body.acknowledge_metadata_observations,
+            include_cover=body.include_cover, approve_cover=body.approve_cover)
     except (GoError, WorkflowError, ReviewError, PublishError, MetadataError,
             RipError, OSError, ValueError, KeyError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc

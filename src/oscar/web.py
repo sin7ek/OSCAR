@@ -335,7 +335,7 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 <button id="v2-preview" type="button">Preview classical v2 tags</button>
 <div id="v2-output" aria-live="polite"></div></section>
 <section><h2>Archive review · consistency, cover &amp; CUE (read-only)</h2>
-<p>Checks documented MusicBrainz recording/work relationships and duration evidence, previews the exact release's Cover Art Archive front candidate, and prepares a CUE preview preserving the original INDEX/PREGAP lines. Nothing is published or modified.</p>
+<p>Checks documented MusicBrainz recording/work relationships and duration evidence, lets you review or upload a front cover, and prepares a CUE preview preserving the original INDEX/PREGAP lines. Nothing is published or modified.</p>
 <label for="review-job">Original rip job ID</label><input id="review-job" maxlength="32" style="width:340px;max-width:95%">
 <label for="review-copy">Completed tagged-copy ID</label><input id="review-copy" maxlength="32" style="width:340px;max-width:95%">
 <label for="review-kind">Copy type</label><select id="review-kind"><option value="original_tags">Original MusicBrainz tagged copy</option><option value="classical_v2">Classical v2 tagged staging copy</option></select>
@@ -356,14 +356,13 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 <option value="standard">Standard (pop / rock / dance)</option>
 <option value="classical">Classical (conductor / ensemble / soloist)</option>
 </select>
-<label><input type="checkbox" id="publish-cover"> Include reviewed Cover Art Archive front image (separate cover file, not embedded)</label>
 <button type="button" id="publish-preview">Preview proposed archive (read-only)</button>
 <div id="publish-plan" aria-live="polite"></div>
 <div id="publish-confirmation" hidden>
 <label><input type="checkbox" id="publish-physical"> I checked this exact physical MusicBrainz edition and tracklist against my CD.</label>
 <label><input type="checkbox" id="publish-cue-approved"> I reviewed the proposed track filenames and the CUE, including source INDEX/PREGAP.</label>
 <label id="publish-observation-label" hidden><input type="checkbox" id="publish-observations"> I reviewed and accept the listed unresolved metadata observations without claiming they are corrected.</label>
-<label id="publish-cover-label" hidden><input type="checkbox" id="publish-cover-approved"> I compared the shown Cover Art Archive candidate with my physical CD and accept this particular image, including any sticker differences.</label>
+<label id="publish-cover-label" hidden><input type="checkbox" id="publish-cover-approved"> I approve this cover for the FLAC files and folder.jpg.</label>
 <button type="button" id="publish-start">Publish reviewed copies to separate archive</button>
 </div>
 <div id="publish-result" aria-live="polite"></div>
@@ -1121,6 +1120,11 @@ document.getElementById('metadata-preview-btn').onclick=async()=>{
   const result=await r.json();reviewedMetadata=result;
   output.replaceChildren();
   output.append(metadataElement('h3',result.album.title));
+  const cover=metadataElement('img','');
+  cover.className='oscar-review-cover';cover.alt='MusicBrainz front cover candidate';
+  cover.onerror=()=>cover.remove();
+  cover.src='https://coverartarchive.org/release/'+encodeURIComponent(result.release_id)+'/front-250';
+  output.append(cover);
   output.append(metadataElement('p','Album artist: '+result.album.artist+
    ' · Release date: '+(result.album.date||'unknown')+
    ' · Disc '+result.disc_number+'/'+result.disc_total));
@@ -1645,6 +1649,83 @@ function reviewCard(title,bodyText){
  const text=document.createElement('p');text.textContent=bodyText;
  box.append(heading,text);return box;
 }
+function assertReviewedCover(plan,included,selection){
+ if(included && (plan.provenance?.artwork?.sha256!==selection?.sha256 ||
+    plan.provenance?.artwork?.provider!==selection?.provider ||
+    plan.provenance?.artwork?.source!==selection?.source)){
+  throw Error('Cover selection changed. Reopen the archive review.');
+ }
+}
+function coverControls(job,copy,kind,headers,onChange=async()=>{},onBusy=()=>{}){
+ const panel=document.createElement('fieldset');
+ panel.append(metadataElement('legend','Cover artwork'));
+ const photo=document.createElement('img');
+ photo.className='oscar-review-cover';photo.alt='Selected front cover';photo.hidden=true;
+ const status=metadataElement('p','');status.setAttribute('aria-live','polite');
+ const credit=metadataElement('a','Source');credit.hidden=true;
+ credit.target='_blank';credit.rel='noopener noreferrer';
+ const upload=document.createElement('input');upload.type='checkbox';
+ const uploadLabel=metadataElement('label','Upload your own cover artwork');
+ uploadLabel.prepend(upload);
+ const file=document.createElement('input');file.type='file';file.accept='image/jpeg,image/png,image/webp';
+ file.setAttribute('aria-label','Select cover image');file.hidden=true;
+ const include=document.createElement('input');include.type='checkbox';include.disabled=true;
+ const includeLabel=metadataElement('label','Include cover in FLACs and as folder.jpg');
+ includeLabel.prepend(include);
+ const discogs=document.createElement('input');discogs.placeholder='Discogs release ID or URL';
+ discogs.setAttribute('aria-label','Discogs release ID or URL (optional)');
+ const button=(label,action)=>{
+  const control=metadataElement('button',label);control.type='button';control.onclick=action;return control;
+ };
+ let selection=null;
+ async function changed(){
+  await onChange(Boolean(selection && include.checked),selection);
+ }
+ async function load(source,body){
+  panel.disabled=true;
+  onBusy();
+  status.textContent='Loading cover artwork…';
+  try{
+   const query=new URLSearchParams({kind,source});
+   if(source==='discogs'&&discogs.value.trim())query.set('discogs_release',discogs.value.trim());
+   const response=await fetch('/api/rip/jobs/'+job+'/cover-art/'+copy+'?'+query,{
+    method:'POST',headers,body});
+   const result=await response.json();
+   if(!response.ok)throw Error(result.detail||'Cover could not be loaded');
+   selection=result.artwork;
+   const providers={musicbrainz:'MusicBrainz Cover Art Archive',discogs:'Discogs',upload:'Your upload'};
+   status.textContent=selection?providers[selection.provider]+' · '+selection.width+' × '+selection.height:
+    'No cover found. Try a Discogs release ID or upload your own.';
+   credit.hidden=!selection?.source;
+   if(selection?.source){credit.href=selection.source;credit.textContent=selection.provider==='discogs'?'Data provided by Discogs':'View source';}
+   photo.hidden=!selection;
+   if(selection)photo.src=result.preview;
+   else photo.removeAttribute('src');
+   include.checked=Boolean(selection);include.disabled=!selection;
+   if(selection?.provider==='upload'){upload.checked=true;file.hidden=false;}
+   else{upload.checked=false;file.hidden=true;}
+   await changed();
+  }catch(error){
+   status.textContent=error.message;
+   try{await changed()}catch(previewError){status.textContent+=' · '+previewError.message;}
+  }finally{panel.disabled=false;}
+ }
+ upload.onchange=()=>{file.hidden=!upload.checked;if(upload.checked)file.focus();};
+ file.onchange=()=>{if(file.files[0])load('upload',file.files[0]);};
+ include.onchange=async()=>{
+  panel.disabled=true;
+  onBusy();
+  try{await changed()}catch(error){status.textContent=error.message;}
+  finally{panel.disabled=false;}
+ };
+ panel.append(photo,status,credit,
+  button('Use MusicBrainz cover',()=>load('musicbrainz')),
+  discogs,button('Use Discogs cover',()=>load('discogs')),
+  uploadLabel,file,includeLabel);
+ load('auto');
+ return panel;
+}
+
 let reviewedArchivePlan=null;
 document.getElementById('publish-preview').onclick=async()=>{
  reviewedArchivePlan=null;
@@ -1655,7 +1736,7 @@ document.getElementById('publish-preview').onclick=async()=>{
  const copy=document.getElementById('publish-copy').value.trim().toLowerCase();
  const kind=document.getElementById('publish-kind').value;
  const profile=document.getElementById('publish-profile').value;
- const includeCover=document.getElementById('publish-cover').checked;
+ const includeCover=false;
  if(!/^[a-f0-9]{32}$/.test(job)||!/^[a-f0-9]{32}$/.test(copy)){
   plan.textContent='Enter the completed rip job ID and tagged copy ID.';return
  }
@@ -1685,7 +1766,6 @@ document.getElementById('publish-preview').onclick=async()=>{
    const reason=typeof data.detail==='string'?data.detail:'Preview failed';
    throw Error('HTTP '+r.status+': '+reason);
   }
-  reviewedArchivePlan={...data,headers,job,copy,kind,profile,includeCover};
   plan.replaceChildren();
   const heading=document.createElement('h3');heading.textContent='Destination: '+data.relative_directory;plan.append(heading);
   const info=document.createElement('p');info.textContent=data.tracks.length+
@@ -1693,16 +1773,26 @@ document.getElementById('publish-preview').onclick=async()=>{
    ' · Processing '+data.profile+' · '+data.metadata_observations.length+' metadata observations'+
    (data.output_exists?' · DESTINATION ALREADY EXISTS':'');
   plan.append(info);
-  if(includeCover){
-   const coverNote=document.createElement('p');
-   coverNote.textContent='Exact-release cover candidate; compare against the physical booklet/box, including removable stickers:';
-   plan.append(coverNote);
-   const img=document.createElement('img');
-   img.className='oscar-review-cover';
-   img.src='https://coverartarchive.org/release/'+encodeURIComponent(data.release_id)+'/front-250';
-   img.alt='MusicBrainz physical release cover candidate; requires human confirmation';
-   plan.append(img);
-  }
+  const sources=metadataElement('div','');
+  const controls=coverControls(job,copy,kind,headers,async (included,selection)=>{
+   const approval=document.getElementById('publish-confirmation');
+   approval.hidden=true;
+   reviewedArchivePlan=null;
+   const preview=await reviewRequest('/api/rip/jobs/'+job+'/archive-publish/preview',headers,{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({copy_id:copy,kind,profile,include_cover:included})});
+   if(!plan.contains(controls))return;
+   assertReviewedCover(preview,included,selection);
+   reviewedArchivePlan={...preview,headers,job,copy,kind,profile,includeCover:included};
+   document.getElementById('publish-cover-approved').checked=false;
+   document.getElementById('publish-cover-label').hidden=!included;
+   approval.hidden=Boolean(preview.output_exists);
+   sources.replaceChildren(proposedSources(preview.sources_preview));
+  },()=>{
+   reviewedArchivePlan=null;
+   document.getElementById('publish-confirmation').hidden=true;
+  });
+  plan.append(controls);
   const output=document.createElement('pre');output.className='oscar-review-card';
   output.style.whiteSpace='pre-wrap';output.style.maxHeight='360px';output.style.overflow='auto';
   output.textContent=data.tracks.map(t=>t.filename).join('\\n');plan.append(output);
@@ -1710,7 +1800,7 @@ document.getElementById('publish-preview').onclick=async()=>{
   const summary=document.createElement('summary');summary.textContent='Inspect full proposed album.cue';cue.append(summary);
   const preview=document.createElement('pre');preview.textContent=data.cue;
   preview.style.whiteSpace='pre-wrap';preview.style.overflow='auto';cue.append(preview);plan.append(cue);
-  if(data.sources_preview)plan.append(proposedSources(data.sources_preview));
+  plan.append(sources);
   for(const finding of data.metadata_observations){
    const p=document.createElement('p');p.textContent='Review: '+finding.code+' (tracks '+finding.tracks.join(', ')+') — '+finding.message;plan.append(p);
   }
@@ -1719,7 +1809,7 @@ document.getElementById('publish-preview').onclick=async()=>{
   }
   document.getElementById('publish-observation-label').hidden=data.metadata_observations.length===0;
   document.getElementById('publish-cover-label').hidden=!includeCover;
-  document.getElementById('publish-confirmation').hidden=!!data.output_exists;
+  document.getElementById('publish-confirmation').hidden=true;
  }catch(error){reviewedArchivePlan=null;plan.textContent='Archive preview unavailable: '+error.message}
 };
 document.getElementById('publish-start').onclick=async()=>{
@@ -1778,7 +1868,7 @@ document.getElementById('review-start').onclick=async()=>{
  if(!headers)return;
  output.textContent='Reading staged FLAC metadata, looking up cover candidate and preparing CUE…';
  try{
-  const url='/api/rip/jobs/'+job+'/archive-review/'+copy+'?'+new URLSearchParams({kind,profile});
+  const url='/api/rip/jobs/'+job+'/archive-review/'+copy+'?'+new URLSearchParams({kind,profile,artwork:false});
   const response=await fetch(url,{headers});
   if(!response.ok)throw new Error(await response.text());
   const data=await response.json();output.replaceChildren();
@@ -1795,14 +1885,7 @@ document.getElementById('review-start').onclick=async()=>{
     ' review items. Shared work IDs do not automatically mean audio or recording duplication.'));
   sections.append(reviewCard('CUE',data.cue.status+
     ' · '+(data.cue.track_count??'?')+' tracks. Original INDEX and PREGAP lines kept, no new indexes invented.'));
-  sections.append(reviewCard('Cover Art Archive',data.cover_art.status+
-    ' · candidate tied to selected MusicBrainz physical release; check against booklet.'));
-  output.append(sections);
-  if(data.cover_art.thumbnail_url){
-   const photo=document.createElement('img');photo.className='oscar-review-cover';
-   photo.src=data.cover_art.thumbnail_url;photo.alt='Cover candidate; inspect physical edition';
-   photo.loading='lazy';output.append(photo);
-  }
+  output.append(sections,coverControls(job,copy,kind,headers));
   const warning=document.createElement('p');warning.className='oscar-review-note';
   warning.textContent='This is a review, not approval. MusicBrainz Work is not Recording. No AcoustID, CTDB or automatic publishing.';
   output.append(warning);
@@ -3565,16 +3648,19 @@ async function goAdvance(){
      && state.phase==='METADATA_READY'){
    const previewButton=document.createElement('button');
    previewButton.type='button';
-   previewButton.textContent='Review actual tags, classical works, CUE and archive destination';
+   previewButton.textContent='Review tags, cover, CUE and archive destination';
    output.append(previewButton);
+   let displayedReview;
    previewButton.onclick=async()=>{
     const auth=requestAuthHeaders('Read Go archive preview');if(!auth)return;
     previewButton.disabled=true;
+    displayedReview?.remove();
     try{
      const response=await fetch('/api/go/jobs/'+id+'/archive/preview',{method:'POST',headers:auth});
      const info=await response.json();
      if(!response.ok)throw new Error(info.detail||'Archive review unavailable');
-     const r=info.archive_review||{}, p=info.publication_plan||{};
+     const r=info.archive_review||{};
+     let p=info.publication_plan||{};
      const section=document.createElement('section');
      const title=document.createElement('h3');title.textContent='Archive review · '+(r.album?.title||info.release_id);
      section.append(title);
@@ -3616,13 +3702,27 @@ async function goAdvance(){
      section.append(issues);
      const cueTitle=document.createElement('h4');cueTitle.textContent='Proposed archive CUE';section.append(cueTitle);
      const cue=document.createElement('pre');cue.textContent=r.cue?.archive_cue_proposal||'No CUE proposal';section.append(cue);
-     if(info.sources_preview)section.append(proposedSources(info.sources_preview));
-     const fingerprint=document.createElement('p');
-     fingerprint.textContent='Publication fingerprint: '+p.fingerprint;section.append(fingerprint);
-     const approval=document.createElement('button');approval.type='button';
-     approval.textContent='Approve reviewed archive publication (explicit, no source deletion)';
-     approval.disabled=Boolean(p.output_exists);
-     section.append(approval);
+     const sources=metadataElement('div','');
+     const fingerprint=metadataElement('p','');
+     const approval=metadataElement('button','Approve reviewed archive publication (explicit, no source deletion)');
+     approval.type='button';approval.disabled=true;
+     const coverApproval=document.createElement('input');coverApproval.type='checkbox';
+     const coverLabel=metadataElement('label','I approve this cover for the FLAC files and folder.jpg.');
+     coverLabel.prepend(coverApproval);coverLabel.hidden=true;
+     coverApproval.onchange=()=>{approval.disabled=p.output_exists||!coverApproval.checked;};
+     const controls=coverControls(id,info.copy_id,'original_tags',auth,async (included,selection)=>{
+      approval.disabled=true;
+      coverApproval.checked=false;
+      const preview=await reviewRequest('/api/go/jobs/'+id+'/archive/preview?'+
+       new URLSearchParams({include_cover:included}),auth,{method:'POST'});
+      assertReviewedCover(preview.publication_plan,included,selection);
+      p=preview.publication_plan;
+      coverLabel.hidden=!p.include_cover;
+      fingerprint.textContent='Publication fingerprint: '+p.fingerprint;
+      sources.replaceChildren(proposedSources(preview.sources_preview));
+      approval.disabled=p.output_exists||p.include_cover;
+     },()=>{approval.disabled=true;coverLabel.hidden=true;coverApproval.checked=false;});
+     section.append(controls,coverLabel,sources,fingerprint,approval);
      approval.onclick=async()=>{
       const confirmation=window.confirm(
        'Confirm this exact inferred MusicBrainz release, actual tags, CUE and destination for permanent archive publication? The physical edition is NOT verified by OSCAR. No original files are removed.');
@@ -3636,7 +3736,8 @@ async function goAdvance(){
        const publishResponse=await fetch('/api/go/jobs/'+id+'/archive/publish',{
         method:'POST',headers:{'Content-Type':'application/json',...headers},
         body:JSON.stringify({fingerprint:p.fingerprint,confirmation:'PUBLISH_REVIEWED_ARCHIVE',
-         acknowledge_metadata_observations:acknowledge})
+         acknowledge_metadata_observations:acknowledge,include_cover:p.include_cover,
+         approve_cover:coverApproval.checked})
        });
        const started=await publishResponse.json();
        if(!publishResponse.ok)throw new Error(started.detail||'Publication blocked');
@@ -3649,6 +3750,7 @@ async function goAdvance(){
       }catch(err){approval.disabled=false;const msg=document.createElement('p');
        msg.textContent='Publication blocked: '+err.message;section.append(msg)}
      };
+     displayedReview=section;
      output.append(section);
     }catch(err){const error=document.createElement('p');
      error.textContent='Archive preview unavailable: '+err.message;output.append(error)}
