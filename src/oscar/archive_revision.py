@@ -156,9 +156,9 @@ def _plan(archive_path, *, lookup=None):
     if len(label_values) > 1:
         raise RevisionError("Conflicting label proposals")
     target_label = "; ".join(label_values[0]) if label_values else ""
+    year = f" ({parsed['year']})" if parsed["year"] else ""
     album_name = ((f"[{desired_catalog}] " if desired_catalog else "") +
-                  parsed["title"] + " (" + parsed["year"] + ") [" +
-                  snapshot["release_id"].split("-")[0] + "]")
+                  parsed["title"] + year + " [" + snapshot["release_id"].split("-")[0] + "]")
     destination = root / album_path.parent.name / album_name
     if destination != album_path and (destination.exists() or destination.is_symlink()):
         raise RevisionError("Proposed catalog-based destination already exists: refusing collision")

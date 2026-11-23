@@ -114,7 +114,7 @@ def _read_manifest(album: Path) -> dict | None:
     return document
 
 
-_ALBUM_DIR = re.compile(r"(?:\[([^\]]+)\] )?(.+) \((\d{4})\) \[([a-f0-9]{8})\]")
+_ALBUM_DIR = re.compile(r"(?:\[([^\]]+)\] )?(.+?)(?: \((\d{4})\))? \[([a-f0-9]{8})\]")
 _DISC_DIR = re.compile(r"Disc (0[1-9]|[1-9][0-9])")
 
 
@@ -146,7 +146,7 @@ def _metadata_from_path(album: Path, manifest: dict) -> dict:
         raise CatalogError("Missing multidisc directory")
     if not artist or not title:
         raise CatalogError("Invalid archive artist/album")
-    return {"artist": artist, "title": title, "year": year,
+    return {"artist": artist, "title": title, "year": year or "",
             "catalog_number": catalog or "", "musicbrainz_release_id": manifest["release_id"],
             "archive_path": str(album), "track_count": len(manifest["files"]),
             "disc_number": disc_number, "disc_total": raw_total,
