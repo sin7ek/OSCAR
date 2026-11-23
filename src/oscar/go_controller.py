@@ -186,7 +186,7 @@ def _go_publish_source(job_id):
     return state, release_id, copy_id
 
 
-def archive_preview(job_id, *, prepare=None, review=None):
+def archive_preview(job_id, *, include_cover=False, prepare=None, review=None):
     """Read-only Go publication preview with actual classical metadata/CUE."""
     from oscar import archive_publish, archive_review
     state, release_id, copy_id = _go_publish_source(job_id)
@@ -195,7 +195,7 @@ def archive_preview(job_id, *, prepare=None, review=None):
     inspected = reviewer(job_id, copy_id, "original_tags", profile="auto", artwork=False)
     if inspected.get("release_id") != release_id:
         raise GoError("Archive review changed the accepted MusicBrainz release")
-    plan = planner(job_id, copy_id, "original_tags", "auto", include_cover=False)
+    plan = planner(job_id, copy_id, "original_tags", "auto", include_cover=include_cover)
     if plan.get("release_id") != release_id or plan.get("copy_id") != copy_id:
         raise GoError("Archive plan differs from approved copy")
     return {"workflow": state, "action": "archive_preview_ready",
@@ -210,7 +210,7 @@ def archive_preview(job_id, *, prepare=None, review=None):
 
 
 def archive_publish_start(job_id, fingerprint, confirmation, *,
-                          acknowledge_observations=False, start=None,
+                          acknowledge_observations=False, include_cover=False, approve_cover=False, start=None,
                           prepare=None):
     """Explicit operator archive handoff with one durable reservation."""
     from oscar import archive_publish
@@ -218,7 +218,7 @@ def archive_publish_start(job_id, fingerprint, confirmation, *,
         raise GoError("Explicit final archive publication confirmation required")
     state, release_id, copy_id = _go_publish_source(job_id)
     planner = prepare or archive_publish.prepare
-    plan = planner(job_id, copy_id, "original_tags", "auto", include_cover=False)
+    plan = planner(job_id, copy_id, "original_tags", "auto", include_cover=include_cover)
     if plan.get("release_id") != release_id or plan.get("copy_id") != copy_id:
         raise GoError("Archive plan differs from persistent release/copy identity")
     if plan.get("fingerprint") != fingerprint:
@@ -227,6 +227,8 @@ def archive_publish_start(job_id, fingerprint, confirmation, *,
         raise GoError("Archive destination exists; refusing overwrite")
     if plan.get("metadata_observations") and not acknowledge_observations:
         raise GoError("Explicit acknowledgement of metadata observations required")
+    if include_cover and not approve_cover:
+        raise GoError("Confirm the selected front cover before publishing")
     reserved = workflow_ledger.reserve_archive_publish(
         job_id, copy_id, release_id, fingerprint,
         plan["relative_directory"], automatic=False)
@@ -235,7 +237,7 @@ def archive_publish_start(job_id, fingerprint, confirmation, *,
         result = publisher(
             job_id, copy_id, "original_tags", "auto", fingerprint, confirmation,
             acknowledge_observations=acknowledge_observations,
-            include_cover=False, approve_cover=False,
+            include_cover=include_cover, approve_cover=approve_cover,
             release_match_status=state["release_match_status"],
             reserved_publish_id=reserved["archive_publish_id"])
         if result.get("publish_id") != reserved["archive_publish_id"]:

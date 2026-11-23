@@ -2,6 +2,8 @@
 
 ## Current status — 2026-11-23
 
+**Cover artwork:** Go! and Archive Review show a replaceable front cover from the accepted MusicBrainz release, a linked Discogs CD or an operator upload. Explicit publication approval embeds the selected JPEG in each new FLAC and saves `folder.jpg` with provenance in `SOURCES.txt`. Tower artwork acceptance is pending. See [archive publishing](ARCHIVE_PUBLISHER.md).
+
 **Disc ID in Review:** Review opens a job with the reason tagging is paused and the next action. It can prepare MusicBrainz Disc ID links for compatible discs of a multidisc release and check them before continuing tagging in Go!. Tower acceptance remains open for the Leviathan 24/29-track set.
 
 **CTDB on CD-Extra:** The reported Tower CUE has 15 audio tracks and a trailing Mode 1 data track. The audio lengths from the uploaded cyanrip log reproduce the recorded MusicBrainz Disc ID exactly. CTDB now verifies the audio session using a temporary CUE after checking it against the saved TOC. Retry the same staging job on Tower.

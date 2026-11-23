@@ -817,3 +817,100 @@ def test_archive_carries_edition_search_for_selected_release(publishable):
     assert (destination / "SOURCES.txt").read_text() == proposed
     manifest = json.loads((destination / "manifest.json").read_text())
     assert manifest["provenance"]["edition_search"] == plan["provenance"]["edition_search"]
+
+
+def _cover_image(color):
+    from io import BytesIO
+    from PIL import Image
+
+    data = BytesIO()
+    Image.new("RGBA", (80, 64), color).save(data, "PNG")
+    return data.getvalue()
+
+
+def test_cover_upload_preview_and_archive_flac_embedding(publishable, monkeypatch):
+    from base64 import b64decode
+
+    _, tagged, archive, original_hashes = publishable
+    monkeypatch.setenv("OSCAR_RIP_TOKEN", TOKEN)
+    monkeypatch.setenv("OSCAR_ENABLE_RIP", "true")
+    client = TestClient(app)
+    path = f"/api/rip/jobs/{JOB}/cover-art/{COPY}?source=upload"
+    assert client.post(path, content=b"unauthenticated").status_code == 403
+    auth = {"X-OSCAR-Rip-Token": TOKEN}
+    assert client.post(path, headers=auth, content=b"bad image").status_code == 409
+    response = client.post(path, headers=auth, content=_cover_image("red"))
+    assert response.status_code == 200, response.text
+    selected = response.json()
+    jpeg = b64decode(selected["preview"].split(",", 1)[1])
+    assert jpeg.startswith(b"\xff\xd8")
+    assert selected["artwork"]["provider"] == "upload"
+    assert selected["artwork"]["sha256"] == hashlib.sha256(jpeg).hexdigest()
+    plan = archive_publish.prepare(JOB, COPY, "original_tags", include_cover=True)
+    assert plan["provenance"]["artwork"] == selected["artwork"]
+    assert "Front cover: User upload" in archive_publish.render_sources(plan, "EDITION_NOT_VERIFIED")
+
+    response = client.post(path, headers=auth, content=_cover_image("blue"))
+    assert response.status_code == 200
+    with pytest.raises(archive_publish.PublishError, match="changed"):
+        archive_publish._do_publish(plan, "a" * 32, allow_metadata_observations=True)
+    renewed = archive_publish.prepare(JOB, COPY, "original_tags", include_cover=True)
+    assert renewed["fingerprint"] != plan["fingerprint"]
+    published = archive_publish._do_publish(renewed, "b" * 32, allow_metadata_observations=True)
+    destination = archive / published["relative_directory"]
+    folder_jpeg = (destination / "folder.jpg").read_bytes()
+    assert folder_jpeg == b64decode(response.json()["preview"].split(",", 1)[1])
+    manifest = json.loads((destination / "manifest.json").read_text())
+    assert manifest["provenance"]["artwork"]["sha256"] == hashlib.sha256(folder_jpeg).hexdigest()
+    sources = (destination / "SOURCES.txt").read_text()
+    for item, entry in zip(manifest["files"], renewed["tracks"], strict=True):
+        path = destination / item["filename"]
+        flac = FLAC(path)
+        original = FLAC(tagged / entry["source"])
+        assert flac.tags == original.tags
+        assert flac.info.md5_signature == original.info.md5_signature
+        assert [(p.type, p.mime, p.data) for p in flac.pictures] == [(3, "image/jpeg", folder_jpeg)]
+        assert hashlib.sha256(path.read_bytes()).hexdigest() == item["sha256"]
+        assert f"Published FLAC SHA-256: {item['sha256']}" in sources
+    for rel, digest in original_hashes.items():
+        assert hashlib.sha256((tagged / rel).read_bytes()).hexdigest() == digest
+
+
+def test_cover_lookup_prefers_exact_musicbrainz_then_linked_discogs(tmp_path, monkeypatch):
+    from oscar import cover_art
+
+    calls = []
+    archive = tmp_path / "musicbrainz"
+    archive.mkdir()
+    discogs = tmp_path / "discogs"
+    discogs.mkdir()
+
+    def download(url):
+        calls.append(url)
+        if url.startswith("https://coverartarchive.org") and len(calls) > 1:
+            raise urllib.error.HTTPError(url, 404, "missing", None, None)
+        return _cover_image("red")
+
+    monkeypatch.setattr(cover_art, "_download", download)
+    monkeypatch.setattr(cover_art.discogs_readonly, "configured", lambda: True)
+    monkeypatch.setattr(cover_art, "fetch_json", lambda request: {
+        "id": RELEASE,
+        "relations": [{"type": "discogs", "url": {"resource": "https://www.discogs.com/release/42"}}],
+    })
+    monkeypatch.setattr(cover_art.discogs_readonly, "_get", lambda path: {
+        "id": 42, "formats": [{"name": "CD"}],
+        "images": [{"type": "primary", "uri": "https://i.discogs.com/front.jpg"}],
+    })
+
+    assert cover_art.select(archive, RELEASE, "auto")[0]["provider"] == "musicbrainz"
+    assert calls == [f"https://coverartarchive.org/release/{RELEASE}/front-1200"]
+    info, _ = cover_art.select(discogs, RELEASE, "auto")
+    assert info["provider"] == "discogs"
+    assert info["source"] == "https://www.discogs.com/release/42"
+    assert calls[-3:] == [
+        f"https://coverartarchive.org/release/{RELEASE}/front-1200",
+        f"https://coverartarchive.org/release/{RELEASE}/front",
+        "https://i.discogs.com/front.jpg",
+    ]
+    assert cover_art.select(discogs, RELEASE, "auto")[0] == info
+    assert len(calls) == 4

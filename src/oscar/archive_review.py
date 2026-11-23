@@ -366,11 +366,16 @@ def cover_preview(release_id, *, opener=None):
         return {"status": "unavailable", "note": "Cover Art Archive could not be reached; no cover inferred."}
 
 
+def original_preview(root, copy_id, kind, preview):
+    source_copy = copy_id if kind == "original_tags" else preview["source_copy_id"]
+    if not isinstance(source_copy, str) or not _COPY_ID.fullmatch(source_copy):
+        raise ReviewError("Missing original tagged copy ID")
+    return _json_file(root / ("metadata-copy-" + source_copy), "metadata-preview.json")
+
+
 def review(job_id, copy_id, kind="classical_v2", *, profile="auto", artwork=True, cover_lookup=cover_preview):
     root, folder, preview, manifest, tracks = _load(job_id, copy_id, kind)
-    original = _json_file(root / ("metadata-copy-" +
-                          (copy_id if kind == "original_tags" else preview["source_copy_id"])),
-                          "metadata-preview.json")
+    original = original_preview(root, copy_id, kind, preview)
     album = original.get("album") or {}
     release_id = original.get("release_id")
     if not RELEASE_ID.fullmatch(str(release_id or "")):

@@ -19,12 +19,11 @@ import stat
 import subprocess
 import threading
 import time
-import urllib.request
 import uuid
 
-from mutagen.flac import FLAC
+from mutagen.flac import FLAC, Picture
 
-from oscar import archive_review, ctdb_verification, edition_provenance, verification
+from oscar import archive_review, cover_art, ctdb_verification, edition_provenance, verification
 from oscar.archive_naming import safe_component
 from oscar.metadata_staging import _COPY_ID, _streaminfo_md5_hex
 from oscar.pressing_evidence import observed_matrix
@@ -32,7 +31,6 @@ from oscar.pressing_evidence import observed_matrix
 _LOCK = threading.RLock()
 _JOBS = {}
 _RUNNING = set()
-_MAX_COVER = 8 * 1024 * 1024
 _CONFIRM = "PUBLISH_REVIEWED_ARCHIVE"
 
 
@@ -220,6 +218,11 @@ def prepare(job_id, copy_id, kind="original_tags", profile="auto",
         provenance["ctdb"] = result
     if matrix := observed_matrix(review["album"].get("matrix_runout")):
         provenance["physical_matrix_runout"] = {"value": matrix, "source": "operator_transcription"}
+    if include_cover:
+        selected = cover_art.load(tagged_folder, review["release_id"])
+        if not selected:
+            raise PublishError("Load or upload a cover before previewing publication")
+        provenance["artwork"] = selected[0]
     cue = review["cue"]["archive_cue_proposal"]
     referenced = [match.group(1) for line in cue.splitlines()
                   if (match := archive_review._CUEFILE.match(line))]
@@ -245,7 +248,7 @@ def prepare(job_id, copy_id, kind="original_tags", profile="auto",
             "notes": [
                 "Physical edition, CUE, cover and metadata exceptions require explicit operator review.",
                 "This proposal does not rename, move or modify the original ripped or tagged staging files.",
-                "Artwork is downloaded only if separately approved, and is never automatically embedded in FLACs.",
+                "The selected cover is embedded in the published FLAC copies and saved as folder.jpg.",
             ]}
     fingerprint_input = {k: v for k, v in plan.items()
                          if k not in {"output_exists", "notes"}}
@@ -305,7 +308,7 @@ def _source_type(plan):
     return "HYBRID_REPAIRED_CD_RIP" if plan["provenance"]["recovery"] else "PHYSICAL_CD_RIP"
 
 
-def render_sources(plan, release_match_status):
+def render_sources(plan, release_match_status, *, published_files=None):
     """Render the same provenance text for Go review and archive publication."""
     provenance = plan["provenance"]
     recovery = provenance["recovery"]
@@ -339,8 +342,10 @@ def render_sources(plan, release_match_status):
         lines.append(f"Genre metadata source: {album['genre_source']}")
         if genre_source_url := provenance.get("genre_source_url"):
             lines.append(f"Genre source release: {genre_source_url}")
-    if plan["include_cover"]:
-        lines.append(f"Cover art source: https://coverartarchive.org/release/{plan['release_id']}/front")
+    if cover := provenance.get("artwork"):
+        lines.append("Front cover: " + (cover["source"] or "User upload") +
+                     " · folder.jpg and FLAC PICTURE blocks")
+        lines.append("Front cover SHA-256: " + cover["sha256"])
     if searches := provenance.get("edition_search"):
         lines.extend(edition_provenance.render(searches))
     lines.extend(["", "[Audio extraction]", f"Staging rip job: {plan['job_id']}"])
@@ -367,6 +372,7 @@ def render_sources(plan, release_match_status):
         lines.append(f"AccurateRip coverage: {provenance['accuraterip_coverage']}")
     lines.extend(["Archive checks: FLAC decode, file SHA-256, STREAMINFO audio MD5 and CUE references.",
                   "", "[Track sources]"])
+    final_hashes = {item["track"]: item["sha256"] for item in published_files or ()}
     for item in plan["tracks"]:
         number = item["number"]
         lines.append(f"Disc {disc:02d} / Track {number:02d} — {item['filename']}")
@@ -393,7 +399,10 @@ def render_sources(plan, release_match_status):
             confidence = match.get("confidence")
             suffix = f" (confidence {confidence})" if confidence is not None else ""
             lines.append(f"  AccurateRip {version}: {match['status'].replace('_', ' ')}{suffix}")
-        lines.append(f"  Published FLAC SHA-256: {item['expected_sha256']}")
+        if plan["include_cover"] and number not in final_hashes:
+            lines.append(f"  Tagged staging FLAC SHA-256: {item['expected_sha256']}")
+        else:
+            lines.append(f"  Published FLAC SHA-256: {final_hashes.get(number, item['expected_sha256'])}")
     lines.extend(["", "[Archived evidence]", "album.cue — CUE with published file names",
                   "manifest.json — archive file hashes and provenance"])
     for item in plan["source_evidence"]:
@@ -459,33 +468,25 @@ def _copy_source_evidence(job_id, entries, temp):
     return output
 
 
-def _cover(release_id, target, *, opener=None):
-    """Fetch only front art for the exactly selected release, after approval."""
-    url = f"https://coverartarchive.org/release/{release_id}/front"
-    req = urllib.request.Request(url, headers={"User-Agent": "OSCAR/0.1 (reviewed archive artwork)"})
-    with (opener or urllib.request.urlopen)(req, timeout=15) as response:
-        length = response.headers.get("Content-Length")
-        if length and int(length) > _MAX_COVER:
-            raise PublishError("Cover art exceeds size limit")
-        raw = response.read(_MAX_COVER + 1)
-        if len(raw) > _MAX_COVER:
-            raise PublishError("Cover art exceeds size limit")
-    if raw.startswith(b"\xff\xd8\xff"):
-        extension = "jpg"
-    elif raw.startswith(b"\x89PNG\r\n\x1a\n"):
-        extension = "png"
-    else:
-        raise PublishError("Cover Art Archive did not return a supported JPEG/PNG")
-    dest = target / f"cover.{extension}"
-    with dest.open("xb") as out:
-        out.write(raw)
-        out.flush()
-        os.fsync(out.fileno())
-    return {"filename": dest.name, "sha256": _hash(dest), "source": url,
-            "reviewed_physical_front": True}
+def _embed_front(target, selected, raw):
+    flac = FLAC(target)
+    retained = [picture for picture in flac.pictures if picture.type != 3]
+    flac.clear_pictures()
+    for picture in retained:
+        flac.add_picture(picture)
+    front = Picture()
+    front.type = 3
+    front.mime = "image/jpeg"
+    front.width, front.height = selected["width"], selected["height"]
+    front.depth = 24
+    front.data = raw
+    flac.add_picture(front)
+    flac.save()
+    with target.open("rb") as output:
+        os.fsync(output.fileno())
 
 
-def _do_publish(plan, publish_id, *, allow_metadata_observations, cover_download=None):
+def _do_publish(plan, publish_id, *, allow_metadata_observations):
     job_id, copy_id, kind = plan["job_id"], plan["copy_id"], plan["kind"]
     new_plan = prepare(job_id, copy_id, kind, plan["profile_request"],
                        include_cover=plan["include_cover"])
@@ -516,6 +517,18 @@ def _do_publish(plan, publish_id, *, allow_metadata_observations, cover_download
             source_job = verification._safe_job(job_id)
             prefix = "metadata-copy-" if kind == "original_tags" else "metadata-v2-"
             source_folder = source_job / (prefix + copy_id)
+            artwork = new_plan["provenance"].get("artwork")
+            cover = None
+            if artwork:
+                selected = cover_art.load(source_folder, new_plan["release_id"])
+                if not selected or selected[0] != artwork:
+                    raise PublishError("Cover selection changed; review the archive preview again")
+                _, cover = selected
+                with (temp / "folder.jpg").open("xb") as output:
+                    output.write(cover)
+                    output.flush()
+                    os.fsync(output.fileno())
+                artwork = {**artwork, "embedded_in_flacs": True}
             published = []
             for entry in new_plan["tracks"]:
                 source = source_folder / entry["source"]
@@ -531,16 +544,24 @@ def _do_publish(plan, publish_id, *, allow_metadata_observations, cover_download
                     shutil.copyfileobj(src, dst, length=1024 * 1024)
                     dst.flush()
                     os.fsync(dst.fileno())
+                if _hash(target) != entry["expected_sha256"]:
+                    raise PublishError("Archive FLAC differs from tagged staging copy")
+                if cover is not None:
+                    _embed_front(target, artwork, cover)
                 result = subprocess.run(["flac", "-t", "--silent", str(target)],
                                         capture_output=True, timeout=180, check=False)
                 if result.returncode:
                     raise PublishError(f"FLAC decode failed for track {entry['number']}")
-                if _hash(target) != entry["expected_sha256"]:
-                    raise PublishError("Archive FLAC differs from tagged staging copy")
-                if _streaminfo_md5_hex(FLAC(str(target)).info.md5_signature) != entry["audio_md5"]:
+                archived = FLAC(str(target))
+                if _streaminfo_md5_hex(archived.info.md5_signature) != entry["audio_md5"]:
                     raise PublishError("Archive FLAC audio MD5 differs")
+                if cover is not None:
+                    if archived.tags != original.tags:
+                        raise PublishError("FLAC tags changed while embedding the front cover")
+                    if [p.data for p in archived.pictures if p.type == 3] != [cover]:
+                        raise PublishError("Embedded front cover differs from reviewed folder.jpg")
                 published.append({"track": entry["number"], "filename": entry["filename"],
-                                  "sha256": entry["expected_sha256"],
+                                  "sha256": _hash(target) if cover is not None else entry["expected_sha256"],
                                   "streaminfo_audio_md5": entry["audio_md5"]})
             cue_path = temp / "album.cue"
             with cue_path.open("x", encoding="utf-8") as out:
@@ -555,10 +576,9 @@ def _do_publish(plan, publish_id, *, allow_metadata_observations, cover_download
             if not all((temp / name).is_file() for name in cue_names):
                 raise PublishError("Published CUE references missing FLAC files")
             evidence_copies = _copy_source_evidence(job_id, new_plan["source_evidence"], temp)
-            artwork = (cover_download or _cover)(new_plan["release_id"], temp) if new_plan["include_cover"] else None
             release_match_status = plan.get("_release_match_status") or "EDITION_NOT_VERIFIED"
             with (temp / "SOURCES.txt").open("x", encoding="utf-8") as out:
-                out.write(render_sources(new_plan, release_match_status))
+                out.write(render_sources(new_plan, release_match_status, published_files=published))
                 out.flush()
                 os.fsync(out.fileno())
             manifest = {
