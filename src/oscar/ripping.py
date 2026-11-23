@@ -290,7 +290,7 @@ def _snapshot(job):
     return {key: value for key, value in job.items()
             if key in ("id", "stable_id", "disc_id", "status", "created_at",
                        "started_at", "finished_at", "returncode", "flac_count",
-                       "warning", "error", "files_sha256", "selected_tracks")}
+                       "warning", "error", "files_sha256", "selected_tracks", "ctdb_automatic")}
 
 
 def _run(job, device, offset, workdir, runner, on_completed=None):
@@ -345,11 +345,13 @@ def _run(job, device, offset, workdir, runner, on_completed=None):
         job["flac_count"] = len(hashes)
         job["files_sha256"] = hashes
         job["status"] = "partial_diagnostic" if job.get("selected_tracks") else "needs_verification"
+        if job["status"] == "needs_verification":
+            job["ctdb_automatic"] = True
         job["warning"] = (
             "Selected-track diagnostic ONLY, not eligible for full-CD verification or Go publication."
             if job.get("selected_tracks") else
             "Files have SHA-256 hashes, NOT independent audio verification. "
-            "Review cyanrip's log and AccurateRip results manually; CTDB not integrated.")
+            "After extraction OSCAR runs CTDB separately from cyanrip’s AccurateRip results.")
     except subprocess.TimeoutExpired:
         stopped = job["id"] in _STOP_REQUESTED
         job["status"] = "interrupted" if stopped else "failed"
@@ -377,18 +379,21 @@ def _run(job, device, offset, workdir, runner, on_completed=None):
             except Exception:
                 # Diagnostics must never affect ripping success or preserve-state writes.
                 pass
-            if on_completed is not None:
-                try:
-                    on_completed(_snapshot(job))
-                except Exception:
-                    # A post-rip callback must never change a successful
-                    # extraction into an apparent rip failure or alter audio.
-                    pass
         finally:
             with _LOCK:
                 _STOP_REQUESTED.discard(job["id"])
                 _PROCESSES.pop(job["id"], None)
                 _ACTIVE.discard(job["stable_id"])
+
+    if job.get("ctdb_automatic"):
+        from oscar import ctdb_verification
+        ctdb_verification.automatic(job["id"], workdir)
+    if on_completed is not None:
+        try:
+            on_completed(_snapshot(job))
+        except Exception:
+            # Callbacks must never alter the extraction verdict or staged audio.
+            pass
 
 
 def plan(stable_id, selected_tracks=None):

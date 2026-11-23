@@ -88,6 +88,44 @@ def test_only_new_folder_receives_rip_and_hashes(sandbox):
     assert (folders[0]/"state.json").exists()
 
 
+@pytest.mark.parametrize("lookup_fails", [False, True])
+def test_ctdb_runs_automatically_after_full_rip(sandbox, monkeypatch, lookup_fails):
+    from threading import Event
+    from oscar import ctdb_verification
+
+    monkeypatch.setenv("OSCAR_CTDB_EXECUTABLE", "/opt/ctdb/ctdb-cli")
+    completed = Event()
+    calls = []
+
+    def extract(args, *, cwd, **kwargs):
+        audio = Path(cwd) / "audio"
+        audio.mkdir()
+        (audio / "01 - Test.flac").write_bytes(b"saved staged tracks")
+        (audio / "disc.cue").write_text(
+            'FILE "01 - Test.flac" WAVE\n TRACK 01 AUDIO\n INDEX 01 00:00:00\n')
+        return SimpleNamespace(returncode=0)
+
+    def ctdb(args, **kwargs):
+        calls.append(args)
+        assert STABLE not in ripping._ACTIVE
+        if lookup_fails:
+            raise subprocess.TimeoutExpired(args, 180)
+        return SimpleNamespace(returncode=0, stderr=b"", stdout=(
+            f'<ctdb xmlns="{ctdb_verification._NAMESPACE}"><verify_result xmlns=""'
+            ' status="found" confidence="2" total_entries="3"/></ctdb>').encode())
+
+    monkeypatch.setattr(ctdb_verification.subprocess, "run", ctdb)
+    job = ripping.start(STABLE, runner=extract, on_completed=lambda _: completed.set())
+    assert completed.wait(3)
+    directory = sandbox / ("oscar-" + job["id"])
+    evidence, _ = ctdb_verification.saved_evidence(job["id"], directory)
+    assert evidence["trigger"] == "automatic"
+    assert evidence["status"] == ("lookup_failed" if lookup_fails else "matched")
+    assert ripping.status(job["id"])["status"] == "needs_verification"
+    ctdb_verification.automatic(job["id"], directory)
+    assert len(calls) == 1
+
+
 def test_nonzero_exit_never_claims_verified(sandbox):
     job=ripping.start(STABLE,runner=lambda *a,**k:SimpleNamespace(returncode=2))
     for _ in range(100):

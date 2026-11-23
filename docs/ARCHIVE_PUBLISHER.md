@@ -24,11 +24,13 @@ The **Edition search** section records saved lookup evidence for the disc and Mu
 
 - A regular rip uses `PHYSICAL_CD_RIP` and attributes its saved AccurateRip results to cyanrip.
 - A Track Recovery publication uses `HYBRID_REPAIRED_CD_RIP`. Each row identifies the source job and file and records the identical raw-source and recovery-copy SHA-256. The verification section attributes the saved v1/v2 results to the independent `trackverify -R` run. `ExtractionEvidence/` contains the recovery source map, saved verification report and available verifier transcript.
-- Publication checks the archived FLACs and CUE references against the reviewed staging inputs. OSCAR does not run another AccurateRip or CTDB lookup during publication. Physical edition identification requires separate evidence.
+- Publication checks the archived FLACs and CUE references against the reviewed staging inputs. Publication uses saved verification evidence. For a new rip interrupted before its automatic CTDB check, archive preparation can complete the pending attempt. Physical edition identification requires separate evidence.
 
 For Unraid acceptance, open the recovered Mahler/Bernstein Disc 11 in Go! Archive Review and expand **Proposed SOURCES.txt**. Expect 16 tracks from the original full-disc job and **Disc 11 / Track 07** from the replacement diagnostic job, with v1/v2 results and both source and published file hashes. If publishing to a test archive, compare the resulting text with the preview and confirm the archived recovery evidence matches the saved staging records.
 
 ## Independent CTDB evidence and Discogs pressing comparison
+
+After each successful full-disc rip, OSCAR automatically runs independent CTDB verification on the saved FLACs and eligible CUE. This also runs when cyanrip has no positive AccurateRip result. CTDB evidence does not change the existing AccurateRip-based publication policy. The optical drive is released before the check. Match confidence, no audio match, disc not found and lookup failure are separate outcomes. Review shows the saved outcome. The archive preview and final publication report it in `SOURCES.txt`, with the same result in `manifest.json` and the hash-bound `ctdb-report.json` in extraction evidence.
 
 In **Review → Advanced tools → Staging verification**, enter the complete staged rip job ID and select **Verify this staged disc against CTDB**. OSCAR checks the ordered cue and saved input hashes, then runs `ctdb-cli --xml verify` against the existing FLACs. A match reports database confidence, separate from the AccurateRip evidence. No database entry, no audio match, and lookup failure have distinct outcomes. Verification never submits a rip or applies repairs. CTDB requires a complete supported CUE and does not change archive or Track Recovery approval rules.
 

@@ -261,7 +261,7 @@ def _verify(directory, job_id, runner=subprocess.run):
             "An absent AccurateRip version does not negate a positive match in another version; any explicitly negative version still requires review.",
             "Check accuraterip_coverage and single_version_tracks. Confidence reflects reported reference matches; no unverified database entries were inferred.",
             "FLAC -t validates each encoded stream; saved SHA-256 checks detect changes since extraction.",
-            "No CTDB verification; no archive publication or automatic cleanup.",
+            "CTDB is checked separately from this report. No archive publication or automatic cleanup.",
             "A passing report never authorizes publishing or deleting staged audio."
         ],
     }
@@ -277,7 +277,15 @@ def report(job_id):
     if running:
         return {"job_id": job_id, "status": "running"}
     if destination.is_file():
-        return json.loads(destination.read_text(encoding="utf-8"))
+        result = json.loads(destination.read_text(encoding="utf-8"))
+        from oscar import ctdb_verification
+        try:
+            ctdb = ctdb_verification.saved_evidence(job_id, directory)
+        except (ripping.RipError, OSError, ValueError):
+            ctdb = None
+        if ctdb:
+            result["ctdb"] = ctdb[0]
+        return result
     return {"job_id": job_id, "status": "not_started"}
 
 
@@ -297,6 +305,8 @@ def start(job_id):
         _RUNNING.add(job_id)
     def work():
         try:
+            from oscar import ctdb_verification
+            ctdb_verification.automatic(job_id, directory)
             result = _verify(directory, job_id)
         except Exception as exc:
             result = {"job_id": job_id, "status": "review_required",
