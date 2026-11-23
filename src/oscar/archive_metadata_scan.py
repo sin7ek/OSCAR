@@ -8,7 +8,7 @@ import hashlib
 import json
 import re
 import sqlite3
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 from mutagen.flac import FLAC
@@ -152,6 +152,17 @@ def _existing_label_values(tags):
     return standard or legacy
 
 
+def _release_year(value):
+    """Return the year of a valid full or partial MusicBrainz release date."""
+    if not isinstance(value, str) or not re.fullmatch(r"[0-9]{4}(?:-[0-9]{2}){0,2}", value):
+        return ""
+    try:
+        date.fromisoformat(value + "-01" * (2 - value.count("-")))
+    except ValueError:
+        return ""
+    return value[:4]
+
+
 def _fresh_values(snapshot, lookup):
     result = lookup(snapshot["release_id"], snapshot["disc_id"], len(snapshot["tracks"]))
     if result.get("release_id", "").lower() != snapshot["release_id"].lower():
@@ -187,6 +198,17 @@ def _fresh_values(snapshot, lookup):
          [result["barcode"]] if result.get("barcode") else []),
         ("release", 0, "GENRE", genre_values[0], provider_genres),
     ]
+    release_date, country = result.get("date"), result.get("country")
+    for field, value in (
+        ("DATE", release_date if _release_year(release_date) else None),
+        ("RELEASECOUNTRY", country if isinstance(country, str) and re.fullmatch(r"[A-Z]{2}", country) else None),
+    ):
+        if value is None:
+            continue
+        existing = [_canonical(track["tags"].get(field, [])) for track in snapshot["tracks"]]
+        if any(values != existing[0] for values in existing[1:]):
+            raise ScanError(f"Inconsistent {field} tags across archived tracks; manual review required")
+        candidates.append(("release", 0, field, existing[0], [value]))
     for index, (archived, external) in enumerate(zip(snapshot["tracks"], tracks), 1):
         if external.get("position") != index:
             raise ScanError("MusicBrainz track position mismatch")

@@ -26,7 +26,8 @@ from oscar import archive_publish, collection_catalog as catalog
 from oscar.archive_naming import safe_component
 from oscar.metadata_staging import _streaminfo_md5_hex
 
-_ALLOWED_FIELDS = {"CATALOGNUMBER", "LABEL", "BARCODE", "TITLE", "ARTIST", "GENRE"}
+_RELEASE_FIELDS = {"CATALOGNUMBER", "LABEL", "BARCODE", "GENRE", "DATE", "RELEASECOUNTRY"}
+_TRACK_FIELDS = {"TITLE", "ARTIST"}
 _CONFIRM = "APPLY_VERIFIED_ARCHIVE_REVISION"
 _WORKER_LOCK = threading.Lock()
 _RUNNING = set()
@@ -81,6 +82,13 @@ def _assert_opt_in():
         raise RevisionError("Archive revisions disabled: set OSCAR_ENABLE_ARCHIVE_REVISIONS=1 after review")
 
 
+def _reviewed_year(dates):
+    year = scanner._release_year(dates[0][0]) if len(dates) == 1 and len(dates[0]) == 1 else ""
+    if not year:
+        raise RevisionError("Archive folder naming requires exactly one valid reviewed release date")
+    return year
+
+
 def _plan(archive_path, *, lookup=None):
     snapshot = scanner._archive_snapshot(archive_path)
     root = catalog.archive_root()
@@ -114,7 +122,7 @@ def _plan(archive_path, *, lookup=None):
         if (row["archive_revision"] != snapshot["manifest_sha256"]
                 or row["publish_id"] != snapshot["publish_id"]
                 or row["release_id"] != snapshot["release_id"]
-                or row["field"] not in _ALLOWED_FIELDS):
+                or row["field"] not in _RELEASE_FIELDS | _TRACK_FIELDS):
             raise RevisionError("Accepted proposal is stale or not supported by archive revision v1")
         before, after = json.loads(row["before_json"]), json.loads(row["after_json"])
         matches = [
@@ -126,9 +134,9 @@ def _plan(archive_path, *, lookup=None):
         ]
         if len(matches) != 1 or not isinstance(after, list) or not after:
             raise RevisionError("Accepted metadata differs from current MusicBrainz; rescan and review")
-        if row["scope"] == "release" and row["field"] not in {"CATALOGNUMBER", "LABEL", "BARCODE", "GENRE"}:
+        if row["scope"] == "release" and row["field"] not in _RELEASE_FIELDS:
             raise RevisionError("Unsupported release-scope metadata change")
-        if row["scope"] == "track" and (row["field"] not in {"TITLE", "ARTIST"}
+        if row["scope"] == "track" and (row["field"] not in _TRACK_FIELDS
                 or not 1 <= row["track"] <= len(snapshot["tracks"])):
             raise RevisionError("Unsupported track-scope metadata change")
         accepted.append({
@@ -156,12 +164,14 @@ def _plan(archive_path, *, lookup=None):
     if len(label_values) > 1:
         raise RevisionError("Conflicting label proposals")
     target_label = "; ".join(label_values[0]) if label_values else ""
-    year = f" ({parsed['year']})" if parsed["year"] else ""
+    dates = [item["after"] for item in accepted if item["field"] == "DATE"]
+    desired_year = _reviewed_year(dates) if dates else parsed["year"]
+    year = f" ({desired_year})" if desired_year else ""
     album_name = ((f"[{desired_catalog}] " if desired_catalog else "") +
                   parsed["title"] + year + " [" + snapshot["release_id"].split("-")[0] + "]")
     destination = root / album_path.parent.name / album_name
     if destination != album_path and (destination.exists() or destination.is_symlink()):
-        raise RevisionError("Proposed catalog-based destination already exists: refusing collision")
+        raise RevisionError("Proposed archive destination already exists: refusing collision")
     plan_core = {
         "source_path": snapshot["path"], "dest_path": str(destination),
         "original_manifest_sha256": snapshot["manifest_sha256"],
@@ -349,15 +359,16 @@ def _finalize(db, row, *, snapshot_verified=True):
         )
     elif db.execute("SELECT 1 FROM archive_items WHERE archive_path=?", (dest,)).fetchone() is None:
         raise RevisionError("Neither old nor new Collection archive entry exists")
-    # The journal's durable approved proposal fingerprints, rather than a
-    # mutable provider response, determine the Collection genre update.
-    # Keep genre navigation index in sync with the newly published FLACs.
-    genre_proposals = db.execute(
+    # Keep Collection in sync using the approved values pinned in the journal.
+    proposals = db.execute(
         "SELECT field,after_json FROM metadata_proposals "
         "WHERE fingerprint IN (" + ",".join("?" for _ in fingerprints) + ")",
         tuple(fingerprints),
     ).fetchall()
-    selected_genre = [entry for entry in genre_proposals if entry["field"] == "GENRE"]
+    dates = [json.loads(entry["after_json"]) for entry in proposals if entry["field"] == "DATE"]
+    if dates:
+        db.execute("UPDATE archive_items SET year=? WHERE archive_path=?", (_reviewed_year(dates), dest))
+    selected_genre = [entry for entry in proposals if entry["field"] == "GENRE"]
     if len(selected_genre) > 1:
         raise RevisionError("Conflicting genre approvals in archive journal")
     if selected_genre:
