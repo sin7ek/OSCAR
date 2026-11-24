@@ -1660,9 +1660,9 @@ function assertReviewedCover(plan,included,selection){
   throw Error('Cover selection changed. Reopen the archive review.');
  }
 }
-function coverControls(job,copy,kind,headers,onChange=async()=>{},onBusy=()=>{},dataTrack=null){
+function coverControls(job,copy,kind,headers,onChange=async()=>{},onBusy=()=>{},dataTrack=null,dataOnly=false){
  const panel=document.createElement('fieldset');
- panel.append(metadataElement('legend','Cover artwork'));
+ panel.append(metadataElement('legend',dataOnly?'CD-Extra data':'Cover artwork'));
  const photo=document.createElement('img');
  photo.className='oscar-review-cover';photo.alt='Selected front cover';photo.hidden=true;
  const status=metadataElement('p','');status.setAttribute('aria-live','polite');
@@ -1732,6 +1732,11 @@ function coverControls(job,copy,kind,headers,onChange=async()=>{},onBusy=()=>{},
   finally{panel.disabled=false;}
  };
  preserveData.onchange=include.onchange;
+ if(dataOnly){
+  panel.append(status);
+  queueMicrotask(include.onchange);
+  return panel;
+ }
  panel.append(photo,status,credit,
   button('Use MusicBrainz cover',()=>load('musicbrainz')),
   discogs,button('Use Discogs cover',()=>load('discogs')),
@@ -1785,7 +1790,8 @@ document.getElementById('publish-preview').onclick=async()=>{
   const info=document.createElement('p');info.textContent=data.tracks.length+
    ' FLAC files · Disc '+data.disc_number+'/'+data.disc_total+
    ' · Processing '+data.profile+' · '+data.metadata_observations.length+' metadata observations'+
-   (data.output_exists?' · DESTINATION ALREADY EXISTS':'');
+   (data.data_supplement?' · Add CD-Extra data to existing archive':
+    data.output_exists?' · '+(data.destination_block_reason||'Destination already exists'):'');
   plan.append(info);
   const sources=metadataElement('div','');
   const controls=coverControls(job,copy,kind,headers,async (included,selection,includeData)=>{
@@ -1800,12 +1806,14 @@ document.getElementById('publish-preview').onclick=async()=>{
    reviewedArchivePlan={...preview,headers,job,copy,kind,profile,includeCover:included,includeData};
    document.getElementById('publish-cover-approved').checked=false;
    document.getElementById('publish-cover-label').hidden=!included;
-   approval.hidden=Boolean(preview.output_exists)||preview.provenance?.cd_extra_data?.status==='unavailable';
+   approval.hidden=(preview.output_exists&&!preview.data_supplement)||preview.provenance?.cd_extra_data?.status==='unavailable';
+   document.getElementById('publish-start').textContent=preview.data_supplement?
+    'Add CD-Extra data to archive':'Publish reviewed archive';
    sources.replaceChildren(proposedSources(preview.sources_preview));
   },()=>{
    reviewedArchivePlan=null;
    document.getElementById('publish-confirmation').hidden=true;
-  },data.provenance?.cd_extra_data);
+  },data.provenance?.cd_extra_data,data.output_exists&&Boolean(data.provenance?.cd_extra_data));
   plan.append(controls);
   const output=document.createElement('pre');output.className='oscar-review-card';
   output.style.whiteSpace='pre-wrap';output.style.maxHeight='360px';output.style.overflow='auto';
@@ -1833,10 +1841,11 @@ document.getElementById('publish-start').onclick=async()=>{
  const cue=document.getElementById('publish-cue-approved').checked;
  const observations=document.getElementById('publish-observations').checked;
  const cover=document.getElementById('publish-cover-approved').checked;
- if(!physical||!cue||(state.metadata_observations.length&&!observations)||(state.includeCover&&!cover)){
+ if(!state.data_supplement&&(!physical||!cue||(state.metadata_observations.length&&!observations)||(state.includeCover&&!cover))){
   output.textContent='Please review and confirm the physical edition, filenames/CUE, metadata observations and optional cover first.';return
  }
- if(!window.confirm('Publish '+state.tracks.length+' copied FLACs to '+state.relative_directory+'? This creates a new archive folder without modifying originals.'))return;
+ if(!window.confirm(state.data_supplement?'Add the verified CD-Extra data to '+state.relative_directory+'?':
+    'Publish '+state.tracks.length+' copied FLACs to '+state.relative_directory+'?'))return;
  const startButton=document.getElementById('publish-start');startButton.disabled=true;
  output.textContent='Publishing verified copies in a separate archive folder…';
  try{
@@ -1858,7 +1867,8 @@ document.getElementById('publish-start').onclick=async()=>{
     output.textContent='Archive publication '+started.publish_id+': running; no source files are modified.';
     setTimeout(async()=>{try{await poll()}catch(e){output.textContent='Status lookup failed: '+e.message}},3000);
    }else if(data.status==='published_verified'){
-    output.textContent='Archive published and verified: '+data.relative_directory+
+    output.textContent=data.data_supplement?'CD-Extra data added and verified: '+data.relative_directory:
+      'Archive published and verified: '+data.relative_directory+
       ' · '+data.file_count+' FLACs · Original staging preserved. Manifest SHA-256: '+data.manifest_sha256;
     document.getElementById('publish-confirmation').hidden=true;
    }else output.textContent='Publication failed: '+(data.error||'Unknown error')+
@@ -3683,7 +3693,8 @@ async function goAdvance(){
      section.append(warn);
      const path=document.createElement('p');
      path.textContent='Proposed archive destination: '+(p.relative_directory||'(unavailable)')+
-      (p.output_exists?' · ALREADY EXISTS: publishing blocked':'');
+      (p.data_supplement?' · Add CD-Extra data to existing archive':
+       p.output_exists?' · '+(p.destination_block_reason||'Destination already exists'):'');
      section.append(path);
      const profile=document.createElement('p');
      profile.textContent='Processing profile: '+(r.music_profile?.name||'unknown')+
@@ -3738,16 +3749,18 @@ async function goAdvance(){
       coverLabel.hidden=!p.include_cover;
       fingerprint.textContent='Publication fingerprint: '+p.fingerprint;
       sources.replaceChildren(proposedSources(preview.sources_preview));
-      approval.disabled=p.output_exists||p.include_cover||dataUnavailable();
-     },()=>{approval.disabled=true;coverLabel.hidden=true;coverApproval.checked=false;},p.provenance?.cd_extra_data);
+      approval.textContent=p.data_supplement?'Add CD-Extra data to archive':'Approve reviewed archive publication';
+      approval.disabled=!preview.can_publish||p.include_cover||dataUnavailable();
+     },()=>{approval.disabled=true;coverLabel.hidden=true;coverApproval.checked=false;},p.provenance?.cd_extra_data,
+      p.output_exists&&Boolean(p.provenance?.cd_extra_data));
      section.append(controls,coverLabel,sources,fingerprint,approval);
      approval.onclick=async()=>{
-      const confirmation=window.confirm(
+      const confirmation=window.confirm(p.data_supplement?'Add the verified CD-Extra data to '+p.relative_directory+'?':
        'Confirm this exact inferred MusicBrainz release, actual tags, CUE and destination for permanent archive publication? The physical edition is NOT verified by OSCAR. No original files are removed.');
       if(!confirmation)return;
-      const acknowledge=observations.length>0 && window.confirm(
+      const acknowledge=!p.data_supplement&&observations.length>0 && window.confirm(
        'The metadata consistency review flagged '+observations.length+' observations. Acknowledge and publish anyway?');
-      if(observations.length&&!acknowledge)return;
+      if(!p.data_supplement&&observations.length&&!acknowledge)return;
       const headers=requestAuthHeaders('Publish reviewed Go archive');if(!headers)return;
       approval.disabled=true;
       try{
