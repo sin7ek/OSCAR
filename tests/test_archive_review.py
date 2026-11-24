@@ -375,6 +375,27 @@ def publishable(staged, tmp_path, monkeypatch):
     return staged, original, archive, original_hashes
 
 
+@pytest.mark.parametrize("filename", ["folder.jpg", "cover.jpg", "cover.png"])
+def test_cleanup_validates_artwork_filename_from_manifest(tmp_path, monkeypatch, filename):
+    from oscar import cleanup
+
+    monkeypatch.setattr(cleanup.archive_audit, "audit_release",
+                        lambda path: {"status": "PASS", "warnings": []})
+    cover = tmp_path / filename
+    cover.write_bytes(b"published artwork")
+    manifest = {"artwork": {"filename": filename, "sha256": hashlib.sha256(cover.read_bytes()).hexdigest()}}
+    cleanup._verify_archive(tmp_path, manifest)
+    cover.write_bytes(b"different artwork")
+    with pytest.raises(ValueError, match="artwork differs"):
+        cleanup._verify_archive(tmp_path, manifest)
+    cover.unlink()
+    with pytest.raises(ValueError, match="artwork is missing"):
+        cleanup._verify_archive(tmp_path, manifest)
+    manifest["artwork"]["filename"] = "../cover.jpg"
+    with pytest.raises(ValueError, match="no supported artwork filename"):
+        cleanup._verify_archive(tmp_path, manifest)
+
+
 def test_cleanup_rechecks_staging_and_preserves_active_archive(publishable, monkeypatch, tmp_path):
     from oscar import cleanup
 
