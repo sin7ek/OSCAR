@@ -3705,6 +3705,9 @@ async function goAdvance(){
       'No automatic metadata consistency warnings (not proof of correctness).';
      section.append(issues);
      const cueTitle=document.createElement('h4');cueTitle.textContent='Proposed archive CUE';section.append(cueTitle);
+     if(r.cue?.excluded_data_track){
+      section.append(metadataElement('p',r.cue.note));
+     }
      const cue=document.createElement('pre');cue.textContent=r.cue?.archive_cue_proposal||'No CUE proposal';section.append(cue);
      const sources=metadataElement('div','');
      const fingerprint=metadataElement('p','');

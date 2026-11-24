@@ -226,6 +226,8 @@ def prepare(job_id, copy_id, kind="original_tags", profile="auto",
             raise PublishError("Load or upload a cover before previewing publication")
         provenance["artwork"] = selected[0]
     cue = review["cue"]["archive_cue_proposal"]
+    if excluded := review["cue"].get("excluded_data_track"):
+        provenance["excluded_data_track"] = excluded
     referenced = [match.group(1) for line in cue.splitlines()
                   if (match := archive_review._CUEFILE.match(line))]
     if referenced != names:
@@ -352,6 +354,8 @@ def render_sources(plan, release_match_status, *, published_files=None):
     if searches := provenance.get("edition_search"):
         lines.extend(edition_provenance.render(searches))
     lines.extend(["", "[Audio extraction]", f"Staging rip job: {plan['job_id']}"])
+    if data_track := provenance.get("excluded_data_track"):
+        lines.append(f"CD-Extra data track {data_track}: outside the audio archive; full original CUE retained in ExtractionEvidence")
     if recovery:
         lines.extend([
             f"Original full-disc rip job: {recovery['original_job_id']}",
