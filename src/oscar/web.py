@@ -464,18 +464,9 @@ async function refreshCleanup(verify=false){
     };
    }
    if(item.operation_id){
-    addGoAction(row,'Verify & Clean retained revision',async()=>{
-     try{
-      const post={method:'POST',headers:{'Content-Type':'application/json'}};
-      const evidence=await reviewRequest('/api/collection/archive-revisions/verify',headers,
-       {...post,body:JSON.stringify({operation_id:item.operation_id})});
-      if(!evidence.verification_fingerprint)throw Error(evidence.warning||'Revision is protected by its publication history');
-      if(window.confirm('Permanently delete this retained revision? Confirm you have a tested external recovery backup.')){
-       await action('/api/collection/archive-revisions/clean',{operation_id:item.operation_id,
-        verification_fingerprint:evidence.verification_fingerprint,external_backup_confirmed:true,
-        confirmation:'PERMANENTLY_DELETE_VERIFIED_ORIGINAL_VERSION'},'Retained revision removed');
-      }
-     }catch(error){status.textContent=error.message}
+    addRetainedRevisionActions(row,item,headers,result.history_cleanup_enabled,()=>{
+     result.items=result.items.filter(entry=>entry.path!==item.path);
+     renderDangerCleanup(result.items,headers);
     });
    }
    items.append(row);
@@ -499,7 +490,7 @@ async function refreshCleanup(verify=false){
   }
   remove.onclick=async()=>{
    const selection=[...cleanupSelection.values()];
-   if(!selection.length||!window.confirm('Permanently delete '+selection.length+' selected copies?'))return;
+   if(cleanupBusy||!selection.length||!window.confirm('Permanently delete '+selection.length+' selected copies?'))return;
    remove.disabled=true;
    try{
     const response=await reviewRequest('/api/cleanup/remove',headers,{method:'POST',
@@ -516,8 +507,69 @@ async function refreshCleanup(verify=false){
  }catch(error){status.textContent=error.message}
  finally{cleanupBusy=false}
 }
+function addRetainedRevisionActions(row,item,headers,cleanupEnabled,onRemoved){
+ const feedback=metadataElement('p','');
+ feedback.setAttribute('role','status');
+ let receipt=null;
+ function revisionRequest(action,body){
+  return reviewRequest('/api/collection/archive-revisions/'+action,headers,{
+   method:'POST',headers:{'Content-Type':'application/json'},
+   body:JSON.stringify({operation_id:item.operation_id,...body})
+  });
+ }
+ const verify=addGoAction(row,'Verify retained revision',async()=>{
+  if(cleanupBusy)return;
+  cleanupBusy=true;
+  verify.disabled=true;clean.hidden=true;receipt=null;
+  feedback.textContent='Verifying both archive versions. Checking FLACs and publication evidence…';
+  try{
+   const report=await revisionRequest('verify',{});
+   feedback.textContent='Verified '+report.revised_flacs_verified+' revised and '+
+    report.original_flacs_verified+' retained FLACs. CUE, publication evidence and Collection passed.';
+   if(!report.cleanup_eligible){
+    feedback.textContent+=' '+report.note;
+   }else if(!cleanupEnabled){
+    feedback.textContent+=' Verified cleanup is disabled (OSCAR_ENABLE_ARCHIVE_HISTORY_CLEANUP).';
+   }else{
+    receipt=report.verification_fingerprint;
+    clean.hidden=false;
+   }
+  }catch(error){
+   feedback.textContent='Verification failed. '+error.message;
+  }finally{
+   verify.disabled=false;
+   cleanupBusy=false;
+  }
+ });
+ const clean=addGoAction(row,'Delete verified retained revision',async()=>{
+  if(cleanupBusy||!receipt)return;
+  if(!window.confirm('Permanently delete '+item.path+'? Confirm you have a tested external recovery backup.')){
+   feedback.textContent='Deletion cancelled. The verified revision is still retained.';
+   return;
+  }
+  cleanupBusy=true;
+  verify.disabled=true;clean.hidden=true;
+  feedback.textContent='Rechecking both archive versions before deletion…';
+  try{
+   await revisionRequest('clean',{verification_fingerprint:receipt,
+    external_backup_confirmed:true,confirmation:'PERMANENTLY_DELETE_VERIFIED_ORIGINAL_VERSION'});
+   verify.hidden=true;
+   feedback.textContent='Retained revision deleted.';
+   onRemoved();
+  }catch(error){
+   feedback.textContent='Deletion could not be confirmed. '+error.message;
+  }finally{
+   receipt=null;
+   verify.disabled=false;
+   cleanupBusy=false;
+  }
+ });
+ clean.hidden=true;
+ row.append(feedback);
+}
 function renderDangerCleanup(items,headers){
  dangerList.replaceChildren();
+ dangerDelete.disabled=true;
  const selected=new Set();
  for(const item of items){
   const row=metadataElement('div','');
