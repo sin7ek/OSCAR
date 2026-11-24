@@ -298,6 +298,26 @@ def _locked(archive):
         yield
 
 
+@contextmanager
+def _staging_idle(path, job):
+    from oscar import classical_v2, metadata_staging, track_recovery, verification
+
+    # CTDB can run for a published job independently of the Go! workers.
+    lock = path / ".ctdb.lock"
+    fd = os.open(lock, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK) if lock.exists() else None
+    try:
+        if fd is not None:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        with (ripping._LOCK, verification._LOCK, metadata_staging._LOCK,
+              classical_v2._LOCK, track_recovery._RUN_LOCK, archive_publish._LOCK):
+            if _live_worker(job):
+                raise ValueError("Staging worker started during cleanup")
+            yield
+    finally:
+        if fd is not None:
+            os.close(fd)
+
+
 def remove(items, confirmation):
     if confirmation != CONFIRM:
         raise ValueError("Confirm permanent removal of the selected copies")
@@ -336,7 +356,11 @@ def remove(items, confirmation):
                     event = db.execute(
                         "INSERT INTO cleanup_events(path,target_archive,bytes,status,happened_at) VALUES(?,?,?,?,?)",
                         (str(path), row["archive"], row["bytes"], "prepared", workflow_ledger._now())).lastrowid
-                archive_publish._rename_noreplace(path, tomb)
+                if job:
+                    with _staging_idle(path, job):
+                        archive_publish._rename_noreplace(path, tomb)
+                else:
+                    archive_publish._rename_noreplace(path, tomb)
                 shutil.rmtree(tomb)
                 with workflow_ledger._db() as db:
                     db.execute("UPDATE cleanup_events SET status='removed' WHERE id=?", (event,))
