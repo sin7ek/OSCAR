@@ -1,12 +1,14 @@
 # OSCAR — Development progress dashboard
 
-## Current status — 2026-11-23
+## Current status — 2026-11-24
 
 **Cover artwork:** Go! and Archive Review show a replaceable front cover from the accepted MusicBrainz release, a linked Discogs CD or an operator upload. Explicit publication approval embeds the selected JPEG in each new FLAC and saves `folder.jpg` with provenance in `SOURCES.txt`. Tower artwork acceptance is pending. See [archive publishing](ARCHIVE_PUBLISHER.md).
 
 **Disc ID in Review:** Review opens a job with the reason tagging is paused and the next action. It can prepare MusicBrainz Disc ID links for compatible discs of a multidisc release and check them before continuing tagging in Go!. Tower acceptance remains open for the Leviathan 24/29-track set.
 
-**CTDB on CD-Extra:** The reported Tower CUE has 15 audio tracks and a trailing Mode 1 data track. The audio lengths from the uploaded cyanrip log reproduce the recorded MusicBrainz Disc ID exactly. CTDB now verifies the audio session using a temporary CUE after checking it against the saved TOC. Retry the same staging job on Tower.
+**CTDB on CD-Extra:** Live Machines In Motion lookup proved the audio-only TOC returns HTTP 404 while the full TOC has one CTDB entry with confidence 5. The full physical TOC is reconstructed from the original cyanrip log and checked against the audio CUE. The bundled verifier receives it and checks audio only. Media detection checks TOC track types. Tower checksum and drive-classification acceptance are pending.
+
+**AccurateRip on CD-Extra:** A live full-disc lookup matches all 15 logged v2 CRCs of Machines In Motion at confidence 1. OSCAR independently queries the exact physical TOC when cyanrip could not find a database entry, retaining the saved CRC source and existing integrity gates. Tower verification remains pending.
 
 **CTDB split-file CUE:** Tower reported a 15-track rip with valid FLAC decode and hashes, no reported AccurateRip matches and a CUE rejected before CTDB lookup. The verifier now accepts cyanrip split pregaps using a temporary compatible sheet, preserving original file order and index values. Retry the same staged rip on Tower.
 

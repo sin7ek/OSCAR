@@ -257,6 +257,14 @@ def cue_preview(root, tracks, album_title, album_artist, *, profile="classical")
     if len(cues) != 1:
         return {"status": "needs_review", "reason": "Exactly one original CUE required; no synthetic INDEX or PREGAP generated"}
     original = cues[0].read_text(encoding="utf-8-sig", errors="replace")
+    from oscar.ctdb_verification import _CD_EXTRA_SUFFIX
+    extra = _CD_EXTRA_SUFFIX.search(original)
+    data_track = None
+    if extra and int(extra[1]) == int(extra[2]) == len(tracks) + 1:
+        data_track = int(extra[2])
+        original = original[:extra.start()]
+    if re.search(r'(?im)^\s*TRACK\s+\d+\s+(?!AUDIO\b)\S+', original):
+        return {"status": "needs_review", "reason": "Unsupported non-audio track in the original CUE"}
     lines = original.splitlines()
     referenced = [_CUEFILE.match(line.strip()) for line in lines]
     names = [m.group(1) for m in referenced if m]
@@ -321,7 +329,7 @@ def cue_preview(root, tracks, album_title, album_artist, *, profile="classical")
             renamed.append(line)
     if index != len(proposed) or len(set(proposed)) != len(proposed):
         raise ReviewError("Unable to build distinct archive CUE filename proposal")
-    return {
+    result = {
         "status": "preview_requires_review",
         "text": "\n".join(prefix + out) + "\n",
         "archive_cue_proposal": "\n".join(renamed) + "\n",
@@ -335,6 +343,12 @@ def cue_preview(root, tracks, album_title, album_artist, *, profile="classical")
         "music_profile": profile,
         "note": "Both CUE proposals preserve the original INDEX/PREGAP lines without independent validation. The first points to current staged files; the second names proposed future archive files that do not exist yet. Review before publication.",
     }
+    if data_track:
+        result["excluded_data_track"] = data_track
+        result["note"] = (
+            f"CD-Extra: both CUE proposals describe the audio session only. Data track {data_track} "
+            "remains in staging; the complete original CUE is preserved as extraction evidence.")
+    return result
 
 
 def cover_preview(release_id, *, opener=None):

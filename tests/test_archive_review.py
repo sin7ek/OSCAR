@@ -411,6 +411,27 @@ def test_safe_publisher_writes_verified_new_files_and_preserves_original(publish
                                     allow_metadata_observations=True)
 
 
+def test_cd_extra_publishes_audio_cue_without_dangling_data_track(publishable):
+    job, _, archive, _ = publishable
+    cue = job / "audio" / "original.cue"
+    source = cue.read_text() + (
+        'FILE "03 - Unknown track.bin" BINARY\n'
+        '  TRACK 03 MODE1/2352\n    PREGAP 02:32:00\n    INDEX 01 00:00:00\n')
+    cue.write_text(source)
+    data = job / "audio" / "03 - Unknown track.bin"
+    data.write_bytes(b"data session")
+    plan = archive_publish.prepare(JOB, COPY, "original_tags", profile="standard")
+    assert plan["provenance"]["excluded_data_track"] == 3
+    assert "BINARY" not in plan["cue"]
+    assert plan["cue"].count("INDEX 01") == 2
+    published = archive_publish._do_publish(plan, "c" * 32, allow_metadata_observations=True)
+    destination = archive / published["relative_directory"]
+    assert (destination / "ExtractionEvidence" / "audio" / "original.cue").read_text() == source
+    assert (destination / "album.cue").read_text() == plan["cue"]
+    assert "CD-Extra data track 3: outside the audio archive" in (destination / "SOURCES.txt").read_text()
+    assert data.read_bytes() == b"data session"
+
+
 @pytest.fixture
 def recovered_disc(publishable, monkeypatch):
     job, copy, archive, _ = publishable

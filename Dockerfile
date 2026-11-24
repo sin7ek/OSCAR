@@ -18,11 +18,13 @@ ENV DOTNET_CLI_TELEMETRY_OPTOUT=1
 RUN apt-get update && apt-get install -y --no-install-recommends git patch \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /src/ctdb-cli
+COPY patches/ctdb-disc-toc.patch /tmp/ctdb-disc-toc.patch
 RUN git init && git fetch --depth 1 https://github.com/Masterisk-F/ctdb-cli.git \
       627d2daae63d638c6ca9b578a2abba1290a45350 \
     && git checkout --detach FETCH_HEAD \
     && bash setup.sh \
     && test "$(git -C external/cuetools.net rev-parse HEAD)" = 4ddf769ce6d9ff850165f2468c8b58c1718844da \
+    && git apply --ignore-space-change /tmp/ctdb-disc-toc.patch \
     && tar --exclude=.git -czf /ctdb-cli-source.tar.gz -C /src ctdb-cli
 RUN case "$TARGETARCH" in amd64) rid=linux-x64 ;; arm64) rid=linux-arm64 ;; *) exit 1 ;; esac \
     && dotnet publish CTDB.CLI/CTDB.CLI.csproj -c Release -m:1 \

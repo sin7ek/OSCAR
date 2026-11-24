@@ -40,7 +40,13 @@ The OSCAR container bundles a self-contained Linux build of [ctdb-cli](https://g
 
 For cyanrip CUEs with pregaps stored in the preceding FLAC, OSCAR accepts the repeated track header and removes the duplicate in a temporary CUE used only by the verifier. File order, INDEX positions and original files are preserved. The report records both CUE hashes.
 
-For cyanrip CD-Extra layouts with a trailing Mode 1 data session, OSCAR checks the FLAC sector lengths and CUE audio starts against the saved audio TOC. CTDB receives a temporary audio-only CUE. The original CUE and data file are unchanged. The result covers audio only and does not verify the data session.
+For cyanrip CD-Extra layouts with a trailing Mode 1 data session, OSCAR checks the FLAC sector lengths and CUE audio starts against the saved audio TOC. It also validates the data-track start, pregap, length and lead-out from the original cyanrip log. The bundled patched verifier receives the full physical TOC and a temporary audio-only CUE. CTDB identifies the complete disc, while the audio checksums cover the FLACs only. The report and SOURCES.txt include the exact full TOC. Existing audio-only CD-Extra reports require a new CTDB lookup. The original CUE, FLACs and data file are unchanged.
+
+The reviewed archive CUE for this layout describes the audio tracks only. OSCAR records the omitted data track in SOURCES.txt and the manifest, preserves the complete original CUE in ExtractionEvidence, and retains the original binary data file in staging. Unsupported non-audio CUE layouts remain in review.
+
+The pinned verifier also distinguishes network or database access errors from a confirmed not-found response. Standalone CD-Extra verification requires OSCAR's `--disc-toc` patch. A direct database lookup using the reported Machines In Motion layout found one entry with confidence 5, while the audio-only TOC returned HTTP 404. Verification of the actual FLACs on Tower remains necessary.
+
+The same full TOC supports a second AccurateRip lookup when cyanrip reported no database entry and recorded both calculated CRCs for every track. OSCAR compares the logged values against the exact full-disc AccurateRip response. It maintains the existing positive-match and FLAC integrity requirements and records the lookup URL, physical TOC, matching versions and confidence. Machines In Motion's original log has all 15 v2 CRCs matching the full-disc AccurateRip entry, confidence 1 each. Verify the existing staging job on Tower before continuing.
 
 A completed lookup result is saved as `ctdb-report.json` with the original CUE and FLAC hashes. Rerun **Proposed SOURCES.txt** after verification. Publication includes the compatible report under `ExtractionEvidence/` and its result in `SOURCES.txt` and the manifest. A transient lookup failure is shown immediately and preserves any previous completed lookup.
 
