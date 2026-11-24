@@ -76,9 +76,14 @@ def _verify_archive(path, manifest):
                                         for w in result["warnings"]):
         raise ValueError("Active archive failed integrity or extraction-evidence checks")
     if artwork := manifest.get("artwork"):
-        cover = archive_audit._safe_file(path, "folder.jpg")
-        if cover is None or _digest(cover) != artwork.get("sha256"):
-            raise ValueError("Archive artwork differs from its manifest")
+        filename = artwork.get("filename") if isinstance(artwork, dict) else None
+        if filename not in ("folder.jpg", "cover.jpg", "cover.png"):
+            raise ValueError("Archive manifest has no supported artwork filename")
+        cover = archive_audit._safe_file(path, filename)
+        if cover is None:
+            raise ValueError(f"Archive artwork is missing or unsafe ({filename})")
+        if _digest(cover) != artwork.get("sha256"):
+            raise ValueError(f"Archive artwork differs from its manifest ({filename})")
 
 
 def _live_worker(job):
