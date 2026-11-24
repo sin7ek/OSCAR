@@ -24,15 +24,16 @@ index d8f2e49..41a1725 100644
          {
              _logger.WriteLine($"Verifying: {cuePath}");
              try
-@@ -130,6 +130,18 @@ namespace CTDB.CLI.Services
+@@ -130,6 +130,19 @@ namespace CTDB.CLI.Services
                  cueSheet.Open(cuePath);
                  var toc = cueSheet.TOC;
 
 +                if (discToc != null)
 +                {
 +                    var full = CDImageLayout.FromString(discToc);
-+                    if (toc.TrackCount != toc.AudioTracks || full.FirstAudio != 1 ||
-+                        full.AudioTracks != toc.AudioTracks || full.TrackCount != toc.TrackCount + 1 ||
++                    if (toc.FirstAudio != 1 || full.FirstAudio != 1 ||
++                        (toc.TrackCount != toc.AudioTracks && toc.TrackCount != toc.AudioTracks + 1) ||
++                        full.AudioTracks != toc.AudioTracks || full.TrackCount != toc.AudioTracks + 1 ||
 +                        full.TOCID != toc.TOCID || full.AudioLength != toc.AudioLength)
 +                        throw new InvalidDataException("Physical CD-Extra TOC disagrees with the audio CUE.");
 +                    cueSheet.DataTrackLength = full[full.TrackCount].Length;
@@ -43,7 +44,7 @@ index d8f2e49..41a1725 100644
                  _logger.WriteLine($"TOC ID: {toc.TOCID}");
 
                  var ar = new AccurateRipVerify(toc, _config.GetProxy());
-@@ -145,10 +157,11 @@ namespace CTDB.CLI.Services
+@@ -145,10 +158,11 @@ namespace CTDB.CLI.Services
                  _logger.WriteLine("Contacting CTDB...");
                  ctdb.ContactDB(null, "ctdb-cli", null, true, false, CTDBMetadataSearch.Default);
 
