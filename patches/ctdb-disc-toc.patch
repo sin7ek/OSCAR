@@ -1,0 +1,60 @@
+diff --git a/CTDB.CLI/Program.cs b/CTDB.CLI/Program.cs
+index 0476450..6e6f798 100644
+--- a/CTDB.CLI/Program.cs
++++ b/CTDB.CLI/Program.cs
+@@ -69,7 +69,7 @@ namespace CTDB.CLI
+                         commandResult = finalResult.Calc;
+                         break;
+                     case "verify":
+-                        finalResult.Verify = service.Verify(cuePath);
++                        finalResult.Verify = service.Verify(cuePath, GetArgValue(remainingArgs, "--disc-toc"));
+                         commandResult = finalResult.Verify;
+                         break;
+                     case "submit":
+diff --git a/CTDB.CLI/Services/CtdbService.cs b/CTDB.CLI/Services/CtdbService.cs
+index d8f2e49..41a1725 100644
+--- a/CTDB.CLI/Services/CtdbService.cs
++++ b/CTDB.CLI/Services/CtdbService.cs
+@@ -121,7 +121,7 @@ namespace CTDB.CLI.Services
+             }
+         }
+
+-        public VerifyResult? Verify(string cuePath)
++        public VerifyResult? Verify(string cuePath, string? discToc = null)
+         {
+             _logger.WriteLine($"Verifying: {cuePath}");
+             try
+@@ -130,6 +130,18 @@ namespace CTDB.CLI.Services
+                 cueSheet.Open(cuePath);
+                 var toc = cueSheet.TOC;
+
++                if (discToc != null)
++                {
++                    var full = CDImageLayout.FromString(discToc);
++                    if (toc.TrackCount != toc.AudioTracks || full.FirstAudio != 1 ||
++                        full.AudioTracks != toc.AudioTracks || full.TrackCount != toc.TrackCount + 1 ||
++                        full.TOCID != toc.TOCID || full.AudioLength != toc.AudioLength)
++                        throw new InvalidDataException("Physical CD-Extra TOC disagrees with the audio CUE.");
++                    cueSheet.DataTrackLength = full[full.TrackCount].Length;
++                    if (toc.ToString() != discToc)
++                        throw new InvalidDataException("Could not reproduce the physical CD-Extra TOC.");
++                }
++                _logger.WriteLine($"CTDB request TOC: {toc}");
+                 _logger.WriteLine($"TOC ID: {toc.TOCID}");
+
+                 var ar = new AccurateRipVerify(toc, _config.GetProxy());
+@@ -145,10 +157,11 @@ namespace CTDB.CLI.Services
+                 _logger.WriteLine("Contacting CTDB...");
+                 ctdb.ContactDB(null, "ctdb-cli", null, true, false, CTDBMetadataSearch.Default);
+
+-                if (ctdb.Metadata == null && ctdb.Entries == null)
++                if (ctdb.QueryExceptionStatus != WebExceptionStatus.Success)
+                 {
+-                    string msg = $"CTDB returned {ctdb.QueryResponseStatus}";
++                    string msg = ctdb.DBStatus ?? $"CTDB returned {ctdb.QueryResponseStatus}";
+                     _logger.WriteLine(msg);
+-                    string status = ctdb.QueryResponseStatus == HttpStatusCode.NotFound ? "not_found" : "failure";
++                    string status = ctdb.QueryExceptionStatus == WebExceptionStatus.ProtocolError &&
++                        ctdb.QueryResponseStatus == HttpStatusCode.NotFound ? "not_found" : "failure";
+                     return new VerifyResult { Status = status, Message = msg };
+                 }

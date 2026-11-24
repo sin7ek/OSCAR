@@ -32,7 +32,7 @@ See [#116](https://github.com/sin7ek/OSCAR/pull/116) and [#137](https://github.c
 
 - Review opens a job with the reason tagging is paused and the next action. It can prepare MusicBrainz Disc ID links for compatible discs of a multidisc release and check them before continuing tagging in Go!. Tower acceptance remains open for the Leviathan 24/29-track set.
 
-- The reported Tower CUE has 15 audio tracks and a trailing Mode 1 data track. The audio lengths from the uploaded cyanrip log reproduce the recorded MusicBrainz Disc ID exactly. CTDB now verifies the audio session using a temporary CUE after checking it against the saved TOC. Retry the same staging job on Tower.
+- CD-Extra Machines In Motion: the uploaded cyanrip log records 15 audio tracks, audio lead-out LSN 278257, data start LSN 289657, and full lead-out LSN 351412. Live CTDB audio-only lookup returned HTTP 404, while the complete TOC returned entry 2086355 (confidence 5). Full-disc AccurateRip entry `015-00241e6a-019f2496-f4124d10` matches all 15 logged v2 CRCs (confidence 1 each). OSCAR now retries missing AccurateRip lookups using full-disc identifiers, with the original FLAC integrity gates. The patched CTDB verifier uses the full TOC and checks audio only; media detection uses track flags. Retry both checks using the same staged job on Tower. Actual staged file and CTDB checksum acceptance are pending.
 
 - Tower reported a 15-track rip with valid FLAC decode and hashes, no reported AccurateRip matches and a CUE rejected before CTDB lookup. The verifier now accepts cyanrip split pregaps using a temporary compatible sheet, preserving original file order and index values. Retry the same staged rip on Tower.
 

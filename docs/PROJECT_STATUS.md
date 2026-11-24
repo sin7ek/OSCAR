@@ -1,12 +1,14 @@
 # OSCAR — project status and handoff
 
-## Current status — 2026-11-23
+## Current status — 2026-11-24
 
 **Cover artwork:** Go! and Archive Review show a replaceable front cover from the accepted MusicBrainz release, a linked Discogs CD or an operator upload. Explicit publication approval embeds the selected JPEG in each new FLAC and saves `folder.jpg` with provenance in `SOURCES.txt`. Tower artwork acceptance is pending. See [archive publishing](ARCHIVE_PUBLISHER.md).
 
 **Disc ID in Review:** Review opens a job with the reason tagging is paused and the next action. It can prepare MusicBrainz Disc ID links for compatible discs of a multidisc release and check them before continuing tagging in Go!. Tower acceptance remains open for the Leviathan 24/29-track set.
 
-**CTDB on CD-Extra:** The reported Tower CUE has 15 audio tracks and a trailing Mode 1 data track. The audio lengths from the uploaded cyanrip log reproduce the recorded MusicBrainz Disc ID exactly. CTDB now verifies the audio session using a temporary CUE after checking it against the saved TOC. Retry the same staging job on Tower.
+**CTDB on CD-Extra:** Machines In Motion has 15 audio tracks and one Mode 1 data track. Its audio-only CTDB lookup returned HTTP 404; complete physical TOC lookup returned entry 2086355 with confidence 5. The verifier now preserves the data-track geometry for lookup and checks only audio. The media probe reports mixed discs using individual TOC flags. Retry the existing staging job and check drive classification on Tower; audio checksum acceptance is pending.
+
+**AccurateRip on CD-Extra:** Machines In Motion's full-disc AccurateRip entry matches all 15 original cyanrip v2 CRCs at confidence 1. The fallback uses logged CRCs and exact physical TOC when the original lookup was absent. The normal FLAC, SHA-256, CUE and positive-match checks remain required. Tower acceptance is pending.
 
 **CTDB split-file CUE:** Tower reported a 15-track rip with valid FLAC decode and hashes, no reported AccurateRip matches and a CUE rejected before CTDB lookup. The verifier now accepts cyanrip split pregaps using a temporary compatible sheet, preserving original file order and index values. Retry the same staged rip on Tower.
 

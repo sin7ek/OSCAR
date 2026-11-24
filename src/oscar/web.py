@@ -670,9 +670,11 @@ document.getElementById('probe').onclick=async()=>{
   for(const disc of results){
    const p=document.createElement('p');
    p.textContent=disc.label+' ('+disc.device+'): '+disc.status+
-      (disc.disc_type?' · '+disc.disc_type:'')+(disc.error?' · '+disc.error:'');
+      (disc.disc_type==='mixed'?' · mixed audio/data CD':disc.disc_type?' · '+disc.disc_type:'')+
+      (disc.audio_tracks!=null?' · '+disc.audio_tracks+' audio / '+disc.data_tracks+' data tracks':'')+
+      (disc.error?' · '+disc.error:'');
    el.append(p);
-   if(disc.status==='disc_present' && disc.disc_type==='audio'){
+   if(disc.status==='disc_present' && ['audio','mixed'].includes(disc.disc_type)){
      const button=document.createElement('button');button.type='button';
      button.textContent='Read TOC and MusicBrainz ID';
      button.onclick=()=>showToc(disc.stable_id);
@@ -1044,7 +1046,8 @@ async function verifyExistingJob(jobOverride=null, targetOverride=null){
     const result=data.ctdb;
     ctdb.textContent='CTDB: '+result.status.replaceAll('_',' ')+
      (result.confidence!=null?' · '+result.confidence+'/'+result.total+' confidence':'')+
-     (result.cue_layout==='cd_extra_audio_session'?' · CD-Extra audio session only':'')+
+     (result.cue_layout==='cd_extra_full_toc'?' · CD-Extra: full-disc TOC, audio verification only':
+      result.cue_layout==='cd_extra_audio_session'?' · CD-Extra audio session only':'')+
    (result.message?' · '+result.message:'');
     target.append(ctdb);
    }
@@ -1352,7 +1355,8 @@ document.getElementById('ctdb-verify').onclick=async(event)=>{
   if(!response.ok)throw Error(data.detail);
   target.textContent='CTDB: '+data.status.replaceAll('_',' ')+
    (data.confidence!=null?' · confidence '+data.confidence+'/'+data.total:'')+
-   (data.cue_layout==='cd_extra_audio_session'?' · CD-Extra audio session only':'')+
+   (data.cue_layout==='cd_extra_full_toc'?' · CD-Extra: full-disc TOC, audio verification only':
+    data.cue_layout==='cd_extra_audio_session'?' · CD-Extra audio session only':'')+
    (data.message?' · '+data.message:'');
  }catch(error){target.textContent='CTDB verification unavailable: '+error.message}
  finally{button.disabled=false}

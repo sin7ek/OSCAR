@@ -113,6 +113,18 @@ _CD_EXTRA_SUFFIX = re.compile(
     r'[ \t]+INDEX 01 00:00:00[ \t]*(?:\r?\n)*\Z',
     re.I | re.M,
 )
+_DATA_LOG_LINE = re.compile(
+    rb"(?i)^\s*(?:Track \d+ (?:is data:|ripped and encoded successfully!)|"
+    rb"Data bytes:|Frames:|Pregap LSN:|Start LSN:|End LSN:)"
+)
+_DATA_LOG_RECORD = re.compile(
+    r"(?m)^Track (\d+) is data:\s*\n"
+    r"[ \t]*Data bytes:\s*(\d+)[^\n]*\n"
+    r"[ \t]*Frames:\s*(\d+)\s*\n"
+    r"[ \t]*Pregap LSN:\s*(\d+)[^\n]*\n"
+    r"[ \t]*Start LSN:\s*(\d+)\s*\n"
+    r"[ \t]*End LSN:\s*(\d+)[ \t]*$"
+)
 
 
 def _check_audio_session(directory, refs, contents, toc):
@@ -137,8 +149,29 @@ def _check_audio_session(directory, refs, contents, toc):
             cursor += stream.total_samples // 588
         if cursor != leadout:
             raise ValueError("audio lead-out differs from the saved TOC")
+        return offsets, leadout
     except (OSError, ValueError, AttributeError, MutagenError) as exc:
         raise ripping.RipError("CTDB could not confirm the CD-Extra audio session against the saved TOC") from exc
+
+
+def _cd_extra_toc(directory, count, offsets, leadout):
+    """Recover CTDB's full physical TOC from the data-track summary in the rip log."""
+    records = set()
+    for folder in (directory, directory / "audio"):
+        for path in sorted(folder.glob("*.log")):
+            log = verification._file_readonly(directory, str(path.relative_to(directory)))
+            evidence = verification.read_cyanrip_evidence(log, pattern=_DATA_LOG_LINE)
+            records.update(tuple(map(int, match.groups()))
+                           for match in _DATA_LOG_RECORD.finditer(evidence))
+    if len(records) != 1:
+        raise ripping.RipError("CTDB needs the original cyanrip data-track geometry; missing or conflicting log records")
+    number, byte_count, frames, pregap, start, end = records.pop()
+    if (number != count + 1 or pregap != leadout - 150
+            or start != pregap + 11400 or not 0 < frames <= 450000
+            or end != start + frames - 1 or byte_count != frames * 2352
+            or end + 1 > 450000):
+        raise ripping.RipError("CTDB data-track geometry disagrees with the saved CD-Extra audio TOC")
+    return ":".join([*(str(offset - 150) for offset in offsets), f"-{start}", str(end + 1)])
 
 
 @contextmanager
@@ -187,13 +220,16 @@ def _inputs(job_id, directory):
         if (Path(ref).name != ref or "\\" in ref or relative not in manifest
                 or not re.fullmatch(rf"0*{number} - .+\.flac", ref)):
             raise ripping.RipError("CUE files differ from the saved disc layout")
+    disc_toc = None
     if layout == "cd_extra_audio_session":
-        _check_audio_session(directory, refs, contents, plan.get("toc_string"))
+        offsets, leadout = _check_audio_session(directory, refs, contents, plan.get("toc_string"))
+        disc_toc = _cd_extra_toc(directory, count, offsets, leadout)
+        layout = "cd_extra_full_toc"
         if normalized is None:
             normalized = contents
     elif normalized is not None:
         layout = "cyanrip_split_pregaps"
-    return cue, manifest, hashlib.sha256(raw).hexdigest(), normalized, layout
+    return cue, manifest, hashlib.sha256(raw).hexdigest(), normalized, layout, disc_toc
 
 
 def automatic(job_id, directory):
@@ -225,7 +261,7 @@ def _run(job_id, directory, *, automatic, runner):
 
 def _verify(job_id, directory, *, previous, automatic, runner):
     executable = os.environ.get("OSCAR_CTDB_EXECUTABLE", "").strip()
-    cue, manifest, cue_hash, normalized, layout = _inputs(job_id, directory)
+    cue, manifest, cue_hash, normalized, layout, disc_toc = _inputs(job_id, directory)
     for relative, digest in manifest.items():
         if verification._digest(verification._file_readonly(directory, relative)) != digest:
             raise ripping.RipError("Staged audio differs from its original SHA-256")
@@ -236,12 +272,19 @@ def _verify(job_id, directory, *, previous, automatic, runner):
     else:
         try:
             with _verification_cue(directory, cue, normalized, manifest) as compatible:
-                process = runner([executable, "--xml", "verify", str(compatible)],
+                command = [executable, "--xml", "verify", str(compatible)]
+                if disc_toc:
+                    command.extend(["--disc-toc", disc_toc])
+                process = runner(command,
                                  cwd=compatible.parent, stdout=subprocess.PIPE,
                                  stderr=subprocess.PIPE, timeout=180, check=False)
             if process.returncode or b"shorter than TOC" in process.stderr:
                 raise ValueError("CTDB verifier exited with an error")
-            result = parse_result(process.stdout)
+            if disc_toc and ("CTDB request TOC: " + disc_toc).encode() not in process.stderr.splitlines():
+                result = {"status": "lookup_failed",
+                          "message": "CTDB verifier did not confirm the full CD-Extra TOC"}
+            else:
+                result = parse_result(process.stdout)
         except (OSError, subprocess.TimeoutExpired, ValueError, KeyError, ElementTree.ParseError):
             result = {"status": "lookup_failed", "message": "CTDB verifier did not return a usable result"}
     if verification._digest(cue) != cue_hash or any(
@@ -251,6 +294,8 @@ def _verify(job_id, directory, *, previous, automatic, runner):
         raise ripping.RipError("Staging changed during CTDB verification")
     if layout:
         result["cue_layout"] = layout
+    if disc_toc:
+        result["disc_toc"] = disc_toc
     record = {**result, "job_id": job_id, "method": "ctdb-cli verify",
               "trigger": "automatic" if automatic else "manual",
               "cue_sha256": cue_hash, "files_sha256": manifest,
@@ -281,15 +326,16 @@ def saved_evidence(job_id, directory):
     raw = path.read_bytes()
     value = json.loads(raw)
     try:
-        _, manifest, cue_hash, normalized, layout = _inputs(job_id, directory)
+        _, manifest, cue_hash, normalized, layout, disc_toc = _inputs(job_id, directory)
     except ripping.RipError:
         return None
     if (value.get("job_id") != job_id or value.get("files_sha256") != manifest
             or value.get("cue_sha256") != cue_hash
-            or (layout == "cd_extra_audio_session" and
-                (value.get("cue_layout") != layout or value.get("verifier_cue_sha256") !=
+            or (layout == "cd_extra_full_toc" and
+                (value.get("cue_layout") != layout or value.get("disc_toc") != disc_toc
+                 or value.get("verifier_cue_sha256") !=
                  hashlib.sha256(normalized.encode("utf-8")).hexdigest()))):
         return None
-    result = {key: value[key] for key in ("status", "method", "confidence", "total", "toc", "trigger", "message", "cue_layout", "verifier_cue_sha256")
+    result = {key: value[key] for key in ("status", "method", "confidence", "total", "toc", "trigger", "message", "cue_layout", "disc_toc", "verifier_cue_sha256")
               if key in value}
     return result, hashlib.sha256(raw).hexdigest()

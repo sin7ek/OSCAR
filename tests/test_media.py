@@ -19,13 +19,25 @@ def test_drive_probe_returns_audio(monkeypatch):
     monkeypatch.setattr(media.os, "close", lambda fd: closed.append(fd))
     def fake_ioctl(fd, cmd, arg):
         requests.append((fd, cmd, arg))
-        return 4 if cmd == media.CDROM_DRIVE_STATUS else 100
+        if cmd == media.CDROM_DRIVE_STATUS:
+            return 4
+        if cmd == media.CDROM_DISC_STATUS:
+            return 100
+        if cmd == media.CDROMREADTOCHDR:
+            arg[:] = bytes([1, 1])
+        elif cmd == media.CDROMREADTOCENTRY:
+            arg[1] = 0x01
+        return 0
     monkeypatch.setattr(media.fcntl, "ioctl", fake_ioctl)
     result = media.probe_device("/dev/sr2")
     assert result["status"] == "disc_present"
     assert result["disc_type"] == "audio"
     assert closed == [42]
-    assert requests == [(42, 0x5326, 0x7FFFFFFF), (42, 0x5327, 0)]
+    assert [request[1] for request in requests] == [
+        media.CDROM_DRIVE_STATUS, media.CDROM_DISC_STATUS,
+        media.CDROMREADTOCHDR, media.CDROMREADTOCENTRY]
+    assert result["audio_tracks"] == 1
+    assert result["data_tracks"] == 0
 
 
 def test_drive_probe_no_disc_does_not_request_disc_type(monkeypatch):
@@ -43,6 +55,31 @@ def test_drive_probe_no_disc_does_not_request_disc_type(monkeypatch):
 
 def test_invalid_device_path_is_rejected():
     assert media.probe_device("/dev/sda")["status"] == "error"
+
+
+def test_cd_extra_with_data_status_is_detected_from_track_flags(monkeypatch):
+    monkeypatch.setattr(media.os, "stat", lambda path: SimpleNamespace(st_mode=0o060000))
+    monkeypatch.setattr(media.os, "open", lambda path, flags: 42)
+    monkeypatch.setattr(media.os, "close", lambda fd: None)
+
+    def fake_ioctl(fd, cmd, arg):
+        if cmd == media.CDROM_DRIVE_STATUS:
+            return 4
+        if cmd == media.CDROM_DISC_STATUS:
+            return 101
+        if cmd == media.CDROMREADTOCHDR:
+            arg[:] = bytes([1, 16])
+        elif cmd == media.CDROMREADTOCENTRY:
+            assert arg[2] == media.CDROM_LBA
+            arg[1] = 0x41 if arg[0] == 16 else 0x01
+        return 0
+
+    monkeypatch.setattr(media.fcntl, "ioctl", fake_ioctl)
+    result = media.probe_device("/dev/sr2")
+    assert result["disc_code"] == 101
+    assert result["disc_type"] == "mixed"
+    assert result["audio_tracks"] == 15
+    assert result["data_tracks"] == 1
 
 
 def test_probe_requires_enabled_and_persistent_identity(monkeypatch):

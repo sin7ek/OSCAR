@@ -23,8 +23,8 @@ A report of `checks_passed` means **all these observed checks passed**, not `ver
 
 ## Deliberate limitations
 
-- **No independent AccurateRip database implementation**: values are parsed from cyanrip's output only.
-- **No CTDB**, optical re-read, HTOA/pre-gap audio reconstruction, CUE index provenance verification or authoritative physical-edition determination.
+- AccurateRip normally uses cyanrip's reported results. For validated trailing-data CD-Extra discs with an absent cyanrip lookup, OSCAR independently queries AccurateRip using the complete physical TOC and compares the original logged v1/v2 CRCs. Audio CRCs are not independently recalculated by this second lookup.
+- CTDB runs separately against eligible full-disc rips and does not override AccurateRip-based staging approval. See [archive publishing](ARCHIVE_PUBLISHER.md) for complete CD-Extra TOC lookup. No optical re-read, HTOA/pre-gap audio reconstruction, CUE index provenance verification or authoritative physical-edition determination.
 - The CUE check validates referenced filenames, **not** the completeness/correctness of all sector indexes or hidden audio.
 - The original job's `state.json` remains `needs_verification`; no automatic archive or deletion even if all checks pass.
 - The first complete HDD test (Nov 19, 2026) previously showed 28/28 AccurateRip v1 and v2 matches and all files passed manual `flac -t`. This new report should be **tested against that real staging directory on Unraid** after deployment, but CI is only simulated.

@@ -206,6 +206,8 @@ def prepare(job_id, copy_id, kind="original_tags", profile="auto",
     }
     if genre_source_url := saved_preview.get("album", {}).get("genre_source_url"):
         provenance["genre_source_url"] = genre_source_url
+    if ar_lookup := verification_report.get("accuraterip_lookup"):
+        provenance["accuraterip_lookup"] = ar_lookup
     edition_search = edition_provenance.for_release(
         root, job_id, review["album"].get("musicbrainz_disc_id"), review["release_id"])
     if edition_search:
@@ -319,6 +321,7 @@ def render_sources(plan, release_match_status, *, published_files=None):
     method = {
         "independent_trackverify_R_v1_v2": "Independent trackverify -R (AccurateRip v1 and v2, offset 0)",
         "cyanrip": "AccurateRip results reported by cyanrip during extraction",
+        "cyanrip_cd_extra_accuraterip_lookup": "Independent AccurateRip full-CD-Extra TOC lookup; CRCs calculated by cyanrip during extraction",
     }.get(provenance["verification_method"], "Verification method not recorded")
     lines = [
         "OSCAR archive sources",
@@ -356,6 +359,10 @@ def render_sources(plan, release_match_status, *, published_files=None):
             "The recovery job assembled the disc from both staging sources.",
         ])
     lines.extend(["", "[Verification]", method])
+    if lookup := provenance.get("accuraterip_lookup"):
+        lines.append("AccurateRip full-disc lookup: " + lookup["status"])
+        lines.append("AccurateRip URL: " + lookup["url"])
+        lines.append("AccurateRip physical TOC (LSN): " + lookup["disc_toc"])
     ctdb = provenance.get("ctdb")
     if ctdb:
         detail = f" ({ctdb['confidence']}/{ctdb['total']} confidence)" if "confidence" in ctdb else ""
@@ -366,6 +373,9 @@ def render_sources(plan, release_match_status, *, published_files=None):
             lines.append("CTDB input: compatible copy of cyanrip CUE; original indexes preserved")
         elif ctdb.get("cue_layout") == "cd_extra_audio_session":
             lines.append("CTDB input: CD-Extra audio session; data track outside verification scope")
+        elif ctdb.get("cue_layout") == "cd_extra_full_toc":
+            lines.append("CTDB input: full physical CD-Extra TOC; audio checksums only")
+            lines.append("CTDB physical TOC (LSN): " + ctdb["disc_toc"])
     else:
         lines.append("CTDB: not checked by OSCAR")
     if provenance["accuraterip_coverage"]:
