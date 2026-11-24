@@ -186,7 +186,7 @@ def _go_publish_source(job_id):
     return state, release_id, copy_id
 
 
-def archive_preview(job_id, *, include_cover=False, prepare=None, review=None):
+def archive_preview(job_id, *, include_cover=False, include_data=True, prepare=None, review=None):
     """Read-only Go publication preview with actual classical metadata/CUE."""
     from oscar import archive_publish, archive_review
     state, release_id, copy_id = _go_publish_source(job_id)
@@ -195,7 +195,7 @@ def archive_preview(job_id, *, include_cover=False, prepare=None, review=None):
     inspected = reviewer(job_id, copy_id, "original_tags", profile="auto", artwork=False)
     if inspected.get("release_id") != release_id:
         raise GoError("Archive review changed the accepted MusicBrainz release")
-    plan = planner(job_id, copy_id, "original_tags", "auto", include_cover=include_cover)
+    plan = planner(job_id, copy_id, "original_tags", "auto", include_cover=include_cover, include_data=include_data)
     if plan.get("release_id") != release_id or plan.get("copy_id") != copy_id:
         raise GoError("Archive plan differs from approved copy")
     return {"workflow": state, "action": "archive_preview_ready",
@@ -203,14 +203,16 @@ def archive_preview(job_id, *, include_cover=False, prepare=None, review=None):
             "release_match_status": state["release_match_status"],
             "archive_review": inspected, "publication_plan": plan,
             "sources_preview": archive_publish.render_sources(plan, state["release_match_status"]),
-            "can_publish": not plan.get("output_exists", True),
+            "can_publish": not plan.get("output_exists", True) and
+            plan.get("provenance", {}).get("cd_extra_data", {}).get("status") != "unavailable",
             "requires_operator_confirmation": True,
             "message": "Inspect actual classical Work/recording credits, CUE, file names and warnings. "
                        "An inferred release is never physically verified by this preview."}
 
 
 def archive_publish_start(job_id, fingerprint, confirmation, *,
-                          acknowledge_observations=False, include_cover=False, approve_cover=False, start=None,
+                          acknowledge_observations=False, include_cover=False, approve_cover=False,
+                          include_data=True, start=None,
                           prepare=None):
     """Explicit operator archive handoff with one durable reservation."""
     from oscar import archive_publish
@@ -218,13 +220,15 @@ def archive_publish_start(job_id, fingerprint, confirmation, *,
         raise GoError("Explicit final archive publication confirmation required")
     state, release_id, copy_id = _go_publish_source(job_id)
     planner = prepare or archive_publish.prepare
-    plan = planner(job_id, copy_id, "original_tags", "auto", include_cover=include_cover)
+    plan = planner(job_id, copy_id, "original_tags", "auto", include_cover=include_cover, include_data=include_data)
     if plan.get("release_id") != release_id or plan.get("copy_id") != copy_id:
         raise GoError("Archive plan differs from persistent release/copy identity")
     if plan.get("fingerprint") != fingerprint:
         raise GoError("Archive plan changed; inspect a new preview")
     if plan.get("output_exists"):
         raise GoError("Archive destination exists; refusing overwrite")
+    if plan.get("provenance", {}).get("cd_extra_data", {}).get("status") == "unavailable":
+        raise GoError("CD-Extra data unavailable; capture it or explicitly exclude the data session")
     if plan.get("metadata_observations") and not acknowledge_observations:
         raise GoError("Explicit acknowledgement of metadata observations required")
     if include_cover and not approve_cover:
@@ -238,6 +242,7 @@ def archive_publish_start(job_id, fingerprint, confirmation, *,
             job_id, copy_id, "original_tags", "auto", fingerprint, confirmation,
             acknowledge_observations=acknowledge_observations,
             include_cover=include_cover, approve_cover=approve_cover,
+            include_data=include_data,
             release_match_status=state["release_match_status"],
             reserved_publish_id=reserved["archive_publish_id"])
         if result.get("publish_id") != reserved["archive_publish_id"]:
@@ -309,6 +314,11 @@ def _read_published_archive(job_id, state):
             return None
         if h.hexdigest() != sha:
             return None
+    from oscar import cd_extra
+    try:
+        cd_extra.check_archive(folder, data)
+    except (OSError, ValueError, RuntimeError, KeyError):
+        return None
     return data
 
 
@@ -397,7 +407,8 @@ def _auto_publish_best_guess(job_id):
     if (plan.get("release_id") != release_id or plan.get("copy_id") != copy_id
             or plan.get("job_id") != job_id or not plan.get("fingerprint")
             or not plan.get("relative_directory") or plan.get("output_exists")
-            or plan.get("metadata_observations")):
+            or plan.get("metadata_observations")
+            or plan.get("provenance", {}).get("cd_extra_data", {}).get("status") == "unavailable"):
         return {"workflow": state, "action": "archive_review_required",
                 "release_id": release_id, "copy_id": copy_id,
                 "message": "Archive preview is ambiguous, conflicted or already exists. "

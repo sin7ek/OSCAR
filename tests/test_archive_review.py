@@ -411,7 +411,8 @@ def test_safe_publisher_writes_verified_new_files_and_preserves_original(publish
                                     allow_metadata_observations=True)
 
 
-def test_cd_extra_publishes_audio_cue_without_dangling_data_track(publishable):
+def test_cd_extra_publishes_audio_cue_without_dangling_data_track(publishable, monkeypatch):
+    from oscar import cd_extra
     job, _, archive, _ = publishable
     cue = job / "audio" / "original.cue"
     source = cue.read_text() + (
@@ -420,7 +421,29 @@ def test_cd_extra_publishes_audio_cue_without_dangling_data_track(publishable):
     cue.write_text(source)
     data = job / "audio" / "03 - Unknown track.bin"
     data.write_bytes(b"data session")
+    layout = {"track": 3, "source": "audio/" + data.name, "format": "MODE1/2352",
+              "start_lsn": 11402, "sectors": 1, "size": 2352, "disc_toc": "0:1:-11402:11403"}
+    monkeypatch.setattr(cd_extra, "geometry", lambda root: layout)
+    unavailable = archive_publish.prepare(JOB, COPY, "original_tags", profile="standard")
+    assert unavailable["provenance"]["cd_extra_data"]["status"] == "unavailable"
+    with pytest.raises(archive_publish.PublishError, match="CD-Extra data unavailable"):
+        archive_publish._do_publish(unavailable, "d" * 32, allow_metadata_observations=True)
+    excluded = archive_publish.prepare(JOB, COPY, "original_tags", profile="standard", include_data=False)
+    assert excluded["provenance"]["cd_extra_data"]["status"] == "excluded_by_operator"
+    assert excluded["fingerprint"] != unavailable["fingerprint"]
+    payload = b"X" * 2352
+    data.write_bytes(payload)
+    state_file = job / "state.json"
+    state = {}
+    state["cd_extra_data"] = {**layout, "sha256": hashlib.sha256(payload).hexdigest(),
+                              "verification": "two_matching_raw_reads"}
+    state_file.write_text(json.dumps(state))
     plan = archive_publish.prepare(JOB, COPY, "original_tags", profile="standard")
+    assert plan["provenance"]["cd_extra_data"]["status"] == "included"
+    data.write_bytes(b"Y" * 2352)
+    with pytest.raises(archive_publish.PublishError, match="preview changed"):
+        archive_publish._do_publish(plan, "e" * 32, allow_metadata_observations=True)
+    data.write_bytes(payload)
     assert plan["provenance"]["excluded_data_track"] == 3
     assert "BINARY" not in plan["cue"]
     assert plan["cue"].count("INDEX 01") == 2
@@ -428,8 +451,17 @@ def test_cd_extra_publishes_audio_cue_without_dangling_data_track(publishable):
     destination = archive / published["relative_directory"]
     assert (destination / "ExtractionEvidence" / "audio" / "original.cue").read_text() == source
     assert (destination / "album.cue").read_text() == plan["cue"]
-    assert "CD-Extra data track 3: outside the audio archive" in (destination / "SOURCES.txt").read_text()
-    assert data.read_bytes() == b"data session"
+    assert "CD-Extra data track 3: included" in (destination / "SOURCES.txt").read_text()
+    assert data.read_bytes() == payload
+    assert (destination / cd_extra.ARCHIVE_FILENAME).read_bytes() == payload
+    manifest = json.loads((destination / "manifest.json").read_text())
+    cd_extra.check_archive(destination, manifest)
+    exported = archive.parent / "payload.iso"
+    cd_extra.extract_payload(destination, exported)
+    assert exported.read_bytes() == payload[16:2064]
+    (destination / cd_extra.ARCHIVE_FILENAME).write_bytes(b"corrupt")
+    with pytest.raises(cd_extra.DataError, match="integrity"):
+        cd_extra.check_archive(destination, manifest)
 
 
 @pytest.fixture

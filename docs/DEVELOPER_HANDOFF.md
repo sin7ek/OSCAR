@@ -1,8 +1,10 @@
 # OSCAR — Developer handoff
 
-Last reconciled 2026-11-23 through the Collection edition fix [#157](https://github.com/sin7ek/OSCAR/pull/157) and archive date and country revisions [#158](https://github.com/sin7ek/OSCAR/pull/158) and open PR [#139](https://github.com/sin7ek/OSCAR/pull/139). Read the [work document](PROJECT_STATUS.md) for evidence and project decisions and the [dashboard](PROGRESS.md) for test and deployment status.
+Last reconciled 2026-11-24 through CD-Extra verification [#166](https://github.com/sin7ek/OSCAR/pull/166). Read the [work document](PROJECT_STATUS.md) for evidence and project decisions and the [dashboard](PROGRESS.md) for test and deployment status.
 
 ## Build and deployment
+
+**CD-Extra data capture:** cyanrip 0.9.3 reports a data track but does not extract it. OSCAR now captures trailing Mode 1 raw sectors twice while reserving the drive, optionally archives the matching verified image and SHA-256 alongside the FLACs (default on), and includes it in archive audit and revision verification. See [archive publishing](ARCHIVE_PUBLISHER.md). Actual raw reads and publication on Tower remain pending.
 
 **Cover artwork:** Go! and Archive Review show a replaceable front cover from the accepted MusicBrainz release, a linked Discogs CD or an operator upload. Explicit publication approval embeds the selected JPEG in each new FLAC and saves `folder.jpg` with provenance in `SOURCES.txt`. Tower artwork acceptance is pending. See [archive publishing](ARCHIVE_PUBLISHER.md).
 
@@ -21,6 +23,7 @@ On Tower, the manual Metadata & tagging preview for *Jagged Little Pill* showed 
 
 | Fixture | Observed result | Acceptance boundary |
 | --- | --- | --- |
+| Machines In Motion (15 audio tracks + trailing data) | On #166 Tower reported `checks_passed`, 15/15 AccurateRip v2 matches (confidence 1 each), CTDB matched 5/5 using full-disc TOC, 15/15 SHA-256 and FLAC decode, zero ripping errors and valid CUE references. | Raw data capture, archive data publication and drive classification are separate acceptance tests. |
 | Carmen Gomes Inc. — *Desire* | Single-CD revision and subsequent read-only Verify passed. 12 revised tracks and 12 retained originals, approved catalog `CGi2010` and label `CFMusic`, Collection and CUE/evidence checked. | Full rescan, restart, and controlled interruption are separate checks. Collection remains Unclassified without GENRE. |
 | Anastacia — *Freak of Nature* | Both journal entries Verify as `VERIFIED` after [#120](https://github.com/sin7ek/OSCAR/pull/120), including the superseded generation. Collection refresh showed Pop / Popular, 12 tracks, `published_verified`. | Historical generations remain retained. Collection display alone does not establish per-file GENRE inspection. |
 | *Boulez Conducts Stravinsky*, 6 CDs | Initial preview saw only CDs 4/6 and 6/6. Later all six were present. Coordinated LABEL Apply revised CDs 4 and 6 only, 39 tracks across group `7e20981bad8a4145bc7e3ad6d9cecd61`. Read-only Verify returned `Integrity PASS`; 90/90 labels reported correct across the box. | This covers LABEL and the observed group integrity check. Multidisc GENRE Apply, interrupted-group recovery and archive cleanup remain separate. |
@@ -32,7 +35,7 @@ See [#116](https://github.com/sin7ek/OSCAR/pull/116) and [#137](https://github.c
 
 - Review opens a job with the reason tagging is paused and the next action. It can prepare MusicBrainz Disc ID links for compatible discs of a multidisc release and check them before continuing tagging in Go!. Tower acceptance remains open for the Leviathan 24/29-track set.
 
-- CD-Extra Machines In Motion: the uploaded cyanrip log records 15 audio tracks, audio lead-out LSN 278257, data start LSN 289657, and full lead-out LSN 351412. Live CTDB audio-only lookup returned HTTP 404, while the complete TOC returned entry 2086355 (confidence 5). Full-disc AccurateRip entry `015-00241e6a-019f2496-f4124d10` matches all 15 logged v2 CRCs (confidence 1 each). OSCAR now retries missing AccurateRip lookups using full-disc identifiers, with the original FLAC integrity gates. The patched CTDB verifier uses the full TOC and checks audio only; media detection uses track flags. Retry both checks using the same staged job on Tower. Actual staged file and CTDB checksum acceptance are pending.
+- CD-Extra Machines In Motion: #166 verified the original staged audio successfully on Tower. Data start LSN 289657, full lead-out LSN 351412. The next Tower test is a new full rip with raw data capture: expect 61,755 sectors (145,247,760 bytes), matching read hashes, and verified archive data files. Check drive classification separately.
 
 - Tower reported a 15-track rip with valid FLAC decode and hashes, no reported AccurateRip matches and a CUE rejected before CTDB lookup. The verifier now accepts cyanrip split pregaps using a temporary compatible sheet, preserving original file order and index values. Retry the same staged rip on Tower.
 

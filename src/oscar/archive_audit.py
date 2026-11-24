@@ -180,6 +180,11 @@ def audit_release(folder: Path, *, timeout: int = 180) -> dict:
     elif provenance in {"PHYSICAL_CD_RIP", "HYBRID_REPAIRED_CD_RIP"}:
         _issue(warnings, "EVIDENCE_NOT_EMBEDDED", "Original extraction evidence is not embedded in this archive")
 
+    from oscar import cd_extra
+    try:
+        cd_extra.check_archive(folder, manifest)
+    except (OSError, ValueError, RuntimeError, KeyError) as exc:
+        _issue(errors, "CD_EXTRA_DATA_MISMATCH", str(exc))
     return {"release": str(folder), "source_type": provenance,
             "status": "FAIL" if errors else "PASS_WITH_WARNINGS" if warnings else "PASS",
             "active_flacs": len(audio), "errors": errors, "warnings": warnings,

@@ -870,6 +870,7 @@ class ArchivePublishPreviewRequest(BaseModel):
     kind: str = "original_tags"
     profile: str = "auto"
     include_cover: bool = False
+    include_data: bool = True
 
 
 class ArchivePublishRequest(ArchivePublishPreviewRequest):
@@ -896,7 +897,7 @@ def preview_archive_publish(job_id: str, body: ArchivePublishPreviewRequest,
     _archive_publish_enabled()
     try:
         plan = prepare(job_id, body.copy_id, body.kind, body.profile,
-                       include_cover=body.include_cover)
+                       include_cover=body.include_cover, include_data=body.include_data)
         return {**plan, "sources_preview": render_sources(plan, "EDITION_NOT_VERIFIED")}
     except (PublishError, ReviewError, RipError, OSError, ValueError, KeyError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -916,7 +917,8 @@ def start_archive_publish(job_id: str, body: ArchivePublishRequest,
         return start(job_id, body.copy_id, body.kind, body.profile,
                      body.fingerprint, body.confirmation,
                      acknowledge_observations=body.acknowledge_metadata_observations,
-                     include_cover=body.include_cover, approve_cover=body.approve_cover)
+                     include_cover=body.include_cover, approve_cover=body.approve_cover,
+                     include_data=body.include_data)
     except (PublishError, ReviewError, RipError, OSError, ValueError, KeyError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
@@ -1494,6 +1496,7 @@ def go_accept_semi_release(job_id: str, body: GoSemiReleaseApproval,
 
 class GoArchivePublishApproval(BaseModel):
     include_cover: bool = False
+    include_data: bool = True
     approve_cover: bool = False
     fingerprint: str = Field(min_length=64, max_length=64, pattern=r"^[a-f0-9]{64}$")
     confirmation: str
@@ -1502,6 +1505,7 @@ class GoArchivePublishApproval(BaseModel):
 
 @app.post("/api/go/jobs/{job_id}/archive/preview")
 def go_archive_preview(job_id: str, request: Request, include_cover: bool = False,
+                       include_data: bool = True,
                        x_oscar_rip_token: str | None = Header(default=None)):
     """Read-only classical/track/CUE review of precisely this verified Go copy."""
     from oscar.go_controller import GoError, archive_preview
@@ -1513,7 +1517,7 @@ def go_archive_preview(job_id: str, request: Request, include_cover: bool = Fals
     _rip_auth(x_oscar_rip_token, request)
     _archive_publish_enabled()
     try:
-        return archive_preview(job_id, include_cover=include_cover)
+        return archive_preview(job_id, include_cover=include_cover, include_data=include_data)
     except (GoError, WorkflowError, ReviewError, PublishError, MetadataError,
             RipError, OSError, ValueError, KeyError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -1535,7 +1539,8 @@ def go_archive_publish(job_id: str, body: GoArchivePublishApproval, request: Req
         return archive_publish_start(
             job_id, body.fingerprint, body.confirmation,
             acknowledge_observations=body.acknowledge_metadata_observations,
-            include_cover=body.include_cover, approve_cover=body.approve_cover)
+            include_cover=body.include_cover, approve_cover=body.approve_cover,
+            include_data=body.include_data)
     except (GoError, WorkflowError, ReviewError, PublishError, MetadataError,
             RipError, OSError, ValueError, KeyError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
