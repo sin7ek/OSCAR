@@ -377,7 +377,7 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 // Progressive enhancement: retain every existing form, endpoint and event
 // handler; move the legacy specialist surfaces into a collapsible Review area.
 const oscarTabNames=[
- ['go','Go!'],['review','Review'],['collection','Collection'],['diagnostics','DriveFit'],['settings','Settings']
+ ['go','Go!'],['review','Review'],['collection','Collection'],['cleanup','Cleanup'],['diagnostics','DriveFit'],['settings','Settings']
 ];
 const oscarNav=document.getElementById('oscar-tabs');
 const oscarPanels=document.getElementById('oscar-panels');
@@ -398,6 +398,110 @@ for(const [name,label] of oscarTabNames){
  oscarTabButtons.set(name,button);oscarPanelsByName.set(name,panel);
 }
 const oscarAdvanced=document.createElement('details');
+const cleanupPanel=oscarPanelsByName.get('cleanup');
+cleanupPanel.innerHTML='<h2>Cleanup</h2><button type="button" id="cleanup-scan">Scan storage</button> <button type="button" id="cleanup-verify">Verify proposals</button> <button type="button" id="cleanup-remove" disabled>Delete selected copies</button><p id="cleanup-status" role="status"></p><div id="cleanup-items"></div><details><summary>Job history and active status</summary><div id="cleanup-jobs"></div></details>';
+const cleanupSelection=new Map();
+let cleanupBusy=false;
+async function refreshCleanup(verify=false){
+ if(cleanupBusy)return;
+ const headers=requestAuthHeaders('Cleanup inventory');if(!headers)return;
+ const status=document.getElementById('cleanup-status');
+ const items=document.getElementById('cleanup-items');
+ const jobs=document.getElementById('cleanup-jobs');
+ const remove=document.getElementById('cleanup-remove');
+ cleanupBusy=true;
+ cleanupSelection.clear();remove.disabled=true;
+ status.textContent=verify?'Verifying archive files…':'Scanning storage…';
+ try{
+  const result=await reviewRequest('/api/cleanup',headers,{method:verify?'POST':'GET'});
+  items.replaceChildren();jobs.replaceChildren();
+  const proposals=result.items.filter(x=>x.eligible);
+  const size=proposals.reduce((total,item)=>total+item.bytes,0);
+  status.textContent=proposals.length+' proposals · '+(size/1073741824).toFixed(2)+' GiB · automatic staging cleanup '+
+   (result.auto_days? 'after '+result.auto_days+' days':'off')+' · history '+result.history_root;
+  async function action(url,body,message){
+   try{
+    await reviewRequest(url,headers,{method:'POST',headers:{'Content-Type':'application/json'},
+     body:JSON.stringify(body)});
+    await refreshCleanup();
+    status.textContent=message+' · '+status.textContent;
+   }catch(error){status.textContent=error.message}
+  }
+  if(result.history_relocation_available){
+   addGoAction(items,'Move retained history outside Archive',()=>{
+    if(window.confirm('Move retained history to '+result.history_root+'?')){
+     action('/api/cleanup/history',{action:'MOVE_OSCAR_HISTORY'},'History moved');
+    }
+   });
+  }
+  for(const item of result.items){
+   const row=metadataElement('section','');
+   row.className='oscar-review-card';
+   const title=metadataElement('label',item.kind.replaceAll('_',' ')+' · '+item.path);
+   row.append(title,metadataElement('p',(item.bytes/1048576).toFixed(1)+' MiB · '+item.reason));
+   if(item.archive)row.append(metadataElement('p','Active archive '+item.archive));
+   if(item.eligible){
+    const box=document.createElement('input');box.type='checkbox';title.prepend(box);
+    box.onchange=()=>{
+     if(box.checked)cleanupSelection.set(item.path,item);else cleanupSelection.delete(item.path);
+     remove.disabled=!cleanupSelection.size;
+    };
+   }
+   if(item.operation_id){
+    addGoAction(row,'Verify & Clean retained revision',async()=>{
+     try{
+      const post={method:'POST',headers:{'Content-Type':'application/json'}};
+      const evidence=await reviewRequest('/api/collection/archive-revisions/verify',headers,
+       {...post,body:JSON.stringify({operation_id:item.operation_id})});
+      if(!evidence.verification_fingerprint)throw Error(evidence.warning||'Revision is protected by its publication history');
+      if(window.confirm('Permanently delete this retained revision? Confirm you have a tested external recovery backup.')){
+       await action('/api/collection/archive-revisions/clean',{operation_id:item.operation_id,
+        verification_fingerprint:evidence.verification_fingerprint,external_backup_confirmed:true,
+        confirmation:'PERMANENTLY_DELETE_VERIFIED_ORIGINAL_VERSION'},'Retained revision removed');
+      }
+     }catch(error){status.textContent=error.message}
+    });
+   }
+   items.append(row);
+  }
+  for(const job of result.jobs){
+   const row=metadataElement('article','');row.className='oscar-workflow-row';
+   row.append(metadataElement('span',(job.working_title||job.candidate_title||'Unknown CD')+
+    ' · '+job.phase.replaceAll('_',' ')+' · '+job.job_id.slice(0,8)+(job.archived_at?' · hidden from Go!':'')));
+   const active=['RIP_IN_PROGRESS','METADATA_COPY_RUNNING','ARCHIVE_PUBLISH_RUNNING'].includes(job.phase);
+   const verb=job.archived_at?'restore':active?'reconcile':'hide';
+   addGoAction(row,verb==='restore'?'Restore to Go!':verb==='hide'?'Move to job history':'Check actual status',
+    ()=>action('/api/cleanup/jobs/'+job.job_id,{action:verb},'Job status updated'));
+   jobs.append(row);
+  }
+  if(result.events.length){
+   const log=metadataElement('details','');log.append(metadataElement('summary','Recent file cleanup'));
+   for(const event of result.events){
+    log.append(metadataElement('p',event.happened_at+' · '+event.status+' · '+event.path));
+   }
+   jobs.append(log);
+  }
+  remove.onclick=async()=>{
+   const selection=[...cleanupSelection.values()];
+   if(!selection.length||!window.confirm('Permanently delete '+selection.length+' selected copies?'))return;
+   remove.disabled=true;
+   try{
+    const response=await reviewRequest('/api/cleanup/remove',headers,{method:'POST',
+     headers:{'Content-Type':'application/json'},body:JSON.stringify({confirmation:'CLEAN_SELECTED_OSCAR_ITEMS',
+      items:selection.map(({kind,path,fingerprint})=>({kind,path,fingerprint}))})});
+    await refreshCleanup();
+    const removed=response.results.filter(x=>x.status==='removed');
+    status.textContent=removed.length+' removed · '+(response.results.length-removed.length)+' blocked';
+    for(const item of response.results.filter(x=>x.status==='blocked')){
+     items.prepend(metadataElement('p',item.path+' · '+item.reason));
+    }
+   }catch(error){status.textContent=error.message;remove.disabled=false}
+  };
+ }catch(error){status.textContent=error.message}
+ finally{cleanupBusy=false}
+}
+document.getElementById('cleanup-scan').onclick=()=>refreshCleanup();
+document.getElementById('cleanup-verify').onclick=()=>refreshCleanup(true);
 oscarAdvanced.className='oscar-advanced';
 const advancedTitle=document.createElement('summary');
 advancedTitle.textContent='Advanced tools · verification, tagging, physical release checks and manual publishing';

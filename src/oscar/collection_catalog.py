@@ -252,7 +252,7 @@ def import_published(*, only_path: Path | None = None) -> dict:
         for manifest_file in manifests:
             album = manifest_file.parent
             relative = album.relative_to(root)
-            if any(part in {"ExtractionEvidence", "Verification", "FailedAttempts", ".oscar-archive-versions"}
+            if any(part in {"ExtractionEvidence", "Verification", "FailedAttempts", ".oscar-archive-versions", "old-publications"}
                    or part.startswith(".oscar-unpublished-") for part in relative.parts):
                 continue
             if album.is_symlink() or manifest_file.is_symlink():

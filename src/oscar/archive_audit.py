@@ -204,7 +204,8 @@ def audit_archive(root: Path) -> dict:
             continue
         relative = folder.relative_to(root)
         if any(part.startswith(".oscar-unpublished-") or part in
-               {"ExtractionEvidence", "FailedAttempts", "Verification"} for part in relative.parts):
+               {"ExtractionEvidence", "FailedAttempts", "Verification", ".oscar-archive-versions",
+                "old-publications"} for part in relative.parts):
             continue
         if any(folder.glob("*.flac")) or (folder / "manifest.json").exists():
             albums.append(folder)

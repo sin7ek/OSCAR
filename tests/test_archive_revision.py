@@ -449,14 +449,26 @@ def test_explicit_reconciliation_preserves_manually_curated_label(fixture, monke
     assert catalog.list_items()["items"][0]["label"] == "My curated edition note"
 
 
-def test_completed_archive_revision_verify_is_read_only_and_checks_both_generations(fixture, monkeypatch):
+@pytest.mark.parametrize("relocate", [False, True])
+def test_completed_archive_revision_verify_is_read_only_and_checks_both_generations(fixture, monkeypatch, relocate):
     from oscar import archive_revision_verify as maintenance
     monkeypatch.setattr(maintenance, "FLAC", FakeFlac)
     _, old, _, _ = fixture
     plan = _approve(fixture)
     done = revision.apply(str(old), plan["fingerprint"], "APPLY_VERIFIED_ARCHIVE_REVISION")
     before_original = {p.name: p.read_bytes() for p in Path(done["original_retained_at"]).glob("*.flac")}
+    original_path = Path(done["original_retained_at"])
     before_new = {p.name: p.read_bytes() for p in Path(done["archive_path"]).glob("*.flac")}
+    if relocate:
+        from oscar import cleanup
+
+        root = catalog.archive_root()
+        destination = root.parent / "outside-history"
+        monkeypatch.setenv("OSCAR_ARCHIVE_HISTORY_ROOT", str(destination))
+        cleanup.relocate_history("MOVE_OSCAR_HISTORY")
+        assert not (root / ".oscar-archive-versions").exists()
+        assert len(list(destination.rglob("*.flac"))) == 2
+        original_path = destination / original_path.relative_to(root / ".oscar-archive-versions")
     report = maintenance.verify(done["operation_id"])
     assert report["status"] == "verified"
     assert report["original_flacs_verified"] == 2
@@ -464,7 +476,7 @@ def test_completed_archive_revision_verify_is_read_only_and_checks_both_generati
     assert report["approved_fields_verified"] == 2
     assert report["collection_verified"] and report["manifest_and_evidence_verified"]
     assert {p.name: p.read_bytes() for p in Path(done["archive_path"]).glob("*.flac")} == before_new
-    assert {p.name: p.read_bytes() for p in Path(done["original_retained_at"]).glob("*.flac")} == before_original
+    assert {p.name: p.read_bytes() for p in original_path.glob("*.flac")} == before_original
 
 
 def test_verify_rejects_changed_new_flac_and_missing_original_evidence(fixture, monkeypatch):

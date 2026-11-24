@@ -123,10 +123,10 @@ def clean(operation_id, verification_fingerprint, confirmation,
                     "This retained original is a previous revision's output; "
                     "cleanup would break archived ancestry and is prohibited"
                 )
-            expected = root / ".oscar-archive-versions" / row["source_publish_id"] / operation_id
-            backup = Path(row["backup_path"])
-            if (backup != expected or not backup.is_relative_to(root)
-                    or not backup.is_dir() or backup.is_symlink()
+            from oscar import archive_history
+            backup = archive_history.retained(root, row["source_publish_id"], operation_id,
+                                              recorded=row["backup_path"])
+            if (not backup.is_dir() or backup.is_symlink()
                     or backup.resolve(strict=True) != backup
                     or backup.parent.is_symlink()
                     or backup.parent.parent.is_symlink()):

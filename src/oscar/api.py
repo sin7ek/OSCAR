@@ -15,17 +15,23 @@ from oscar.web import settings_page
 async def lifespan(app: FastAPI):
     """Start the metadata-only worker when explicitly enabled."""
     stop = threading.Event()
-    worker = None
+    workers = []
     if os.environ.get("OSCAR_ENABLE_METADATA_WORKER") == "1":
         from oscar.metadata_queue import worker_loop
         worker = threading.Thread(target=worker_loop, args=(stop,),
                                   daemon=True, name="oscar-metadata-retry")
+        workers.append(worker)
+    from oscar import cleanup
+    if cleanup._auto_days():
+        workers.append(threading.Thread(target=cleanup.worker, args=(stop,), daemon=True,
+                                        name="oscar-staging-cleanup"))
+    for worker in workers:
         worker.start()
     try:
         yield
     finally:
         stop.set()
-        if worker is not None:
+        for worker in workers:
             worker.join(timeout=2)
 
 
@@ -1193,6 +1199,69 @@ def archive_revision_clean(body: ArchiveRevisionCleanRequest, request: Request,
         )
     except (ArchiveCleanupError, ArchiveVerifyError, RevisionError, ScanError,
             CatalogError, ValueError, OSError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+class CleanupSelection(BaseModel):
+    kind: str
+    path: str = Field(max_length=4096)
+    fingerprint: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+
+class CleanupRequest(BaseModel):
+    items: list[CleanupSelection] = Field(min_length=1, max_length=250)
+    confirmation: str
+
+
+class CleanupAction(BaseModel):
+    action: str
+
+
+@app.get("/api/cleanup")
+@app.post("/api/cleanup")
+def cleanup_scan(request: Request, x_oscar_rip_token: str | None = Header(default=None)):
+    from oscar import cleanup
+
+    _rip_auth(x_oscar_rip_token, request)
+    try:
+        return cleanup.scan(verify=request.method == "POST")
+    except cleanup._ERRORS as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/cleanup/remove")
+def cleanup_remove(body: CleanupRequest, request: Request,
+                   x_oscar_rip_token: str | None = Header(default=None)):
+    from oscar import cleanup
+
+    _rip_auth(x_oscar_rip_token, request)
+    try:
+        return cleanup.remove([item.model_dump() for item in body.items], body.confirmation)
+    except cleanup._ERRORS as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/cleanup/history")
+def cleanup_move_history(body: CleanupAction, request: Request,
+                         x_oscar_rip_token: str | None = Header(default=None)):
+    from oscar import cleanup
+
+    _rip_auth(x_oscar_rip_token, request)
+    try:
+        return cleanup.relocate_history(body.action)
+    except cleanup._ERRORS as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/cleanup/jobs/{job_id}")
+def cleanup_job(job_id: str, body: CleanupAction, request: Request,
+                x_oscar_rip_token: str | None = Header(default=None)):
+    from oscar import cleanup
+
+    _rip_auth(x_oscar_rip_token, request)
+    try:
+        return cleanup.update_job(job_id, body.action)
+    except cleanup._ERRORS as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 

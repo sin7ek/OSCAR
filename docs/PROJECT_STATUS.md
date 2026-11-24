@@ -2,6 +2,8 @@
 
 ## Current status — 2026-11-24
 
+**Cleanup:** Active Archive is the reference for duplicate cleanup. Staging and old publications require matching evidence before removal. The existing revision Verify & Clean gates still apply. Retained generations can be moved to an external history path and checked through their existing journals. See [Cleanup](CLEANUP.md).
+
 **CD-Extra archive completion:** A reviewed second rip can add verified data to a matching existing audio archive. The data folder has separate publication evidence. The operator reported artwork working on Tower; the data supplement still needs a Tower test.
 
 **Cover artwork:** Go! and Archive Review show a replaceable front cover from the accepted MusicBrainz release, a linked Discogs CD or an operator upload. Explicit publication approval embeds the selected JPEG in each new FLAC and saves `folder.jpg` with provenance in `SOURCES.txt`. Tower artwork acceptance is pending. See [archive publishing](ARCHIVE_PUBLISHER.md).
