@@ -1217,6 +1217,11 @@ class CleanupAction(BaseModel):
     action: str
 
 
+class CleanupDangerRequest(BaseModel):
+    paths: list[str] = Field(min_length=1, max_length=250)
+    confirmation: str
+
+
 @app.get("/api/cleanup")
 @app.post("/api/cleanup")
 def cleanup_scan(request: Request, x_oscar_rip_token: str | None = Header(default=None)):
@@ -1237,6 +1242,18 @@ def cleanup_remove(body: CleanupRequest, request: Request,
     _rip_auth(x_oscar_rip_token, request)
     try:
         return cleanup.remove([item.model_dump() for item in body.items], body.confirmation)
+    except cleanup._ERRORS as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/cleanup/danger")
+def cleanup_danger(body: CleanupDangerRequest, request: Request,
+                   x_oscar_rip_token: str | None = Header(default=None)):
+    from oscar import cleanup
+
+    _rip_auth(x_oscar_rip_token, request)
+    try:
+        return cleanup.danger_remove(body.paths, body.confirmation)
     except cleanup._ERRORS as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 

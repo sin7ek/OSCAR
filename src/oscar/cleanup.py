@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import uuid
 
 from mutagen.flac import FLAC
 
@@ -22,6 +23,7 @@ _EXCLUDED = {archive_history.LEGACY, "old-publications", "ExtractionEvidence",
 _ERRORS = (OSError, ValueError, RuntimeError, KeyError, TypeError)
 _ACTIVE = {"RIP_IN_PROGRESS", "METADATA_COPY_RUNNING", "ARCHIVE_PUBLISH_RUNNING"}
 CONFIRM = "CLEAN_SELECTED_OSCAR_ITEMS"
+DANGER_CONFIRM = "DELETE_SELECTED_OSCAR_FOLDERS"
 LOG = logging.getLogger(__name__)
 
 
@@ -372,6 +374,63 @@ def remove(items, confirmation):
                 if job and job in workflows:
                     workflow_ledger.set_archived(job, True)
                 results.append({"path": str(path), "status": "removed", "bytes": row["bytes"]})
+            except _ERRORS as exc:
+                results.append({"path": str(path), "status": "blocked", "reason": str(exc)})
+    return {"results": results}
+
+
+def _danger_target(path, stage, archive):
+    """Restrict manual deletion to OSCAR's staging and retired storage."""
+    if not path.is_absolute() or path.resolve() != path or not path.is_dir():
+        raise ValueError("Folder is missing or unsafe")
+    if archive.is_relative_to(path) or any(path.samefile(parent) for parent in (archive, *archive.parents)):
+        raise ValueError("The live Archive is protected")
+    shared = os.environ.get("OSCAR_ARCHIVE_HISTORY_SHARED_ARCHIVE")
+    if shared and Path(shared).resolve().is_relative_to(path):
+        raise ValueError("The live Archive is protected")
+    if path.parent == stage and (match := _JOB.fullmatch(path.name)):
+        return match[1]
+    old = archive / "old-publications"
+    if path != old and path.is_relative_to(old):
+        return None
+    interrupted = re.fullmatch(r"\.oscar-cleanup-[a-f0-9]{64}", path.name)
+    if path.parent.parent in {archive_history.root(archive), archive / archive_history.LEGACY}:
+        if _ID.fullmatch(path.parent.name) and (interrupted or re.fullmatch(
+                r"[a-f0-9]{32}(?:-disc-\d{2})?", path.name)):
+            return None
+    if path.parent == stage and interrupted:
+        return None
+    raise ValueError("Folder is outside OSCAR cleanup storage")
+
+
+def danger_remove(paths, confirmation):
+    if confirmation != DANGER_CONFIRM:
+        raise ValueError("Select folders and press DELETE")
+    if not shutil.rmtree.avoids_symlink_attacks:
+        raise ValueError("Safe recursive removal is unavailable")
+    archive, stage = collection_catalog.archive_root(), ripping.staging_root()
+    if archive.resolve() != archive:
+        raise ValueError("Unsafe live archive root")
+    results = []
+    with _locked(archive):
+        for value in dict.fromkeys(paths):
+            path = Path(value)
+            try:
+                job = _danger_target(path, stage, archive)
+                tomb = path.with_name(".oscar-cleanup-" + uuid.uuid4().hex + uuid.uuid4().hex)
+                with workflow_ledger._db() as db:
+                    event = db.execute(
+                        "INSERT INTO cleanup_events(path,target_archive,bytes,status,happened_at) VALUES(?,?,?,?,?)",
+                        (str(path), "", 0, "manual deletion prepared", workflow_ledger._now())).lastrowid
+                if job:
+                    with _staging_idle(path, job):
+                        archive_publish._rename_noreplace(path, tomb)
+                else:
+                    archive_publish._rename_noreplace(path, tomb)
+                shutil.rmtree(tomb)
+                with workflow_ledger._db() as db:
+                    db.execute("UPDATE cleanup_events SET status='manually removed' WHERE id=?", (event,))
+                results.append({"path": str(path), "status": "removed"})
             except _ERRORS as exc:
                 results.append({"path": str(path), "status": "blocked", "reason": str(exc)})
     return {"results": results}
