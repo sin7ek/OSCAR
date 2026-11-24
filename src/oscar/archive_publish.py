@@ -23,7 +23,7 @@ import uuid
 
 from mutagen.flac import FLAC, Picture
 
-from oscar import archive_review, cover_art, ctdb_verification, edition_provenance, verification
+from oscar import archive_review, cd_extra, cover_art, ctdb_verification, edition_provenance, verification
 from oscar.archive_naming import safe_component
 from oscar.metadata_staging import _COPY_ID, _streaminfo_md5_hex
 from oscar.pressing_evidence import observed_matrix
@@ -154,7 +154,7 @@ def _names(review):
 
 
 def prepare(job_id, copy_id, kind="original_tags", profile="auto",
-            *, include_cover=False):
+            *, include_cover=False, include_data=True):
     if not _COPY_ID.fullmatch(job_id) or not _COPY_ID.fullmatch(copy_id):
         raise PublishError("Invalid rip or copy ID")
     if kind not in {"original_tags", "classical_v2"}:
@@ -228,6 +228,7 @@ def prepare(job_id, copy_id, kind="original_tags", profile="auto",
     cue = review["cue"]["archive_cue_proposal"]
     if excluded := review["cue"].get("excluded_data_track"):
         provenance["excluded_data_track"] = excluded
+        provenance["cd_extra_data"] = cd_extra.review(root, excluded, include_data)
     referenced = [match.group(1) for line in cue.splitlines()
                   if (match := archive_review._CUEFILE.match(line))]
     if referenced != names:
@@ -355,7 +356,16 @@ def render_sources(plan, release_match_status, *, published_files=None):
         lines.extend(edition_provenance.render(searches))
     lines.extend(["", "[Audio extraction]", f"Staging rip job: {plan['job_id']}"])
     if data_track := provenance.get("excluded_data_track"):
-        lines.append(f"CD-Extra data track {data_track}: outside the audio archive; full original CUE retained in ExtractionEvidence")
+        data = provenance.get("cd_extra_data", {})
+        lines.append(f"CD-Extra data track {data_track}: {data.get('status', 'excluded')}; full original CUE retained in ExtractionEvidence")
+        if data.get("status") == "included":
+            lines.extend([f"  Raw data image: {data['filename']}",
+                          f"  Format: {data['format']} · LSN {data['start_lsn']} · {data['sectors']} sectors · {data['size']} bytes",
+                          f"  SHA-256: {data['sha256']}",
+                          "  Verification: two matching raw reads; archive copy checked by SHA-256",
+                          "  AccurateRip and CTDB verify audio only."])
+        elif data.get("message"):
+            lines.append("  " + data["message"])
     if recovery:
         lines.extend([
             f"Original full-disc rip job: {recovery['original_job_id']}",
@@ -502,12 +512,16 @@ def _embed_front(target, selected, raw):
 
 def _do_publish(plan, publish_id, *, allow_metadata_observations):
     job_id, copy_id, kind = plan["job_id"], plan["copy_id"], plan["kind"]
+    data = plan["provenance"].get("cd_extra_data", {})
     new_plan = prepare(job_id, copy_id, kind, plan["profile_request"],
-                       include_cover=plan["include_cover"])
+                       include_cover=plan["include_cover"],
+                       include_data=data.get("status") != "excluded_by_operator")
     if new_plan["fingerprint"] != plan["fingerprint"]:
         raise PublishError("Archive preview changed; review and confirm a new preview")
     if new_plan["metadata_observations"] and not allow_metadata_observations:
         raise PublishError("Metadata review observations require explicit acknowledgement")
+    if data.get("status") == "unavailable":
+        raise PublishError("CD-Extra data unavailable; capture it or explicitly exclude the data session")
     root = archive_root()
     destination = root / new_plan["relative_directory"]
     parent = destination.parent
@@ -529,6 +543,8 @@ def _do_publish(plan, publish_id, *, allow_metadata_observations):
             temp = parent / (".oscar-unpublished-" + publish_id)
             temp.mkdir(mode=0o700, exist_ok=False)
             source_job = verification._safe_job(job_id)
+            if data.get("status") == "included":
+                cd_extra.copy_to_archive(source_job, temp, data)
             prefix = "metadata-copy-" if kind == "original_tags" else "metadata-v2-"
             source_folder = source_job / (prefix + copy_id)
             artwork = new_plan["provenance"].get("artwork")
@@ -652,7 +668,7 @@ def _do_publish(plan, publish_id, *, allow_metadata_observations):
 
 def start(job_id, copy_id, kind, profile, fingerprint, confirmation,
           *, acknowledge_observations=False, include_cover=False,
-          approve_cover=False, release_match_status=None,
+          approve_cover=False, include_data=True, release_match_status=None,
           reserved_publish_id=None):
     if confirmation != _CONFIRM:
         raise PublishError("Explicit archive publishing confirmation is required")
@@ -664,7 +680,9 @@ def start(job_id, copy_id, kind, profile, fingerprint, confirmation,
     if include_cover and not approve_cover:
         raise PublishError("You must confirm the cover matches your physical edition")
     # Preflight before creating any output or background thread.
-    plan = prepare(job_id, copy_id, kind, profile, include_cover=include_cover)
+    plan = prepare(job_id, copy_id, kind, profile, include_cover=include_cover, include_data=include_data)
+    if plan["provenance"].get("cd_extra_data", {}).get("status") == "unavailable":
+        raise PublishError("CD-Extra data unavailable; capture it or explicitly exclude the data session")
     if plan["fingerprint"] != fingerprint:
         raise PublishError("Archive preview changed; review again")
     if plan["output_exists"]:

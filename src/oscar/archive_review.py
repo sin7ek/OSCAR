@@ -347,7 +347,7 @@ def cue_preview(root, tracks, album_title, album_artist, *, profile="classical")
         result["excluded_data_track"] = data_track
         result["note"] = (
             f"CD-Extra: both CUE proposals describe the audio session only. Data track {data_track} "
-            "remains in staging; the complete original CUE is preserved as extraction evidence.")
+            "can be archived separately when a verified image is available; the complete original CUE is preserved as extraction evidence.")
     return result
 
 

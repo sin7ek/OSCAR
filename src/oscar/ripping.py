@@ -290,7 +290,8 @@ def _snapshot(job):
     return {key: value for key, value in job.items()
             if key in ("id", "stable_id", "disc_id", "status", "created_at",
                        "started_at", "finished_at", "returncode", "flac_count",
-                       "warning", "error", "files_sha256", "selected_tracks", "ctdb_automatic")}
+                       "warning", "error", "files_sha256", "selected_tracks", "ctdb_automatic",
+                       "cd_extra_data", "cd_extra_data_error")}
 
 
 def _run(job, device, offset, workdir, runner, on_completed=None):
@@ -344,14 +345,26 @@ def _run(job, device, offset, workdir, runner, on_completed=None):
             raise RipError("No FLAC output was found; keep logs for inspection")
         job["flac_count"] = len(hashes)
         job["files_sha256"] = hashes
-        job["status"] = "partial_diagnostic" if job.get("selected_tracks") else "needs_verification"
-        if job["status"] == "needs_verification":
+        if not job.get("selected_tracks"):
             job["ctdb_automatic"] = True
+            from oscar import cd_extra
+            try:
+                record = cd_extra.capture(workdir, device,
+                                          cancelled=lambda: job["id"] in _STOP_REQUESTED)
+                if record:
+                    job["cd_extra_data"] = record
+            except (OSError, ValueError, RuntimeError, KeyError) as exc:
+                job["cd_extra_data_error"] = str(exc)[:250]
+                if job["id"] in _STOP_REQUESTED:
+                    raise RipError("Rip stopped by operator")
+        job["status"] = "partial_diagnostic" if job.get("selected_tracks") else "needs_verification"
         job["warning"] = (
             "Selected-track diagnostic ONLY, not eligible for full-CD verification or Go publication."
             if job.get("selected_tracks") else
             "Files have SHA-256 hashes, NOT independent audio verification. "
             "After extraction OSCAR runs CTDB separately from cyanrip’s AccurateRip results.")
+        if job.get("cd_extra_data_error"):
+            job["warning"] += " CD-Extra data capture incomplete: " + job["cd_extra_data_error"]
     except subprocess.TimeoutExpired:
         stopped = job["id"] in _STOP_REQUESTED
         job["status"] = "interrupted" if stopped else "failed"

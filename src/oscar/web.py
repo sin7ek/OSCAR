@@ -1660,7 +1660,7 @@ function assertReviewedCover(plan,included,selection){
   throw Error('Cover selection changed. Reopen the archive review.');
  }
 }
-function coverControls(job,copy,kind,headers,onChange=async()=>{},onBusy=()=>{}){
+function coverControls(job,copy,kind,headers,onChange=async()=>{},onBusy=()=>{},dataTrack=null){
  const panel=document.createElement('fieldset');
  panel.append(metadataElement('legend','Cover artwork'));
  const photo=document.createElement('img');
@@ -1682,8 +1682,17 @@ function coverControls(job,copy,kind,headers,onChange=async()=>{},onBusy=()=>{})
   const control=metadataElement('button',label);control.type='button';control.onclick=action;return control;
  };
  let selection=null;
+ const preserveData=document.createElement('input');preserveData.type='checkbox';
+ preserveData.checked=true;
+ if(dataTrack){
+  const dataLabel=metadataElement('label','Archive CD-Extra data session (recommended)');
+  dataLabel.prepend(preserveData);
+  panel.append(dataLabel,metadataElement('p',
+   dataTrack.status==='included'?'Raw data track '+dataTrack.track+' · '+dataTrack.size+' bytes · two matching reads':
+   dataTrack.message||'Data image unavailable'));
+ }
  async function changed(){
-  await onChange(Boolean(selection && include.checked),selection);
+  await onChange(Boolean(selection && include.checked),selection,preserveData.checked);
  }
  async function load(source,body){
   panel.disabled=true;
@@ -1722,6 +1731,7 @@ function coverControls(job,copy,kind,headers,onChange=async()=>{},onBusy=()=>{})
   try{await changed()}catch(error){status.textContent=error.message;}
   finally{panel.disabled=false;}
  };
+ preserveData.onchange=include.onchange;
  panel.append(photo,status,credit,
   button('Use MusicBrainz cover',()=>load('musicbrainz')),
   discogs,button('Use Discogs cover',()=>load('discogs')),
@@ -1778,24 +1788,24 @@ document.getElementById('publish-preview').onclick=async()=>{
    (data.output_exists?' · DESTINATION ALREADY EXISTS':'');
   plan.append(info);
   const sources=metadataElement('div','');
-  const controls=coverControls(job,copy,kind,headers,async (included,selection)=>{
+  const controls=coverControls(job,copy,kind,headers,async (included,selection,includeData)=>{
    const approval=document.getElementById('publish-confirmation');
    approval.hidden=true;
    reviewedArchivePlan=null;
    const preview=await reviewRequest('/api/rip/jobs/'+job+'/archive-publish/preview',headers,{
     method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({copy_id:copy,kind,profile,include_cover:included})});
+    body:JSON.stringify({copy_id:copy,kind,profile,include_cover:included,include_data:includeData})});
    if(!plan.contains(controls))return;
    assertReviewedCover(preview,included,selection);
-   reviewedArchivePlan={...preview,headers,job,copy,kind,profile,includeCover:included};
+   reviewedArchivePlan={...preview,headers,job,copy,kind,profile,includeCover:included,includeData};
    document.getElementById('publish-cover-approved').checked=false;
    document.getElementById('publish-cover-label').hidden=!included;
-   approval.hidden=Boolean(preview.output_exists);
+   approval.hidden=Boolean(preview.output_exists)||preview.provenance?.cd_extra_data?.status==='unavailable';
    sources.replaceChildren(proposedSources(preview.sources_preview));
   },()=>{
    reviewedArchivePlan=null;
    document.getElementById('publish-confirmation').hidden=true;
-  });
+  },data.provenance?.cd_extra_data);
   plan.append(controls);
   const output=document.createElement('pre');output.className='oscar-review-card';
   output.style.whiteSpace='pre-wrap';output.style.maxHeight='360px';output.style.overflow='auto';
@@ -1833,7 +1843,7 @@ document.getElementById('publish-start').onclick=async()=>{
   const response=await fetch('/api/rip/jobs/'+state.job+'/archive-publish/start',{
    method:'POST',headers:{'Content-Type':'application/json',...state.headers},
    body:JSON.stringify({copy_id:state.copy,kind:state.kind,profile:state.profile,
-    include_cover:state.includeCover,approve_cover:cover,
+    include_cover:state.includeCover,approve_cover:cover,include_data:state.includeData,
     acknowledge_metadata_observations:observations,
     fingerprint:state.fingerprint,confirmation:'PUBLISH_REVIEWED_ARCHIVE'})
   });
@@ -3716,19 +3726,20 @@ async function goAdvance(){
      const coverApproval=document.createElement('input');coverApproval.type='checkbox';
      const coverLabel=metadataElement('label','I approve this cover for the FLAC files and folder.jpg.');
      coverLabel.prepend(coverApproval);coverLabel.hidden=true;
-     coverApproval.onchange=()=>{approval.disabled=p.output_exists||!coverApproval.checked;};
-     const controls=coverControls(id,info.copy_id,'original_tags',auth,async (included,selection)=>{
+     const dataUnavailable=()=>p.provenance?.cd_extra_data?.status==='unavailable';
+     coverApproval.onchange=()=>{approval.disabled=p.output_exists||dataUnavailable()||!coverApproval.checked;};
+     const controls=coverControls(id,info.copy_id,'original_tags',auth,async (included,selection,includeData)=>{
       approval.disabled=true;
       coverApproval.checked=false;
       const preview=await reviewRequest('/api/go/jobs/'+id+'/archive/preview?'+
-       new URLSearchParams({include_cover:included}),auth,{method:'POST'});
+       new URLSearchParams({include_cover:included,include_data:includeData}),auth,{method:'POST'});
       assertReviewedCover(preview.publication_plan,included,selection);
       p=preview.publication_plan;
       coverLabel.hidden=!p.include_cover;
       fingerprint.textContent='Publication fingerprint: '+p.fingerprint;
       sources.replaceChildren(proposedSources(preview.sources_preview));
-      approval.disabled=p.output_exists||p.include_cover;
-     },()=>{approval.disabled=true;coverLabel.hidden=true;coverApproval.checked=false;});
+      approval.disabled=p.output_exists||p.include_cover||dataUnavailable();
+     },()=>{approval.disabled=true;coverLabel.hidden=true;coverApproval.checked=false;},p.provenance?.cd_extra_data);
      section.append(controls,coverLabel,sources,fingerprint,approval);
      approval.onclick=async()=>{
       const confirmation=window.confirm(
@@ -3744,7 +3755,7 @@ async function goAdvance(){
         method:'POST',headers:{'Content-Type':'application/json',...headers},
         body:JSON.stringify({fingerprint:p.fingerprint,confirmation:'PUBLISH_REVIEWED_ARCHIVE',
          acknowledge_metadata_observations:acknowledge,include_cover:p.include_cover,
-         approve_cover:coverApproval.checked})
+         approve_cover:coverApproval.checked,include_data:p.provenance?.cd_extra_data?.status!=='excluded_by_operator'})
        });
        const started=await publishResponse.json();
        if(!publishResponse.ok)throw new Error(started.detail||'Publication blocked');

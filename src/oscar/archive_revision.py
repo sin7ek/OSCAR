@@ -220,6 +220,11 @@ def _verify_preserved_evidence(base, manifest):
                 or scanner._digest(source) != wanted
                 or source.stat().st_size != evidence.get("size")):
             raise RevisionError("Archived extraction CUE/log differs from original evidence")
+    from oscar import cd_extra
+    try:
+        cd_extra.check_archive(base, manifest)
+    except (OSError, ValueError, RuntimeError, KeyError) as exc:
+        raise RevisionError(str(exc)) from exc
     return True
 
 
