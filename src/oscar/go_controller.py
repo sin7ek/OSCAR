@@ -203,7 +203,7 @@ def archive_preview(job_id, *, include_cover=False, include_data=True, prepare=N
             "release_match_status": state["release_match_status"],
             "archive_review": inspected, "publication_plan": plan,
             "sources_preview": archive_publish.render_sources(plan, state["release_match_status"]),
-            "can_publish": not plan.get("output_exists", True) and
+            "can_publish": (not plan.get("output_exists", True) or bool(plan.get("data_supplement"))) and
             plan.get("provenance", {}).get("cd_extra_data", {}).get("status") != "unavailable",
             "requires_operator_confirmation": True,
             "message": "Inspect actual classical Work/recording credits, CUE, file names and warnings. "
@@ -225,13 +225,13 @@ def archive_publish_start(job_id, fingerprint, confirmation, *,
         raise GoError("Archive plan differs from persistent release/copy identity")
     if plan.get("fingerprint") != fingerprint:
         raise GoError("Archive plan changed; inspect a new preview")
-    if plan.get("output_exists"):
-        raise GoError("Archive destination exists; refusing overwrite")
+    if plan.get("output_exists") and not plan.get("data_supplement"):
+        raise GoError(plan.get("destination_block_reason") or "Archive destination exists; refusing overwrite")
     if plan.get("provenance", {}).get("cd_extra_data", {}).get("status") == "unavailable":
         raise GoError("CD-Extra data unavailable; capture it or explicitly exclude the data session")
-    if plan.get("metadata_observations") and not acknowledge_observations:
+    if plan.get("metadata_observations") and not acknowledge_observations and not plan.get("data_supplement"):
         raise GoError("Explicit acknowledgement of metadata observations required")
-    if include_cover and not approve_cover:
+    if include_cover and not approve_cover and not plan.get("data_supplement"):
         raise GoError("Confirm the selected front cover before publishing")
     reserved = workflow_ledger.reserve_archive_publish(
         job_id, copy_id, release_id, fingerprint,
@@ -262,7 +262,7 @@ def archive_publish_start(job_id, fingerprint, confirmation, *,
 
 def _read_published_archive(job_id, state):
     """Fail closed on restart unless exact reserved manifest and file hashes agree."""
-    from oscar import archive_publish
+    from oscar import archive_publish, cd_extra
     root = archive_publish.archive_root()
     relative = Path(state["archive_relative_directory"])
     if (relative.is_absolute() or not relative.parts or
@@ -280,15 +280,17 @@ def _read_published_archive(job_id, state):
         return None
     try:
         data = json.loads(manifest.read_text(encoding="utf-8"))
+        if not isinstance(data, dict) or data.get("status") != "published_verified":
+            return None
+        receipt = cd_extra.supplement(folder, data)
     except (OSError, ValueError):
         return None
-    if not isinstance(data, dict) or not (
-            data.get("status") == "published_verified"
-            and data.get("publish_id") == state["archive_publish_id"]
-            and data.get("job_id") == job_id
-            and data.get("copy_id") == state["metadata_copy_id"]
-            and data.get("release_id") == state["archive_release_id"]
-            and data.get("archive_plan_fingerprint") == state["archive_fingerprint"]):
+    identity = receipt if receipt and receipt.get("publish_id") == state["archive_publish_id"] else data
+    if not (identity.get("publish_id") == state["archive_publish_id"]
+            and identity.get("job_id") == job_id
+            and identity.get("copy_id") == state["metadata_copy_id"]
+            and identity.get("release_id") == state["archive_release_id"]
+            and identity.get("archive_plan_fingerprint") == state["archive_fingerprint"]):
         return None
     entries = data.get("files")
     if not isinstance(entries, list) or not entries or len(entries) > 250:
@@ -314,7 +316,6 @@ def _read_published_archive(job_id, state):
             return None
         if h.hexdigest() != sha:
             return None
-    from oscar import cd_extra
     try:
         cd_extra.check_archive(folder, data)
     except (OSError, ValueError, RuntimeError, KeyError):
@@ -371,7 +372,7 @@ def reconcile_archive(job_id, *, publish_status=None, manifest_reader=None):
             reason="publisher_result_verified" if progress else "manifest_reconciled")
         return {"workflow": finished, "action": "archive_published",
                 "publish_id": publish_id,
-                "message": "Exact publication manifest and FLAC hashes verified. Catalog: " +
+                "message": "Publication evidence and archived file hashes verified. Catalog: " +
                            catalog_status + ". Original rip preserved."}
     finished = workflow_ledger.complete_archive_publish(
         job_id, publish_id, published=False, reason="publisher_failed_or_interrupted")

@@ -411,8 +411,9 @@ def test_safe_publisher_writes_verified_new_files_and_preserves_original(publish
                                     allow_metadata_observations=True)
 
 
-def test_cd_extra_publishes_audio_cue_without_dangling_data_track(publishable, monkeypatch):
-    from oscar import cd_extra
+@pytest.mark.parametrize("add_to_existing", [False, True])
+def test_cd_extra_publishes_audio_cue_without_dangling_data_track(publishable, monkeypatch, add_to_existing):
+    from oscar import cd_extra, go_controller
     job, _, archive, _ = publishable
     cue = job / "audio" / "original.cue"
     source = cue.read_text() + (
@@ -431,6 +432,15 @@ def test_cd_extra_publishes_audio_cue_without_dangling_data_track(publishable, m
     excluded = archive_publish.prepare(JOB, COPY, "original_tags", profile="standard", include_data=False)
     assert excluded["provenance"]["cd_extra_data"]["status"] == "excluded_by_operator"
     assert excluded["fingerprint"] != unavailable["fingerprint"]
+    if add_to_existing:
+        (job / "audio" / "cyanrip.log").write_text(
+            "Track 3 is data:\n"
+            "  Data bytes: 2352\n  Frames: 1\n  Pregap LSN: 2\n"
+            "  Start LSN: 11402\n  End LSN: 11402\n")
+        excluded = archive_publish.prepare(JOB, COPY, "original_tags", profile="standard", include_data=False)
+        existing = archive_publish._do_publish(excluded, "b" * 32, allow_metadata_observations=True)
+        destination = archive / existing["relative_directory"]
+        originals = {path: path.read_bytes() for path in destination.iterdir() if path.is_file()}
     payload = b"X" * 2352
     data.write_bytes(payload)
     state_file = job / "state.json"
@@ -440,6 +450,7 @@ def test_cd_extra_publishes_audio_cue_without_dangling_data_track(publishable, m
     state_file.write_text(json.dumps(state))
     plan = archive_publish.prepare(JOB, COPY, "original_tags", profile="standard")
     assert plan["provenance"]["cd_extra_data"]["status"] == "included"
+    assert bool(plan.get("data_supplement")) == add_to_existing, plan.get("destination_block_reason")
     data.write_bytes(b"Y" * 2352)
     with pytest.raises(archive_publish.PublishError, match="preview changed"):
         archive_publish._do_publish(plan, "e" * 32, allow_metadata_observations=True)
@@ -451,7 +462,19 @@ def test_cd_extra_publishes_audio_cue_without_dangling_data_track(publishable, m
     destination = archive / published["relative_directory"]
     assert (destination / "ExtractionEvidence" / "audio" / "original.cue").read_text() == source
     assert (destination / "album.cue").read_text() == plan["cue"]
-    assert "CD-Extra data track 3: included" in (destination / "SOURCES.txt").read_text()
+    if add_to_existing:
+        assert published["data_supplement"]
+        assert all(path.read_bytes() == content for path, content in originals.items())
+        assert "SHA-256:" in (destination / "CD-Extra/SOURCES.txt").read_text()
+        assert go_controller._read_published_archive(JOB, {
+            "archive_relative_directory": published["relative_directory"],
+            "archive_publish_id": published["publish_id"], "metadata_copy_id": COPY,
+            "archive_release_id": plan["release_id"], "archive_fingerprint": plan["fingerprint"],
+        })
+        retry = archive_publish.prepare(JOB, COPY, "original_tags", profile="standard")
+        assert "already contains" in retry["destination_block_reason"]
+    else:
+        assert "CD-Extra data track 3: included" in (destination / "SOURCES.txt").read_text()
     assert data.read_bytes() == payload
     assert (destination / cd_extra.ARCHIVE_FILENAME).read_bytes() == payload
     manifest = json.loads((destination / "manifest.json").read_text())

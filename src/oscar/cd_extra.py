@@ -11,6 +11,7 @@ import shutil
 SECTOR_SIZE = 2352
 ARCHIVE_FILENAME = "CD-Extra/data-track.bin"
 CHECKSUM_FILENAME = "CD-Extra/data-track.sha256"
+SUPPLEMENT_FILENAME = "CD-Extra/data-manifest.json"
 
 
 class DataError(ValueError):
@@ -188,11 +189,40 @@ def checksum_line(record):
     return record["sha256"] + "  data-track.bin\n"
 
 
+def supplement(folder, manifest):
+    """Read the transactional data addendum for an existing audio archive."""
+    path = folder / SUPPLEMENT_FILENAME
+    if path.parent.is_symlink() or path.is_symlink():
+        raise DataError("Unsafe CD-Extra supplement")
+    if not path.exists():
+        return None
+    if not path.is_file() or path.stat().st_size > 65536:
+        raise DataError("Invalid CD-Extra supplement")
+    receipt = json.loads(path.read_text(encoding="utf-8"))
+    identity = {key: manifest.get(key) for key in ("job_id", "copy_id", "release_id", "disc_number")}
+    if (not isinstance(receipt, dict) or receipt.get("status") != "published_verified"
+            or receipt.get("archive_identity") != identity
+            or not isinstance(receipt.get("data"), dict) or receipt["data"].get("status") != "included"):
+        raise DataError("CD-Extra supplement belongs to a different archive")
+    return receipt
+
+
+def archived_record(folder, manifest):
+    record = (manifest.get("provenance") or {}).get("cd_extra_data")
+    if receipt := supplement(folder, manifest):
+        if record and record.get("status") == "included":
+            raise DataError("Conflicting CD-Extra archive records")
+        return receipt["data"]
+    if (folder / "CD-Extra").exists() and (not record or record.get("status") != "included"):
+        raise DataError("CD-Extra directory lacks archive evidence")
+    return record
+
+
 def check_archive(folder, manifest):
     """Validate archived binary and its checksum file without mounting the disc."""
     from oscar import verification
 
-    record = (manifest.get("provenance") or {}).get("cd_extra_data")
+    record = archived_record(folder, manifest)
     if not record:
         return
     if record.get("status") == "excluded_by_operator":
@@ -222,7 +252,7 @@ def extract_payload(folder, destination):
     if manifest_path.is_symlink() or not manifest_path.is_file():
         raise DataError("Missing archive manifest")
     manifest = json.loads(manifest_path.read_text())
-    record = manifest.get("provenance", {}).get("cd_extra_data", {})
+    record = archived_record(folder, manifest) or {}
     if record.get("status") != "included":
         raise DataError("Archive has no verified CD-Extra image")
     check_archive(folder, manifest)

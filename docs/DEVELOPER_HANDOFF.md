@@ -4,6 +4,8 @@ Last reconciled 2026-11-24 through CD-Extra verification [#166](https://github.c
 
 ## Build and deployment
 
+**CD-Extra data supplement:** A reviewed rip with verified data can complete a matching existing audio archive through Go! or manual archive review. The data folder has its own manifest and SOURCES.txt. Tower acceptance is pending. Artwork was reported working on Tower.
+
 **CD-Extra data capture:** cyanrip 0.9.3 reports a data track but does not extract it. OSCAR now captures trailing Mode 1 raw sectors twice while reserving the drive, optionally archives the matching verified image and SHA-256 alongside the FLACs (default on), and includes it in archive audit and revision verification. See [archive publishing](ARCHIVE_PUBLISHER.md). Actual raw reads and publication on Tower remain pending.
 
 **Cover artwork:** Go! and Archive Review show a replaceable front cover from the accepted MusicBrainz release, a linked Discogs CD or an operator upload. Explicit publication approval embeds the selected JPEG in each new FLAC and saves `folder.jpg` with provenance in `SOURCES.txt`. Tower artwork acceptance is pending. See [archive publishing](ARCHIVE_PUBLISHER.md).
