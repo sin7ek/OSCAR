@@ -400,6 +400,20 @@ for(const [name,label] of oscarTabNames){
 const oscarAdvanced=document.createElement('details');
 const cleanupPanel=oscarPanelsByName.get('cleanup');
 cleanupPanel.innerHTML='<h2>Cleanup</h2><button type="button" id="cleanup-scan">Scan storage</button> <button type="button" id="cleanup-verify">Verify proposals</button> <button type="button" id="cleanup-remove" disabled>Delete selected copies</button><p id="cleanup-status" role="status"></p><div id="cleanup-items"></div><details><summary>Job history and active status</summary><div id="cleanup-jobs"></div></details>';
+const dangerPanel=document.createElement('details');
+dangerPanel.className='oscar-review-card';
+dangerPanel.append(metadataElement('summary','DANGER ZONE'));
+dangerPanel.append(metadataElement('p','DELETE permanently removes the selected folders, including any unique files they contain.'));
+const dangerList=metadataElement('div','Scan storage to list folders.');
+const dangerDelete=metadataElement('button','DELETE');
+dangerDelete.type='button';
+dangerDelete.style.background='#a52331';
+dangerDelete.style.color='#fff';
+dangerDelete.disabled=true;
+const dangerStatus=metadataElement('p','');
+dangerStatus.setAttribute('role','status');
+dangerPanel.append(dangerList,dangerDelete,dangerStatus);
+cleanupPanel.append(dangerPanel);
 const cleanupSelection=new Map();
 let cleanupBusy=false;
 async function refreshCleanup(verify=false){
@@ -411,10 +425,12 @@ async function refreshCleanup(verify=false){
  const remove=document.getElementById('cleanup-remove');
  cleanupBusy=true;
  cleanupSelection.clear();remove.disabled=true;
+ dangerDelete.disabled=true;
  status.textContent=verify?'Verifying archive files…':'Scanning storage…';
  try{
   const result=await reviewRequest('/api/cleanup',headers,{method:verify?'POST':'GET'});
   items.replaceChildren();jobs.replaceChildren();
+  renderDangerCleanup(result.items,headers);
   const proposals=result.items.filter(x=>x.eligible);
   const size=proposals.reduce((total,item)=>total+item.bytes,0);
   status.textContent=proposals.length+' proposals · '+(size/1073741824).toFixed(2)+' GiB · automatic staging cleanup '+
@@ -499,6 +515,46 @@ async function refreshCleanup(verify=false){
   };
  }catch(error){status.textContent=error.message}
  finally{cleanupBusy=false}
+}
+function renderDangerCleanup(items,headers){
+ dangerList.replaceChildren();
+ const selected=new Set();
+ for(const item of items){
+  const row=metadataElement('div','');
+  const label=metadataElement('label',item.path+' · '+(item.bytes/1048576).toFixed(1)+' MiB');
+  const box=document.createElement('input');
+  box.type='checkbox';
+  box.onchange=()=>{
+   if(box.checked)selected.add(item.path);else selected.delete(item.path);
+   dangerDelete.disabled=!selected.size;
+  };
+  label.prepend(box);row.append(label);dangerList.append(row);
+ }
+ dangerDelete.onclick=async()=>{
+  if(!selected.size||cleanupBusy)return;
+  dangerDelete.disabled=true;
+  cleanupBusy=true;
+  for(const box of dangerList.querySelectorAll('input'))box.disabled=true;
+  dangerStatus.textContent='Deleting selected folders…';
+  try{
+   const result=await reviewRequest('/api/cleanup/danger',headers,{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({paths:[...selected],confirmation:'DELETE_SELECTED_OSCAR_FOLDERS'})
+   });
+   const removed=result.results.filter(item=>item.status==='removed').length;
+   const blocked=result.results.filter(item=>item.status==='blocked');
+   dangerStatus.replaceChildren(document.createTextNode(removed+' removed · '+blocked.length+' blocked'));
+   for(const item of blocked){
+    dangerStatus.append(document.createElement('br'),document.createTextNode(item.path+' · '+item.reason));
+   }
+   cleanupBusy=false;
+   await refreshCleanup();
+  }catch(error){
+   dangerStatus.textContent=error.message;
+   for(const box of dangerList.querySelectorAll('input'))box.disabled=false;
+   dangerDelete.disabled=false;
+  }finally{cleanupBusy=false}
+ };
 }
 document.getElementById('cleanup-scan').onclick=()=>refreshCleanup();
 document.getElementById('cleanup-verify').onclick=()=>refreshCleanup(true);

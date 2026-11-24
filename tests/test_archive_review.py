@@ -396,6 +396,39 @@ def test_cleanup_validates_artwork_filename_from_manifest(tmp_path, monkeypatch,
         cleanup._verify_archive(tmp_path, manifest)
 
 
+def test_danger_cleanup_deletes_selected_unverified_folders_only(staged, monkeypatch, tmp_path):
+    from oscar import cleanup
+
+    archive = tmp_path / "archive"
+    active = archive / "active album"
+    active.mkdir(parents=True)
+    old = archive / "old-publications" / "unverified publication"
+    old.mkdir(parents=True)
+    history = tmp_path / "history"
+    retained = history / ("a" * 32) / ("b" * 32 + "-disc-01")
+    retained.mkdir(parents=True)
+    for path in (old, retained, active):
+        (path / "unique").write_bytes(b"unique data")
+    monkeypatch.setenv("OSCAR_ARCHIVE_ROOT", str(archive))
+    monkeypatch.setenv("OSCAR_ARCHIVE_HISTORY_ROOT", str(history))
+    monkeypatch.setenv("OSCAR_WORKFLOW_DB", str(tmp_path / "workflow.sqlite3"))
+    paths = [str(path) for path in (staged, old, retained, active, archive, history)]
+    body = {"paths": paths, "confirmation": cleanup.DANGER_CONFIRM}
+    client = TestClient(app)
+    assert client.post("/api/cleanup/danger", json=body).status_code == 403
+    headers = {"X-OSCAR-RIP-TOKEN": TOKEN}
+    with monkeypatch.context() as scoped:
+        scoped.setitem(ripping._JOBS, JOB, {"status": "running"})
+        result = client.post("/api/cleanup/danger", json={**body, "paths": paths[:1]}, headers=headers)
+        assert result.json()["results"][0]["status"] == "blocked"
+        assert staged.is_dir()
+    result = client.post("/api/cleanup/danger", json=body, headers=headers)
+    assert result.status_code == 200, result.text
+    assert [row["status"] for row in result.json()["results"]] == ["removed"] * 3 + ["blocked"] * 3
+    assert (active / "unique").read_bytes() == b"unique data"
+    assert not staged.exists() and not old.exists() and not retained.exists()
+
+
 def test_cleanup_rechecks_staging_and_preserves_active_archive(publishable, monkeypatch, tmp_path):
     from oscar import cleanup
 

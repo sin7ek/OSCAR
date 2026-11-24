@@ -1,5 +1,7 @@
 # Cleanup and archive history
 
+**Danger Zone** allows direct permanent deletion of selected staging folders, old-publication folders and retained revisions. This path skips duplicate, checksum and provenance review. Active staging workers and the live archive are protected. Deleting a folder here can remove unique material or break revision rollback. The cleanup log labels these actions as manual deletions.
+
 Open **Cleanup → Scan storage** for folder sizes, proposed cleanups and job history. **Verify proposals** reads the actual files and can take time. Select the verified or proposed copies you want to remove and confirm **Delete selected copies**. Each deletion repeats the archive and source checks under the publication lock. A failed check leaves that copy for review. The cleanup journal records prepared and completed removals.
 
 - Staging requires one active publication for the exact rip job. OSCAR checks published FLAC hashes and decoding, staged audio hashes and STREAMINFO audio MD5, original extraction evidence, selected artwork and any CD-Extra data. Unfinished workflows and sources still referenced by another staged Track Recovery are held.
