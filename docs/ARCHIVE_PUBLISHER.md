@@ -109,4 +109,4 @@ Use **Compare physical pressings with Discogs** in Advanced tools, or open it fr
 - Integrated extraction→verify→match→tag→review→publish automation profiles (#32).
 - Independent INDEX00/HTOA checks and read-only post-publish revalidation UI.
 
-This version has **no cleanup feature** and must never delete the original ripping evidence.
+Publication preserves the original ripping evidence. For a later, explicit cleanup or opt-in staging retention policy, see [Cleanup](CLEANUP.md).

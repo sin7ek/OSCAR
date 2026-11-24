@@ -52,6 +52,14 @@ CREATE TABLE IF NOT EXISTS workflow_events (
   happened_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS workflow_events_by_job ON workflow_events(job_id, id);
+CREATE TABLE IF NOT EXISTS cleanup_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  path TEXT NOT NULL,
+  target_archive TEXT NOT NULL,
+  bytes INTEGER NOT NULL,
+  status TEXT NOT NULL,
+  happened_at TEXT NOT NULL
+);
 """
 
 
@@ -79,7 +87,7 @@ def _db():
                  "metadata_fingerprint", "metadata_release_id",
                  "archive_publish_id", "archive_fingerprint",
                  "archive_relative_directory", "archive_release_id",
-                 "archive_catalog_status", "archive_automatic"):
+                 "archive_catalog_status", "archive_automatic", "archived_at"):
         if name not in existing:
             if name == "archive_automatic":
                 db.execute("ALTER TABLE workflow_jobs ADD COLUMN archive_automatic INTEGER NOT NULL DEFAULT 0")
@@ -628,21 +636,35 @@ def review_action(job_id, action):
         return _view(db,job_id)
 
 
-def list_jobs(limit=100):
+def set_archived(job_id, archived):
+    if not _JOB_ID.fullmatch(job_id):
+        raise WorkflowError("Invalid workflow job ID")
+    with _db() as db:
+        where = (" AND phase NOT IN ('RIP_IN_PROGRESS','METADATA_COPY_RUNNING','ARCHIVE_PUBLISH_RUNNING')"
+                 if archived else "")
+        result = db.execute("UPDATE workflow_jobs SET archived_at=? WHERE job_id=?" + where,
+                            (_now() if archived else "", job_id))
+        if not result.rowcount:
+            raise WorkflowError("Workflow job is active or unavailable")
+    return {"job_id": job_id, "archived": archived}
+
+
+def list_jobs(limit=100, *, include_archived=False):
     if not 1 <= limit <= 250:
         raise WorkflowError("Invalid workflow listing limit")
     with _db() as db:
         rows = [dict(x) for x in db.execute(
             "SELECT job_id,disc_id,phase,identification_mode,secure_review_level,"
             "created_at,updated_at,proposed_release_id,accepted_release_id,"
-            "candidate_options FROM workflow_jobs ORDER BY updated_at DESC LIMIT ?", (limit,))]
+            "candidate_options,archived_at FROM workflow_jobs "
+            "WHERE (? OR archived_at='') ORDER BY updated_at DESC LIMIT ?", (include_archived, limit))]
     from oscar import rip_working_title
 
     # The title worker runs outside the list request and never selects a release.
     for row in rows:
         row["working_title"] = rip_working_title.display(
             row["job_id"], row["disc_id"],
-            schedule=row["phase"] not in {"RIP_IN_PROGRESS", "RIP_FAILED", "RIP_INTERRUPTED",
+            schedule=not row["archived_at"] and row["phase"] not in {"RIP_IN_PROGRESS", "RIP_FAILED", "RIP_INTERRUPTED",
                                           "ARCHIVE_PUBLISHED"})
         try:
             candidates = json.loads(row.pop("candidate_options") or "[]")

@@ -52,12 +52,9 @@ def _successor_backup(entry, operations):
     if len(matches) != 1 or matches[0][0]["status"] != "completed":
         raise group.BoxsetApplyError("Ambiguous or unfinished successor revision")
     row, successor = matches[0]
-    backup = Path(successor["backup"])
-    expected = catalog.archive_root() / ".oscar-archive-versions" / entry["new_publish_id"] / (
-        row["operation_id"] + "-disc-" + str(entry["disc"]).zfill(2)
-    )
-    if backup != expected or backup.resolve() != backup:
-        raise group.BoxsetApplyError("Unsafe successor retained-generation path")
+    from oscar import archive_history
+    backup = archive_history.retained(catalog.archive_root(), entry["new_publish_id"],
+        row["operation_id"] + "-disc-" + str(entry["disc"]).zfill(2), recorded=successor["backup"])
     group._validate_leaf(backup, successor, new=False)
     return backup
 
@@ -86,7 +83,10 @@ def verify(operation_id):
     results = []
     for entry in entries:
         disc = entry["disc"]
-        original, live = Path(entry["backup"]), Path(entry["source"])
+        from oscar import archive_history
+        original = archive_history.retained(catalog.archive_root(), entry["old_publish_id"],
+            operation_id + "-disc-" + str(entry["disc"]).zfill(2), recorded=entry["backup"])
+        live = Path(entry["source"])
         changes = group.journal_changes(entry)
         approved = {change["field"]: change["after"] for change in changes}
         errors = []

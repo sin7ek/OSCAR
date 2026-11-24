@@ -61,6 +61,17 @@ def test_defer_resume_is_idempotent_and_persisted(saved):
     assert ledger.list_jobs()["jobs"][0]["phase"]=="RELEASE_REVIEW_PENDING"
 
 
+def test_hidden_workflow_remains_in_history_and_can_be_restored(saved):
+    ledger.register(JOB)
+    ledger.set_archived(JOB, True)
+    assert not ledger.list_jobs()["jobs"]
+    archived = ledger.list_jobs(include_archived=True)["jobs"][0]
+    assert archived["job_id"] == JOB and archived["archived_at"]
+    assert saved.is_dir()
+    ledger.set_archived(JOB, False)
+    assert ledger.list_jobs()["jobs"][0]["job_id"] == JOB
+
+
 def test_verification_pending_only_advances_on_actual_saved_evidence(saved,monkeypatch):
     monkeypatch.setattr(ledger.verification,"report",
                         lambda job_id: {"job_id":job_id,"status":"review_required"})

@@ -375,6 +375,48 @@ def publishable(staged, tmp_path, monkeypatch):
     return staged, original, archive, original_hashes
 
 
+def test_cleanup_rechecks_staging_and_preserves_active_archive(publishable, monkeypatch, tmp_path):
+    from oscar import cleanup
+
+    job, original, archive, hashes = publishable
+    monkeypatch.setenv("OSCAR_WORKFLOW_DB", str(tmp_path / "workflow.sqlite3"))
+    monkeypatch.setenv("OSCAR_CATALOG_DB", str(tmp_path / "catalog.sqlite3"))
+    for name in hashes:
+        shutil.copyfile(original / name, job / name)
+    (job / "state.json").write_text(json.dumps({
+        "id": JOB, "status": "needs_verification", "files_sha256": hashes,
+    }))
+    plan = archive_publish.prepare(JOB, COPY, profile="standard")
+    result = archive_publish._do_publish(plan, "b" * 32, allow_metadata_observations=True)
+    active = archive / result["relative_directory"]
+    candidate = next(row for row in cleanup.scan(verify=True)["items"] if row["kind"] == "staging")
+    assert candidate["eligible"], candidate
+    evidence = job / "audio" / "original.cue"
+    original_cue = evidence.read_bytes()
+    evidence.write_bytes(original_cue + b"REM changed\n")
+    assert cleanup.remove([candidate], cleanup.CONFIRM)["results"][0]["status"] == "blocked"
+    evidence.write_bytes(original_cue)
+    (job / "audio/03 - Unknown track.bin").write_bytes(b"unique")
+    assert not cleanup.scan()["items"][0]["eligible"]
+    (job / "audio/03 - Unknown track.bin").unlink()
+    candidate = cleanup.scan()["items"][0]
+    assert cleanup.remove([candidate], cleanup.CONFIRM)["results"][0]["status"] == "removed"
+    assert not job.exists()
+    assert (active / "ExtractionEvidence/audio/original.cue").read_bytes() == original_cue
+    assert (active / "01 - Air.flac").is_file()
+    old = archive / "old-publications" / active.name
+    shutil.copytree(active, old)
+    unique = old / "unique.txt"
+    unique.write_text("Keep this evidence")
+    assert not cleanup.scan()["items"][0]["eligible"]
+    unique.unlink()
+    candidate = cleanup.scan(verify=True)["items"][0]
+    assert candidate["eligible"] and candidate["kind"] == "old_publication"
+    assert cleanup.remove([candidate], cleanup.CONFIRM)["results"][0]["status"] == "removed"
+    assert not old.exists()
+    assert (active / "01 - Air.flac").is_file()
+
+
 def test_safe_publisher_writes_verified_new_files_and_preserves_original(publishable):
     job, original, archive, before = publishable
     original_cue = (job / "audio" / "original.cue").read_bytes()

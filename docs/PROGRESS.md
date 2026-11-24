@@ -2,6 +2,8 @@
 
 ## Current status — 2026-11-24
 
+**Cleanup:** Implemented storage inventory, batch duplicate rechecks, job history, status reconciliation, opt-in aged staging cleanup and relocation of retained generations. See [Cleanup](CLEANUP.md) for the external history mount and acceptance workflow.
+
 **CD-Extra archive completion:** Go! and manual review support adding verified data to a matching existing archive. Tests cover preservation of the first publication, restart reconciliation, duplicate rejection and payload export. Tower data supplement acceptance is pending. Artwork was reported working on Tower.
 
 **Cover artwork:** Go! and Archive Review show a replaceable front cover from the accepted MusicBrainz release, a linked Discogs CD or an operator upload. Explicit publication approval embeds the selected JPEG in each new FLAC and saves `folder.jpg` with provenance in `SOURCES.txt`. Tower artwork acceptance is pending. See [archive publishing](ARCHIVE_PUBLISHER.md).

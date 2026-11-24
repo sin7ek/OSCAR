@@ -454,12 +454,13 @@ def apply(archive_path, fingerprint, confirmation):
         dest = Path(plan["dest_path"])
         operation_id = uuid.uuid4().hex
         temp = old.parent / (".oscar-unpublished-revision-" + operation_id)
-        history_parent = root / ".oscar-archive-versions" / plan["original_publish_id"]
+        from oscar import archive_history
+        hidden = archive_history.retained(root, plan["original_publish_id"], operation_id)
+        history_parent = hidden.parent
         if (history_parent.is_symlink() or history_parent.parent.is_symlink()
                 or history_parent.parent.exists() and not history_parent.parent.is_dir()):
             raise RevisionError("Unsafe archive revision history directory")
         history_parent.mkdir(parents=True, exist_ok=True)
-        hidden = history_parent / operation_id
         for path in (temp, hidden):
             if path.exists() or path.is_symlink():
                 raise RevisionError("Archive revision path already exists")
@@ -482,7 +483,7 @@ def apply(archive_path, fingerprint, confirmation):
                 "started_at": _now(),
             }
             _journal(fields)
-            archive_publish._rename_noreplace(old, hidden)
+            archive_history.move(root, old, hidden)
             moved = True
             archive_publish._rename_noreplace(temp, dest)
             with _db() as db:
@@ -501,7 +502,7 @@ def apply(archive_path, fingerprint, confirmation):
             # original live path, retaining the isolated staging candidate.
             if moved and not dest.exists() and hidden.exists() and not old.exists():
                 try:
-                    archive_publish._rename_noreplace(hidden, old)
+                    archive_history.move(root, hidden, old)
                     with _db() as db:
                         db.execute(
                             "UPDATE archive_revision_operations SET status='rolled_back',"
@@ -543,7 +544,8 @@ def reconcile(operation_id):
                 _finalize(db, row)
             return {"operation_id": operation_id, "status": "completed"}
         if not new.exists() and backup.is_dir() and not old.exists():
-            archive_publish._rename_noreplace(backup, old)
+            from oscar import archive_history
+            archive_history.move(root, backup, old)
         if old.is_dir() and not backup.exists() and (old == new or not new.exists()):
             with _db() as db:
                 db.execute(

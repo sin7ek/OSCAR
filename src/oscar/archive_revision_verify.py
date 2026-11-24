@@ -98,21 +98,19 @@ def _verify_locked(operation_id):
             "Collection Label is stale; synchronize applied labels before verifying"
         )
     root = catalog.archive_root()
-    old = Path(row["backup_path"])
+    from oscar import archive_history
+    old = archive_history.retained(root, row["source_publish_id"], operation_id, recorded=row["backup_path"])
     historical = len(chain) > 1
     # A superseded revision's output is the next revision's retained input.
-    new = Path(chain[1]["backup_path"] if historical else row["dest_path"])
-    expected = root / ".oscar-archive-versions" / row["source_publish_id"] / operation_id
-    if (old != expected or not old.is_relative_to(root)
-            or not new.is_relative_to(root) or new == root):
+    new = (archive_history.retained(root, chain[1]["source_publish_id"], chain[1]["operation_id"],
+                                    recorded=chain[1]["backup_path"])
+           if historical else Path(row["dest_path"]))
+    if not historical and (not new.is_relative_to(root) or new == root):
         raise ArchiveVerifyError("Unsafe retained archive history path")
     for parent, successor in zip(chain, chain[1:]):
-        successor_backup = Path(successor["backup_path"])
-        required = (root / ".oscar-archive-versions" /
-                    successor["source_publish_id"] / successor["operation_id"])
-        if (successor_backup != required or
-                not successor_backup.is_relative_to(root) or
-                not successor_backup.is_dir() or successor_backup.is_symlink() or
+        successor_backup = archive_history.retained(root, successor["source_publish_id"],
+                                                    successor["operation_id"], recorded=successor["backup_path"])
+        if (not successor_backup.is_dir() or successor_backup.is_symlink() or
                 successor_backup.resolve(strict=True) != successor_backup or
                 successor_backup.parent.is_symlink() or
                 successor_backup.parent.parent.is_symlink()):

@@ -89,7 +89,8 @@ def _entries(review, operation_id):
         if manifest.get("publish_id") != disc["publication_id"]:
             raise BoxsetApplyError("Original publication changed")
         suffix = str(disc["disc"]).zfill(2)
-        hidden = root / ".oscar-archive-versions" / disc["publication_id"] / (operation_id + "-disc-" + suffix)
+        from oscar import archive_history
+        hidden = archive_history.retained(root, disc["publication_id"], operation_id + "-disc-" + suffix)
         temp = source.parent / (".oscar-unpublished-boxset-" + operation_id + "-" + suffix)
         entries.append({
             "disc": disc["disc"], "changes": changes,
@@ -152,7 +153,10 @@ def _advance(entries):
     for entry in entries:
         source, backup, temp = (Path(entry[k]) for k in ("source", "backup", "temp"))
         root = catalog.archive_root()
-        history = root / ".oscar-archive-versions"
+        from oscar import archive_history
+        history = archive_history.root(root)
+        if backup.resolve() != backup or backup.parent.parent not in {history, root / archive_history.LEGACY}:
+            raise BoxsetApplyError("Unsafe retained-history path")
         if history.is_symlink() or (history.exists() and not history.is_dir()):
             raise BoxsetApplyError("Unsafe retained-history parent")
         if backup.parent.is_symlink() or (
@@ -180,7 +184,7 @@ def _advance(entries):
             backup.parent.mkdir(parents=True, exist_ok=True)
             if backup.exists() or backup.is_symlink():
                 raise BoxsetApplyError("Original history destination collision")
-            archive_publish._rename_noreplace(source, backup)
+            archive_history.move(root, source, backup)
         else:
             if not backup.exists():
                 raise BoxsetApplyError("Disc missing without a retained original")
