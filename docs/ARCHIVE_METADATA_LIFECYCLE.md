@@ -6,6 +6,10 @@ The next implementation adds `src/oscar/archive_revision_boxset.py` plus an auth
 
 ---
 
+## Retained revision maintenance in Cleanup
+
+**Cleanup → Scan storage → Verify retained revision** checks both generations and displays the outcome in the same row. Eligible single-disc revisions get a separate delete action when verified history cleanup is enabled. Shared history and protected ancestry stay visible for review. See [Cleanup](CLEANUP.md) for configuration and deletion conditions.
+
 ## Verified archive revision maintenance: Verify / Clean / Verify & Clean (2026-11-20, PR #107 merged, CI green, Unraid acceptance pending)
 
 An explicitly operator-triggered maintenance layer is being added to Collection's **Archive Metadata Migration** journal. Its safety boundaries are:

@@ -11,6 +11,8 @@ Open **Cleanup → Scan storage** for folder sizes, proposed cleanups and job hi
 
 For unattended staging cleanup, set `OSCAR_STAGING_CLEANUP_DAYS` to a positive number of days. OSCAR checks each hour after startup and ages candidates from the current archive manifest. The verified staging rules still apply. Old publications and retained revisions use the explicit cleanup controls.
 
+A path under the retained history root is an older archive generation. The **Active archive** path points to the current published disc. Several retained generations may point to the same disc after successive revisions.
+
 ## Move retained revisions outside the Navidrome library
 
 Configure `OSCAR_ARCHIVE_HISTORY_ROOT` outside `OSCAR_ARCHIVE_ROOT`. **Cleanup → Move retained history outside Archive** moves the existing `.oscar-archive-versions` directory as a unit. It requires the external destination to be absent and any outstanding revision operation to be reconciled. Existing journal entries resolve to the moved generation and Verify checks it again. New revisions also use the external location.
