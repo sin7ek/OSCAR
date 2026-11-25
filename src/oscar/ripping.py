@@ -25,11 +25,20 @@ _TRAY_BUSY = set()
 _STOP_REQUESTED = set()
 _PROCESSES = {}
 _JOBS = {}
+_START_COUNTS = {}
 _DISC = re.compile(r"^[A-Za-z0-9._-]{28}$")
 
 
 class RipError(RuntimeError):
     pass
+
+
+def insertion_status(stable_id):
+    """Read the in-process reservation count, drive availability and capacity."""
+    with _LOCK:
+        return (_START_COUNTS.get(stable_id, 0),
+                stable_id not in _ACTIVE and stable_id not in _TRAY_BUSY,
+                len(_ACTIVE) < max_concurrent_rips())
 
 
 def max_concurrent_rips():
@@ -149,6 +158,7 @@ def dashboard():
             "stable_id": stable_id, "label": drive.label,
             "device": present.get("device"), "present": bool(present),
             "offset_set": drive.offset_samples is not None,
+            "auto_rip_on_insert": drive.auto_rip_on_insert,
             "status": "ripping" if stable_id in active else
                       "drive_control" if stable_id in tray_busy else
                       "ready" if present and drive.offset_samples is not None else "not_ready",
@@ -291,7 +301,7 @@ def _snapshot(job):
             if key in ("id", "stable_id", "disc_id", "status", "created_at",
                        "started_at", "finished_at", "returncode", "flac_count",
                        "warning", "error", "files_sha256", "selected_tracks", "ctdb_automatic",
-                       "cd_extra_data", "cd_extra_data_error")}
+                       "cd_extra_data", "cd_extra_data_error", "start_trigger")}
 
 
 def _run(job, device, offset, workdir, runner, on_completed=None):
@@ -434,7 +444,7 @@ def plan(stable_id, selected_tracks=None):
 
 
 def start(stable_id, *, runner=subprocess.run, on_created=None, on_completed=None,
-          selected_tracks=None, expected_disc_id=None):
+          selected_tracks=None, expected_disc_id=None, insertion_count=None):
     if selected_tracks is not None and (on_created is not None or on_completed is not None):
         raise RipError("Selected-track diagnostics cannot enter a Go workflow")
     information = plan(stable_id, selected_tracks=selected_tracks)
@@ -442,11 +452,24 @@ def start(stable_id, *, runner=subprocess.run, on_created=None, on_completed=Non
         raise RipError("Inserted disc does not match the saved Disc ID for this diagnostic")
     root = staging_root()
     with _LOCK:
+        if insertion_count is not None:
+            from oscar.settings import read_settings
+
+            if selected_tracks is not None or on_created is None or on_completed is None:
+                raise RipError("Insertion starts require a full tracked Go! rip")
+            if _START_COUNTS.get(stable_id, 0) != insertion_count:
+                raise RipError("A rip already started after this insertion was detected")
+            if not any(drive.stable_id == stable_id and drive.enabled
+                       and drive.auto_rip_on_insert
+                       and drive.offset_samples == information["offset_samples"]
+                       for drive in read_settings().drives):
+                raise RipError("Automatic start was disabled or the drive settings changed")
         if stable_id in _ACTIVE or stable_id in _TRAY_BUSY:
             raise RipError("A rip or tray action is already running on this drive")
         if len(_ACTIVE) >= max_concurrent_rips():
             raise RipError("All concurrent rip slots are in use; finish a rip before starting another")
         _ACTIVE.add(stable_id)
+        _START_COUNTS[stable_id] = _START_COUNTS.get(stable_id, 0) + 1
     try:
         job_id = uuid.uuid4().hex
         directory = root / ("oscar-" + job_id)
@@ -455,6 +478,8 @@ def start(stable_id, *, runner=subprocess.run, on_created=None, on_completed=Non
                "disc_id": information["disc_id"], "status": "queued",
                "selected_tracks": information["selected_tracks"],
                "created_at": time.time()}
+        if insertion_count is not None:
+            job["start_trigger"] = information["start_trigger"] = "disc_insertion"
         _atomic_json(directory / "plan.json", information)
         # Record durable workflow state before any extraction worker starts.
         # A callback failure prevents cyanrip from starting; staging remains

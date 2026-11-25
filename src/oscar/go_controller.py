@@ -25,10 +25,16 @@ def _after_rip(job):
         verification.start(job["id"])
 
 
+def start_tracked_rip(stable_id, *, insertion_count=None):
+    """Reserve and start a Go! rip through either supported entry point."""
+    options = {"insertion_count": insertion_count} if insertion_count is not None else {}
+    return ripping.start(stable_id, on_created=workflow_ledger.register_created,
+                         on_completed=_after_rip, **options)
+
+
 def start(stable_id):
     """Start existing verified-offset rip only after durable workflow registration."""
-    job = ripping.start(stable_id, on_created=workflow_ledger.register_created,
-                        on_completed=_after_rip)
+    job = start_tracked_rip(stable_id)
     return {"job": job, "workflow": workflow_ledger.list_jobs(),
             "notice": ("Go phase 1 starts a rip, records the mode and automatically "
                        "starts post-rip verification. Subsequent verified steps follow the saved "

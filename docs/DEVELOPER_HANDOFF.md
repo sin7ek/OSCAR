@@ -21,6 +21,8 @@ Collection can propose an explicitly approved `GENRE=Classical` write from a ver
 
 **RipReview:** Go! groups persistent rip jobs and directs the operator to the next step. Exercise a passing ordinary CD, a failed or interrupted extraction, an unresolved edition and an eligible second-drive diagnostic on Tower. Confirm the wrong Disc ID is rejected and that Track Recovery opens with the correct job pair. See the [automation roadmap](AUTOMATION_ROADMAP.md#ripreview).
 
+**Automatic start on insertion:** Per-drive and off by default. Test on Tower with one opted-in drive and one manual-only drive. Check insertion, a retained disc across restart, a second insertion, a data-only disc and concurrent-slot limits. See the [automation roadmap](AUTOMATION_ROADMAP.md#automatic-start-on-insertion).
+
 ## Next on Tower
 
 | Priority | Test | Existing evidence |

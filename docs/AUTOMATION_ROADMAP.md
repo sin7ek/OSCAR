@@ -2,13 +2,19 @@
 
 ## Current Go! workflow — 2026-11-25
 
-Go! runs rip and verification, records edition lookup evidence and guides the operator through the configured release and archive review. The three policy choices are available. Explicitly enabled Best Guess can automatically publish when all of its checks pass. Semi Automatic has been exercised through reviewed publication on Tower. Automatic CD insertion and fully unattended orchestration remain open.
+Go! runs rip and verification, records edition lookup evidence and guides the operator through the configured release and archive review. The three policy choices are available. Explicitly enabled Best Guess can automatically publish when all of its checks pass. Semi Automatic has been exercised through reviewed publication on Tower. Insertion-triggered ripping is available as an explicit per-drive opt-in. Tower acceptance and unattended review remain open.
+
+### Automatic start on insertion
+
+Under **Settings → Optical drives**, enable **Start ripping automatically when I insert an audio CD** on each drive you want to use, then save. The drive must be enabled, persistently identified and have a configured read offset. Automatic start is off by default and requires the existing ripping opt-in. Saving the setting uses the existing rip authorization.
+
+OSCAR must observe an empty drive or open tray followed by two consecutive observations of a CD with audio tracks. Leave the tray open for at least one three-second poll when replacing a disc. The monitor respects the concurrent-rip limit and starts the regular tracked Go! extraction and post-rip verification. The result appears in RipReview. A disc already inserted at service startup or when opting in requires a manual Go! start or an observed removal and reinsertion.
 
 ### RipReview
 
 The Go! worklist reads the persistent job ledger and saved extraction evidence. It groups jobs by next action, including read again, audio/data review, edition review and archive review. Lookup gaps remain visible separately from a reported mismatch. For a proven track-specific issue, Review recommends an eligible idle drive using DriveFit and can start a separate, explicitly confirmed diagnostic after checking the inserted Disc ID. Track Recovery opens with both job IDs and the affected tracks filled in.
 
-Insertion-triggered ripping, unattended re-reads and automatic recovery remain future increments. RipReview neither changes verification and publication policy nor starts another physical read merely because an issue was detected.
+Unattended re-reads and automatic recovery remain future increments. RipReview neither changes verification and publication policy nor starts another physical read merely because an issue was detected.
 
 ### Advanced review handoffs
 

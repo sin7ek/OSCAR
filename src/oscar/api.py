@@ -5,10 +5,10 @@ from contextlib import asynccontextmanager
 
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse
 
-from oscar.settings import OscarSettings, discover_settings, inspect_drives, save_settings
+from oscar.settings import OscarSettings, discover_settings, inspect_drives, read_settings, save_settings
 from oscar.web import settings_page
 
 @asynccontextmanager
@@ -25,6 +25,12 @@ async def lifespan(app: FastAPI):
     if cleanup._auto_days():
         workers.append(threading.Thread(target=cleanup.worker, args=(stop,), daemon=True,
                                         name="oscar-staging-cleanup"))
+    from oscar import ripping
+    if ripping.enabled():
+        from oscar.auto_rip import watch_insertions
+
+        workers.append(threading.Thread(target=watch_insertions, args=(stop,),
+                                        daemon=True, name="oscar-disc-insertion"))
     for worker in workers:
         worker.start()
     try:
@@ -74,14 +80,22 @@ def get_settings():
     return discover_settings()
 
 
+_SETTINGS_WRITE_LOCK = threading.Lock()
+
+
 @app.put("/api/settings", response_model=OscarSettings)
-def put_settings(settings: OscarSettings):
+def put_settings(settings: OscarSettings, request: Request,
+                 x_oscar_rip_token: str | None = Header(default=None)):
     # Only configuration is saved; no device command is executed.
     ids = [drive.stable_id for drive in settings.drives]
     if len(ids) != len(set(ids)):
         from fastapi import HTTPException
         raise HTTPException(status_code=422, detail="Duplicate drive stable IDs")
-    save_settings(settings)
+    with _SETTINGS_WRITE_LOCK:
+        if (any(drive.auto_rip_on_insert for drive in settings.drives)
+                or any(drive.auto_rip_on_insert for drive in read_settings().drives)):
+            _rip_auth(x_oscar_rip_token, request, require_ripping=False)
+        save_settings(settings)
     return settings
 
 
@@ -220,7 +234,6 @@ def get_metadata_queue_status():
 
 # Experimental extraction endpoints require BOTH environment opt-in and a token.
 # Endpoints never accept a filesystem destination from the browser.
-from fastapi import Header, HTTPException
 from pydantic import BaseModel, Field
 
 
@@ -231,7 +244,7 @@ class RipRequest(BaseModel):
     expected_disc_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9._-]{28}$")
 
 
-def _rip_auth(token: str | None, request: Request | None = None):
+def _rip_auth(token: str | None, request: Request | None = None, *, require_ripping=True):
     """Normal token mode, or explicitly opted-in trusted UI without a token.
 
     Trusted UI is intended ONLY behind an authenticated reverse proxy or
@@ -241,7 +254,7 @@ def _rip_auth(token: str | None, request: Request | None = None):
     from urllib.parse import urlsplit
     from ipaddress import ip_address
     from oscar.ripping import RipError, authorize, enabled
-    if not enabled():
+    if require_ripping and not enabled():
         raise HTTPException(status_code=403, detail="Experimental ripping disabled")
     if token:
         try:
