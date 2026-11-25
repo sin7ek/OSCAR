@@ -8,8 +8,10 @@ import re
 import threading
 import uuid
 from datetime import datetime, timezone
+from functools import partial
 
 from oscar import archive_metadata_scan as scanner, collection_catalog as catalog
+from oscar.boxsets import cached_release_lookup
 
 _LOCK = threading.Lock()
 _JOBS = {}
@@ -28,7 +30,8 @@ def _leaves():
     """
     root = catalog.archive_root()
     paths = []
-    for manifest in sorted(root.rglob("manifest.json")):
+    manifests = [*root.glob("*/*/manifest.json"), *root.glob("*/*/Disc */manifest.json")]
+    for manifest in sorted(manifests):
         if manifest.is_symlink() or not manifest.is_file():
             continue
         relative = manifest.parent.relative_to(root)
@@ -58,11 +61,12 @@ def _now():
 
 def _work(scan_id, paths, mode, *, scanner_fn=None):
     global _RUNNING
-    scan_fn = scanner_fn or scanner.scan
+    if scanner_fn is None:
+        scanner_fn = partial(scanner.scan, lookup=cached_release_lookup())
     try:
         for path in paths:
             try:
-                result = scan_fn(mode, path)
+                result = scanner_fn(mode, path)
                 with _LOCK:
                     job = _JOBS[scan_id]
                     job["detected"] += result["detected"]
