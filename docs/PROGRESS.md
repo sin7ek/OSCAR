@@ -32,6 +32,8 @@ xychart-beta
 - Tower confirmed inline read-only success and chain protection on both Anastacia generations. The same acceptance report includes a published automatic CTDB match and two distinct Équinoxe listings. See the [Tower evidence](PROJECT_STATUS.md#tower-acceptance--2026-11-25).
 - The [work document](PROJECT_STATUS.md#next-acceptance-checks) lists the remaining Tower tests. For setup and operation use [Cleanup](CLEANUP.md), [staging verification](STAGING_VERIFICATION.md) and [archive publishing](ARCHIVE_PUBLISHER.md).
 
+- The archive additions scan can propose embedded Classical tags for a verified classical publishing profile when provider genres are absent. Bulk scans reuse release responses within the run. Tower timing and coordinated GENRE Apply remain open.
+
 ## How to update this living dashboard
 
 1. **At every meaningful feature PR:** review impacted percentages, the supporting evidence and remaining gaps alongside [PROJECT_STATUS.md](PROJECT_STATUS.md). A PR should link both documents when it changes a roadmap domain.
