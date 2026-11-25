@@ -123,7 +123,7 @@ def test_automatic_start_registers_existing_go_workflow_with_insertion_evidence(
     root.mkdir()
     monkeypatch.setenv("OSCAR_RIP_ROOT", str(root))
     monkeypatch.setenv("OSCAR_CONFIG_PATH", str(tmp_path / "settings.json"))
-    monkeypatch.setenv("OSCAR_CATALOG_DB", str(tmp_path / "catalog.sqlite3"))
+    monkeypatch.setenv("OSCAR_WORKFLOW_DB", str(tmp_path / "workflow.sqlite3"))
     drive = settings.DriveSettings(
         stable_id=DRIVE, label="Test", enabled=True, offset_samples=0, auto_rip_on_insert=True)
     settings.save_settings(settings.OscarSettings(drives=[drive], identification_mode="semi_automatic"))
