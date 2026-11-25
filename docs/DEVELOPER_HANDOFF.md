@@ -17,6 +17,8 @@ Reconciled 2026-11-25 through [#172](https://github.com/sin7ek/OSCAR/pull/172). 
 
 Tower accepted the inline result and chain-protection message on both Anastacia generations, automatic CTDB through publication for *Get the Hits 2* (45/46), and separate Collection rows for both Équinoxe editions. See the [Tower evidence](PROJECT_STATUS.md#tower-acceptance--2026-11-25).
 
+Collection can propose an explicitly approved `GENRE=Classical` write from a verified classical publishing profile when provider genre evidence is absent. Bulk scans and coordinated previews reuse MusicBrainz responses per run. Tower acceptance should time a repeated archive-wide scan and preview the Boulez/Mahler GENRE additions. See [multidisc revisions](MULTIDISC_ARCHIVE_REVISION.md#missing-classical-tags-and-scan-performance).
+
 ## Next on Tower
 
 | Priority | Test | Existing evidence |
