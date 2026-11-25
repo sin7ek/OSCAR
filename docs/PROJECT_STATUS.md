@@ -39,6 +39,8 @@ Tower listed seven journal-linked retained generations totaling about 2.14 GiB, 
 | Go! and staging | Extend automatic CTDB coverage to other layouts and compare Proposed SOURCES.txt to publication. Check DriveFit attribution and ETA, optical tray controls and interrupted job reconciliation. |
 | Onboarding | Review the example Compose and test a clean install with staging, active archive and revision history laid out separately. |
 
+**Classical genre backfill and archive scan:** The additions scan can propose an explicit `GENRE=Classical` tag from a verified classical publishing profile when provider genres are absent. Source provenance stays bound to the approval. Bulk scans and boxset previews reuse MusicBrainz responses within the run. Each disc still undergoes matching and FLAC integrity checks. The Tower timing and genre Apply results are open.
+
 ### Feature and Tower evidence
 
 **CD-Extra archive completion:** A reviewed second rip can add verified data to a matching existing audio archive. The data folder has separate publication evidence. The operator reported artwork working on Tower; the data supplement still needs a Tower test.
