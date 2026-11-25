@@ -2261,11 +2261,11 @@ async function showArchiveProposals(){
   heading.textContent=(item.scope==='track'?'Track '+item.track:'Album')+' · '+item.field;
   article.append(heading);
   const values=document.createElement('p');
-  const source=item.source==='discogs'?'Discogs':'MusicBrainz';
+  const source={discogs:'Discogs',archive_profile:'Classical publishing profile'}[item.source]||'MusicBrainz';
   values.textContent='Archive: '+JSON.stringify(item.before)+' · '+source+': '+JSON.stringify(item.after);
   article.append(values);
   const loc=document.createElement('small');
-  loc.textContent=item.archive_path+' · '+item.source_url;
+  loc.textContent=item.source==='archive_profile'?item.archive_path:item.archive_path+' · '+item.source_url;
   article.append(loc);
   for(const [choice,label] of [['accept','Accept proposal (approval only)'],['ignore','Ignore this exact change']]){
    const button=document.createElement('button');button.type='button';button.textContent=label;
