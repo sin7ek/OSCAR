@@ -3,6 +3,8 @@
 
 *Preserve every note.*
 
+**Rip once. Archive forever. Export whenever.**
+
 Automated, archival-grade CD ripping with AccurateRip/CTDB verification, MusicBrainz metadata, FLAC, CUE sheets, and classical music support.
 
 > Dedicated to Oscar, whose love of music inspired this project.
