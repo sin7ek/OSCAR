@@ -51,6 +51,10 @@ def cleanup_status(operation_id):
     return dict(row) if row else None
 
 
+def enabled():
+    return os.environ.get("OSCAR_ENABLE_ARCHIVE_HISTORY_CLEANUP") == "1"
+
+
 def clean(operation_id, verification_fingerprint, confirmation,
           *, external_backup_confirmed=False):
     """Remove only the one retained original identified in completed journal.
@@ -58,7 +62,7 @@ def clean(operation_id, verification_fingerprint, confirmation,
     The entire independent Verify runs AGAIN, under the publisher's exclusive
     filesystem lock. A stale verification receipt cannot permit deletion.
     """
-    if os.environ.get("OSCAR_ENABLE_ARCHIVE_HISTORY_CLEANUP") != "1":
+    if not enabled():
         raise ArchiveCleanupError(
             "Permanent history deletion is disabled. Explicitly enable "
             "OSCAR_ENABLE_ARCHIVE_HISTORY_CLEANUP=1 after external backups."

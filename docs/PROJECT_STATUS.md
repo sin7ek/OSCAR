@@ -2,7 +2,7 @@
 
 ## Current status — 2026-11-24
 
-**Cleanup:** Active Archive is the reference for duplicate cleanup. Staging and old publications require matching evidence before removal. The existing revision Verify & Clean gates still apply. Retained generations can be moved to an external history path and checked through their existing journals. See [Cleanup](CLEANUP.md).
+**Cleanup:** Active Archive is the reference for duplicate cleanup. Staging and old publications require matching evidence before removal. The existing revision Verify & Clean gates still apply. Retained generations can be moved to an external history path and checked through their existing journals. See [Cleanup](CLEANUP.md). Each retained revision now shows verification progress, the outcome and eligible deletion controls in its own row. Tower verification of this feedback is pending.
 
 **CD-Extra archive completion:** A reviewed second rip can add verified data to a matching existing audio archive. The data folder has separate publication evidence. The operator reported artwork working on Tower; the data supplement still needs a Tower test.
 

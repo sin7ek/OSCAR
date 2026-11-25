@@ -2,7 +2,7 @@
 
 ## Current status — 2026-11-24
 
-**Cleanup:** Implemented storage inventory, batch duplicate rechecks, job history, status reconciliation, opt-in aged staging cleanup and relocation of retained generations. See [Cleanup](CLEANUP.md) for the external history mount and acceptance workflow.
+**Cleanup:** Implemented storage inventory, batch duplicate rechecks, job history, status reconciliation, opt-in aged staging cleanup and relocation of retained generations. See [Cleanup](CLEANUP.md) for the external history mount and acceptance workflow. Each retained revision now shows verification progress, the outcome and eligible deletion controls in its own row. Tower verification of this feedback is pending.
 
 **CD-Extra archive completion:** Go! and manual review support adding verified data to a matching existing archive. Tests cover preservation of the first publication, restart reconciliation, duplicate rejection and payload export. Tower data supplement acceptance is pending. Artwork was reported working on Tower.
 

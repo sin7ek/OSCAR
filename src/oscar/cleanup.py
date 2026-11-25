@@ -232,7 +232,7 @@ def _context():
 
 
 def scan(*, verify=False):
-    from oscar import archive_revision
+    from oscar import archive_revision, archive_revision_cleanup
 
     archive, stage, by_job, by_disc, workflows, dependencies = _context()
     items = []
@@ -275,7 +275,7 @@ def scan(*, verify=False):
             continue
         row = _candidate("history", path, lambda _: Path(item["dest_path"]))
         row.update(operation_id=item["operation_id"], eligible=False,
-                   reason="Use Verify & Clean to review this retained revision")
+                   reason="Retained archive revision")
         items.append(row)
     listed = {row["path"] for row in items}
     for history in {archive / archive_history.LEGACY, archive_history.root(archive)}:
@@ -291,6 +291,7 @@ def scan(*, verify=False):
         events = [dict(row) for row in db.execute(
             "SELECT path, target_archive, bytes, status, happened_at FROM cleanup_events ORDER BY id DESC LIMIT 25")]
     return {"items": items, "jobs": jobs, "auto_days": _auto_days(),
+            "history_cleanup_enabled": archive_revision_cleanup.enabled(),
             "events": events,
             "history_root": str(archive_history.root(archive)),
             "history_relocation_available": (archive / archive_history.LEGACY).is_dir()

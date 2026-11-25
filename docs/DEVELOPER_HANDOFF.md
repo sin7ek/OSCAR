@@ -4,7 +4,7 @@ Last reconciled 2026-11-24 through CD-Extra verification [#166](https://github.c
 
 ## Build and deployment
 
-**Cleanup:** The Cleanup screen inventories staging, old publications, retained revisions and jobs. It supports verified selection, optional aged staging cleanup and external revision history relocation with an optional shared-parent archive path. See [Cleanup](CLEANUP.md). Tower acceptance remains pending.
+**Cleanup:** The Cleanup screen inventories staging, old publications, retained revisions and jobs. It supports verified selection, optional aged staging cleanup and external revision history relocation with an optional shared-parent archive path. See [Cleanup](CLEANUP.md). Tower acceptance remains pending. Each retained revision now shows verification progress, the outcome and eligible deletion controls in its own row. Tower verification of this feedback is pending.
 
 **CD-Extra data supplement:** A reviewed rip with verified data can complete a matching existing audio archive through Go! or manual archive review. The data folder has its own manifest and SOURCES.txt. Tower acceptance is pending. Artwork was reported working on Tower.
 
