@@ -45,6 +45,8 @@ Tower listed seven journal-linked retained generations totaling about 2.14 GiB, 
 
 **Automatic start on insertion:** Saved per drive and guarded by existing rip authorization. The monitor observes an empty drive before arming, then waits for stable audio and a free slot. The rip is registered through Go! before extraction. Tower hardware acceptance remains open.
 
+**Drive offset lookup:** Settings lists AccurateRip offset candidates with estimated confirmations, submissions and agreement. Conflicts require an operator selection. Check the GH24NS95 candidates and settings save on Tower. [Drive offset setup](DRIVE_OFFSET.md)
+
 ### Feature and Tower evidence
 
 **CD-Extra archive completion:** A reviewed second rip can add verified data to a matching existing audio archive. The data folder has separate publication evidence. The operator reported artwork working on Tower; the data supplement still needs a Tower test.
