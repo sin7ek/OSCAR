@@ -11,6 +11,7 @@ from pathlib import Path
 import re
 
 from oscar import archive_metadata_scan as scanner
+from oscar.boxsets import cached_release_lookup
 from oscar import archive_revision as revision, collection_catalog as catalog
 
 FIELDS = ("LABEL", "GENRE", "RELEASECOUNTRY")
@@ -52,7 +53,7 @@ def preview(release_id, *, lookup=None, field="LABEL"):
     parent = None
     targets = {}
     result = []
-    provider = lookup or scanner.lookup_release_medium
+    provider = lookup or cached_release_lookup()
     for row in albums:
         leaf = Path(row["archive_path"])
         relative = leaf.relative_to(root)
@@ -68,7 +69,7 @@ def preview(release_id, *, lookup=None, field="LABEL"):
         source = json.loads((leaf / "manifest.json").read_text(encoding="utf-8"))
         if source.get("disc_total") != total:
             raise BoxsetReviewError("Published disc-total metadata differs from Collection")
-        candidates, _ = scanner._fresh_values(snapshot, provider)
+        candidates, genre_source = scanner._fresh_values(snapshot, provider)
         with revision._db() as db:
             approvals = db.execute(
                 "SELECT * FROM metadata_proposals "
@@ -91,12 +92,14 @@ def preview(release_id, *, lookup=None, field="LABEL"):
             if approval and (not match or not after
                              or approval["archive_revision"] != snapshot["manifest_sha256"]
                              or approval["publish_id"] != snapshot["publish_id"]
-                             or not scanner._matches_proposal(match, approval, "")):
+                             or not scanner._matches_proposal(match, approval, genre_source)):
                 raise BoxsetReviewError("Stale " + name + " approval on disc " + str(row["disc_number"]))
             status = ("approved_for_review" if approval else "unavailable" if not after else
                       "already_correct" if before == after else "needs_operator_approval")
             reviewed[name] = {"before": before, "after": after, "status": status,
                               "fingerprint": approval["fingerprint"] if approval else None}
+            if approval and approval["source_url"]:
+                reviewed[name]["source_url"] = approval["source_url"]
         disc = {
             "disc": row["disc_number"],
             "archive_path": str(leaf),
