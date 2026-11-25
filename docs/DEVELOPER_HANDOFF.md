@@ -19,6 +19,8 @@ Tower accepted the inline result and chain-protection message on both Anastacia 
 
 Collection can propose an explicitly approved `GENRE=Classical` write from a verified classical publishing profile when provider genre evidence is absent. Bulk scans and coordinated previews reuse MusicBrainz responses per run. Tower acceptance should time a repeated archive-wide scan and preview the Boulez/Mahler GENRE additions. See [multidisc revisions](MULTIDISC_ARCHIVE_REVISION.md#missing-classical-tags-and-scan-performance).
 
+**RipReview:** Go! groups persistent rip jobs and directs the operator to the next step. Exercise a passing ordinary CD, a failed or interrupted extraction, an unresolved edition and an eligible second-drive diagnostic on Tower. Confirm the wrong Disc ID is rejected and that Track Recovery opens with the correct job pair. See the [automation roadmap](AUTOMATION_ROADMAP.md#ripreview).
+
 ## Next on Tower
 
 | Priority | Test | Existing evidence |
