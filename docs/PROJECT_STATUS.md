@@ -1,12 +1,38 @@
-# OSCAR — project status and handoff
+# OSCAR — project work document
 
-## Current status — 2026-11-24
+## Current status — 2026-11-25
 
-**Cleanup:** Active Archive is the reference for duplicate cleanup. Staging and old publications require matching evidence before removal. The existing revision Verify & Clean gates still apply. Retained generations can be moved to an external history path and checked through their existing journals. See [Cleanup](CLEANUP.md). Each retained revision now shows verification progress, the outcome and eligible deletion controls in its own row. Tower verification of this feedback is pending.
+See the [dashboard](PROGRESS.md) for area-by-area maturity and the [developer handoff](DEVELOPER_HANDOFF.md) for starting the next session.
+
+### Deployment and cleanup evidence
+
+| Change | Scope and evidence |
+| --- | --- |
+| [#169](https://github.com/sin7ek/OSCAR/pull/169) | Unified Cleanup, aged verified staging cleanup, job history and external revision storage. Tower output shows retained history at `/staging/.oscar-archive-versions`, outside the live `/archive` mount. |
+| [#170](https://github.com/sin7ek/OSCAR/pull/170) | Verified staging cleanup honors the artwork filename recorded in the archive manifest, including legacy `cover.jpg` and `cover.png`. A post-change successful Tower deletion has no recorded result. |
+| [#171](https://github.com/sin7ek/OSCAR/pull/171) | Danger Zone permits direct, explicit deletion of selected cleanup folders. Verified duplicate checks remain available in the standard path. Active Archive and live staging workers are protected. Manual deletion on Tower has no recorded acceptance result. |
+| [#172](https://github.com/sin7ek/OSCAR/pull/172) | Tower reported that clicking **Verify & Clean retained revision** gave no visible feedback in the row. Now **Verify retained revision** shows progress, success or failure in place. For eligible verified history, a separate deletion control appears only when enabled. 522 local tests and a focused JavaScript flow check passed. PR [Tests](https://github.com/sin7ek/OSCAR/actions/runs/45512217464) and [Docker build](https://github.com/sin7ek/OSCAR/actions/runs/45512217531) passed. Tower acceptance remains open. |
+
+**Deployment baseline:** #172 merged as `3340b589d72a9c1514af38cac1b302efe8b192e7`. See [main Tests](https://github.com/sin7ek/OSCAR/actions/runs/45519871627) and the [main image build](https://github.com/sin7ek/OSCAR/actions/runs/45519871638). Both runs passed. GHCR Linux/amd64 `ghcr.io/sin7ek/oscar:main` matched the merge revision at manifest digest `sha256:aa919c20ed492edd68e6f1702d396b6e1500cdcfd1fbed2205eb1b08f4e405b6`.
+
+Tower listed seven journal-linked retained generations totaling about 2.14 GiB, including two Anastacia generations. Cleanup should show a successful read-only Verify for an intact retained revision even when a history chain disallows verified deletion. Normal staging cleanup requires an exact active archive match and preserves unresolved dependencies, unmatched rips and unique evidence for review. The other Tower rows included interrupted extraction, Track Recovery sources and artifact or provenance differences. See [Cleanup](CLEANUP.md) for the current workflow.
+
+### Next acceptance checks
+
+| Area | Tower test |
+| --- | --- |
+| Cleanup | Verify one retained single-disc generation from its row and observe progress and result. Verify a protected Anastacia row and check the explanation. Test deletion modes with an explicitly approved disposable fixture. |
+| CD-Extra | Re-rip *Machines in Motion* on a compatible drive. Expect two matching raw reads of 61,755 sectors (145,247,760 bytes), then preview adding the verified supplement to the active archive. Existing job `385f8276c19543f3a5355660aad664d5` has only an 8,475-byte BIN and no verified data capture record. |
+| Collection and tagged metadata | Check distinct Équinoxe editions, the proposed MusicBrainz date/country correction once visible, Discogs Electronic genre provenance, cover-source switching and upload, and the Leviathan multidisc Disc ID handoff. |
+| Archive revisions | Verify coordinated GENRE and RELEASECOUNTRY changes on the intended Boulez/Mahler media. Check Mahler Disc 11 per-track provenance in Proposed SOURCES.txt and published evidence if approved. |
+| Go! and staging | Verify saved automatic CTDB results on fresh eligible rips, real DriveFit attribution and ETA, optical tray controls, and interrupted job reconciliation. |
+| Onboarding | Review the example Compose and test a clean install with staging, active archive and revision history laid out separately. |
+
+### Feature and Tower evidence
 
 **CD-Extra archive completion:** A reviewed second rip can add verified data to a matching existing audio archive. The data folder has separate publication evidence. The operator reported artwork working on Tower; the data supplement still needs a Tower test.
 
-**Cover artwork:** Go! and Archive Review show a replaceable front cover from the accepted MusicBrainz release, a linked Discogs CD or an operator upload. Explicit publication approval embeds the selected JPEG in each new FLAC and saves `folder.jpg` with provenance in `SOURCES.txt`. Tower artwork acceptance is pending. See [archive publishing](ARCHIVE_PUBLISHER.md).
+**Cover artwork:** Go! and Archive Review show a replaceable front cover from the accepted MusicBrainz release, a linked Discogs CD or an operator upload. Explicit publication approval embeds the selected JPEG in each new FLAC and saves `folder.jpg` with provenance in `SOURCES.txt`. The operator reported artwork working on Tower. Cover-source switching, upload and embedded-file readback still need distinct acceptance results. See [archive publishing](ARCHIVE_PUBLISHER.md).
 
 **Disc ID in Review:** Review opens a job with the reason tagging is paused and the next action. It can prepare MusicBrainz Disc ID links for compatible discs of a multidisc release and check them before continuing tagging in Go!. Tower acceptance remains open for the Leviathan 24/29-track set.
 
@@ -16,7 +42,7 @@
 
 **CD-Extra data archive:** New full-disc rips capture the trailing Mode 1 data session with two matching raw reads. Publication includes the image and checksum by default, with explicit audio-only exclusion available. Archive audits and revisions check the data image. Raw drive extraction and publication remain to be tested on Tower.
 
-**CTDB split-file CUE:** Tower reported a 15-track rip with valid FLAC decode and hashes, no reported AccurateRip matches and a CUE rejected before CTDB lookup. The verifier now accepts cyanrip split pregaps using a temporary compatible sheet, preserving original file order and index values. Retry the same staged rip on Tower.
+**CTDB split-file CUE:** Tower reported a 15-track rip with valid FLAC decode and hashes, no reported AccurateRip matches and a CUE rejected before CTDB lookup. The verifier now accepts cyanrip split pregaps using a temporary compatible sheet, preserving original file order and index values. The later full-TOC fallback passed on the Machines in Motion audio fixture.
 
 **Automatic CTDB:** OSCAR automatically checks eligible full-disc staging rips against CTDB after extraction and records the result in Review, SOURCES.txt and publication evidence. AccurateRip keeps its existing verdict. Tower acceptance with known-good CD audio and a real CTDB lookup remains open.
 
@@ -820,7 +846,7 @@ PR #51 merged at `b307b8248f0c64997ffd79973bfab44a88704003`; PR #52 merged at `b
 
 ### Maintenance agreement
 
-`docs/PROJECT_STATUS.md` is the **living OSCAR workdocument and handoff**, not merely a post-hoc summary. Every meaningful implementation PR must update it together with code/tests. The README and older milestone documents must not be interpreted as fresher evidence when contradicted by this verified current-state section. Keep the explicit difference between *merged*, *CI tested*, *Unraid tested* and *fully automatic*.
+`docs/PROJECT_STATUS.md` is the **living OSCAR workdocument and handoff**, not merely a post-hoc summary. Every meaningful implementation PR must update it together with code/tests. Current acceptance records belong in this work document and the dashboard. Earlier milestones record the evidence known at the time. Keep the explicit difference between *merged*, *CI tested*, *Unraid tested* and *fully automatic*.
 
 ---
 

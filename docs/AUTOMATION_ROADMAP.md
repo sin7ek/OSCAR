@@ -1,22 +1,14 @@
-## Advanced review handoffs
-
-A passed staging check links to metadata preview with the job ID filled in. A completed manual tagged copy links to FLAC tag inspection with both IDs. A successful inspection links to the read-only publication preview, including SOURCES.txt. Publication remains separately confirmed. A release search result can populate the exact MusicBrainz release field.
-
-Semi Secure and Secure Go! release review expose an opt-in physical identifiers form. Enter catalog number, barcode and any matrix or SID codes once per active browser session. OSCAR passes them to the relevant MusicBrainz and Discogs comparison forms and offers manual catalog search links for Musik-Sammler and VGMdb. Catalog and barcode are operator-entered evidence; they do not approve the candidate. MusicBrainz physical comparison still requires a catalog number, and only the existing Semi Secure approval stores the matrix with its workflow. Check actual Tower behavior before marking the UI accepted.
-
-## Current Go! reality and next step — 2026-11-20
-
-**Update to supersede older “future” and “phase 1” wording below:** All three policy choices are now available; Semi Automatic has user-tested release acceptance, an isolated metadata-copy progression and reviewed archive publication. The user successfully published two different CDs from a six-CD classical boxset into one parent path on Unraid. This does **not** mean disc insertion triggers an unattended full workflow, that all metadata relationships are edition-verified, or that recovery/cleanup is automatic. Older planning sections below are historical milestones and may refer to past implementations as future.
-
-**Next implementation:** provide an explicit **refresh MusicBrainz Disc ID match** on saved, already accepted verified jobs, using a fresh MusicBrainz release-medium request. Distinguish current `exact_disc_id_and_track_count` lookup evidence from historical `INFERRED_OPERATOR_ACCEPTED` operator review; never silently reclassify user physical-edition evidence. Carmen Gomes *Desire* now has a user-attached Disc ID and is the real regression case.
-
-**Collection-management expansion:** MusicBrainz OAuth collection read is a separate optional integration; configuration names: `OSCAR_MUSICBRAINZ_ID`, `OSCAR_MUSICBRAINZ_CS`; Discogs remains `OSCAR_DISCOGS_PAK`. Server-side OAuth only, secure tokens, configurable redirect, no collection writes in phase one. Local ownership copies, MB release membership, Discogs collection instances and archived boxset media are **distinct** concepts. Edit notes for MusicBrainz Disc ID submission will be deterministic, operator-reviewed local templates, without AI/API dependency.
-
----
-
 # OSCAR — CD inserted → Go! automation roadmap
 
-**State:** plans and implemented foundations as of November 19, 2026. This is *not* a completed automatic pipeline.
+## Current Go! workflow — 2026-11-25
+
+Go! runs rip and verification, records edition lookup evidence and guides the operator through the configured release and archive review. The three policy choices are available. Explicitly enabled Best Guess can automatically publish when all of its checks pass. Semi Automatic has been exercised through reviewed publication on Tower. Automatic CD insertion and fully unattended orchestration remain open.
+
+### Advanced review handoffs
+
+Review provides prefilled handoffs from a verified rip to metadata preview, tagged-copy inspection and read-only archive preview. Semi Secure and Secure expose optional physical identifiers for MusicBrainz/Discogs comparison. Guided Disc ID attachment uses operator confirmation on MusicBrainz. Go! records independent CTDB evidence for eligible full-disc rips and includes it in the archive provenance.
+
+See the [dashboard](PROGRESS.md) and [current acceptance tests](PROJECT_STATUS.md#next-acceptance-checks). The milestones below retain their original design and implementation context.
 
 ## One verified audio pipeline; three top-level operating modes (design decision, 2026-11-19)
 
