@@ -36,6 +36,8 @@ xychart-beta
 
 - RipReview groups saved jobs and offers the next action, including a confirmed diagnostic and a prefilled Track Recovery handoff. Tower acceptance is open. [Automation roadmap](AUTOMATION_ROADMAP.md#ripreview)
 
+- Per-drive opt-in for automatic start on disc insertion uses the existing Go! and RipReview workflow. Tower still needs insertion, deduplication and slot-limit tests. [Automation roadmap](AUTOMATION_ROADMAP.md#automatic-start-on-insertion)
+
 ## How to update this living dashboard
 
 1. **At every meaningful feature PR:** review impacted percentages, the supporting evidence and remaining gaps alongside [PROJECT_STATUS.md](PROJECT_STATUS.md). A PR should link both documents when it changes a roadmap domain.

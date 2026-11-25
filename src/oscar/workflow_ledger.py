@@ -208,9 +208,11 @@ def register_created(job):
             VALUES (?,?,?,?,?,?,?)""",
             (job_id,str(job.get("disc_id") or "")[:28],settings.identification_mode,
              settings.secure_review_level,"RIP_IN_PROGRESS",stamp,stamp))
+        reason = ("disc_insertion_before_extraction" if job.get("start_trigger") == "disc_insertion"
+                  else "go_created_before_extraction")
         db.execute("""INSERT INTO workflow_events
             (job_id,phase_before,phase_after,reason,happened_at) VALUES (?,?,?,?,?)""",
-            (job_id,"UNREGISTERED","RIP_IN_PROGRESS","go_created_before_extraction",stamp))
+            (job_id,"UNREGISTERED","RIP_IN_PROGRESS",reason,stamp))
         return _view(db,job_id)
 
 def register(job_id):

@@ -809,11 +809,17 @@ async function init(){
   const label=document.createElement('label');const check=document.createElement('input');
   check.type='checkbox';check.checked=drive.enabled;check.onchange=()=>drive.enabled=check.checked;
   label.append(check,document.createTextNode(' Enable drive'));
+  const autoLabel=document.createElement('label');
+  const auto=document.createElement('input');auto.type='checkbox';
+  auto.checked=!!drive.auto_rip_on_insert;
+  auto.onchange=()=>drive.auto_rip_on_insert=auto.checked;
+  autoLabel.append(auto,document.createTextNode(' Start ripping automatically when I insert an audio CD'));
+  autoLabel.title='Enable and calibrate this drive, then save. OSCAR must see the drive empty before starting from insertion.';
   const offsetLabel=document.createElement('label');safeText(offsetLabel,' Read offset (samples; blank = unknown) ');
   const offset=document.createElement('input');offset.type='number';offset.min=-2000;offset.max=2000;
   offset.value=drive.offset_samples===null?'':drive.offset_samples;
   offset.oninput=()=>{drive.offset_samples=offset.value===''?null:Number(offset.value)};
-  offsetLabel.append(offset);row.append(head,device,label,offsetLabel);
+  offsetLabel.append(offset);row.append(head,device,label,offsetLabel,autoLabel);
   const assist=document.createElement('div');
   const link=document.createElement('a');link.href='https://www.accuraterip.com/driveoffsets.htm';
   link.target='_blank';link.rel='noopener noreferrer';link.textContent='AccurateRip drive offset database';
@@ -3114,11 +3120,11 @@ function appendGoRipProgress(card,drive){
  caveat.textContent='Track-based estimate; long tracks, re-reads and verification can change the ETA.';
  wrap.append(caveat);card.append(wrap);
 }
-function scheduleGoDashboardRefresh(){
+function scheduleGoDashboardRefresh(delay=3500){
  if(goDashboardTimer)clearTimeout(goDashboardTimer);
  goDashboardTimer=null;
  if(!goDashboardHeaders||document.getElementById('panel-go').hidden)return;
- goDashboardTimer=setTimeout(()=>refreshGoCards(false),3500);
+ goDashboardTimer=setTimeout(()=>refreshGoCards(false),delay);
 }
 let goDrivefitLabels=new Map();
 let goDrivefitNextRefresh=0;
@@ -3183,7 +3189,8 @@ async function refreshGoCards(interactive=true){
    card.append(badges);cardsWithLabels.set(drive.stable_id,badges);
    const device=document.createElement('small');
    device.textContent=(drive.device||'Not detected')+
-    ' · '+(drive.offset_set?'offset configured':'offset missing');
+    ' · '+(drive.offset_set?'offset configured':'offset missing')+
+    (drive.auto_rip_on_insert?' · automatic start enabled':'');
    card.append(device);
    const state=document.createElement('strong');
    const ready=drive.status==='ready'&&dashboard.slots_available>0;
@@ -3200,7 +3207,8 @@ async function refreshGoCards(interactive=true){
     const info=document.createElement('small');
     const tracked=ledger.jobs?.find(job=>job.job_id===last.id);
     info.textContent='Last rip: '+(tracked?.working_title||last.working_title||last.id.slice(0,8))+
-     ' · '+(last.status||'unknown');
+     ' · '+(last.status||'unknown')+
+     (last.start_trigger==='disc_insertion'?' · started on insertion':'');
     card.append(info);
     if(Array.isArray(last.selected_tracks)&&last.selected_tracks.length){
      addGoAction(card,'Inspect diagnostic job',async()=>{
@@ -3254,6 +3262,7 @@ async function refreshGoCards(interactive=true){
   }
   if((dashboard.drives||[]).some(d=>d.status==='ripping')||
     ledger.jobs?.some(job=>job.rip_review?.reason==='Verifying staged audio'))scheduleGoDashboardRefresh();
+  else if((dashboard.drives||[]).some(d=>d.present&&d.auto_rip_on_insert))scheduleGoDashboardRefresh(8000);
   else if(goDashboardTimer){clearTimeout(goDashboardTimer);goDashboardTimer=null}
   if(!(dashboard.drives||[]).length)
    target.textContent='No enabled optical drives. Configure them under Settings.';
@@ -4182,8 +4191,18 @@ document.getElementById('save').onclick=async()=>{
  settings.identification_mode=document.getElementById('identification-mode').value;
  settings.secure_review_level=document.getElementById('secure-review-level').value;
  status.textContent='Saving…';
- try{const r=await fetch('/api/settings',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(settings)});
- if(!r.ok)throw new Error(await r.text());status.textContent='Settings saved. No rip started.';}
+ try{
+  const save=auth=>fetch('/api/settings',{method:'PUT',
+   headers:{'Content-Type':'application/json',...auth},body:JSON.stringify(settings)});
+  let r=await save({});
+  if(r.status===403){
+   const auth=requestAuthHeaders('Save settings for automatic ripping');
+   if(!auth){status.textContent='Settings were not saved.';return}
+   r=await save(auth);
+  }
+  if(!r.ok)throw new Error(await r.text());
+  status.textContent='Settings saved.';
+ }
  catch(e){status.textContent='Could not save: '+e.message}
 };
 init().then(async()=>{
