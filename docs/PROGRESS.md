@@ -11,7 +11,7 @@ Percentages are editorial maturity estimates. The evidence column distinguishes 
 | CD ripping on Unraid | **90%** | `█████████░` | Concurrent audio rips and an LG diagnostic extraction observed. Explicit tray/Stop and raw CD-Extra capture need live tests. |
 | FLAC & staging verification | **85%** | `████████▌░` | FLAC decode, SHA-256, CUE and per-track evidence checked on Tower. Broader drive and disc-layout coverage remains open. |
 | MusicBrainz & release selection | **85%** | `████████▌░` | Équinoxe identifier and Discogs comparison observed. Missing Disc ID guidance for multidisc releases shipped. Validate the complete review-to-tagging flow. |
-| Classical metadata | **75%** | `███████▌░░` | Boulez LABEL verified on Tower, with 90/90 correct. The operator confirmed coordinated country Apply (DE). All 17 Mahler/Boulez discs show Classical in Collection. The journal can confirm the recalled GENRE Apply. |
+| Classical metadata | **80%** | `████████░░` | Boulez LABEL verified. Both boxsets have completed country revisions and DE on all 153 FLACs. Collection shows Classical from the publishing profile. Embedded GENRE and full country revision integrity Verify remain open. |
 | Archive publishing | **90%** | `█████████░` | Reviewed publications and revisions observed. Operator reports artwork working. Validate embedded artwork and the CD-Extra data supplement separately. |
 | Independent AccurateRip / CTDB | **65%** | `██████▌░░░` | Mahler recovery matched 17/17 independently. Machines in Motion matched CTDB 5/5 on Tower. Get the Hits 2 matched automatic CTDB 45/46 and carried the evidence into publication. Wider layout coverage remains open. |
 | Automatic end-to-end workflow | **60%** | `██████░░░░` | Automatic CTDB ran during a Tower workflow and reached the published SOURCES.txt. Go! still retains configured review gates. |
@@ -23,7 +23,7 @@ xychart-beta
     title "OSCAR estimated maturity — 2026-11-25"
     x-axis ["Ripping", "FLAC staging", "Release selection", "Classical", "Publishing", "AR / CTDB", "Automation", "Recovery", "Collection"]
     y-axis "Estimated maturity (%)" 0 --> 100
-    bar [90, 85, 85, 75, 90, 65, 60, 50, 35]
+    bar [90, 85, 85, 80, 90, 65, 60, 50, 35]
 ```
 
 ## Current deployment
@@ -45,6 +45,7 @@ xychart-beta
 
 | Date | Change | Evidence |
 |---|---|---|
+| 2026-11-25 | Classical metadata 75 → 80. | Tower reported two completed country revisions and read back DE on all 153 FLACs. GENRE was absent on every track. |
 | 2026-11-25 | AR/CTDB 55 → 65, automation 55 → 60, recovery/cleanup 45 → 50, Collection 30 → 35, classical metadata 70 → 75. | Tower observed automatic CTDB in the published archive, inline verification of two protected revisions, separate Collection rows for both Équinoxe editions, complete Mahler/Boulez indexing, and operator-confirmed Boulez country Apply. |
 | 2026-11-25 | Release selection 80 → 85, AR/CTDB 20 → 55, automation 45 → 55, recovery/cleanup 20 → 45, Collection 25 → 30. | Tower edition comparison and CTDB evidence, plus merged guided Review, automatic CTDB, edition indexing and unified Cleanup. Open hardware tests remain visible above. |
 | 2026-11-22 | Reviewed through #140; no percentage change. | Recorded the narrow Tower Track Recovery and archive-revision results. Broader verification, hardware acceptance, cleanup and orchestration remain open. |

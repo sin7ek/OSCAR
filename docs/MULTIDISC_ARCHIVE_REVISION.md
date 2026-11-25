@@ -1,6 +1,6 @@
 # Coordinated multidisc archive revision — implementation contract
 
-**Status:** [#110](https://github.com/sin7ek/OSCAR/pull/110) merged the opt-in group LABEL Apply and explicit reconciliation. On Tower, the Boulez group changed 39 tracks on CDs 4 and 6, retaining the originals. The read-only verifier from [#112](https://github.com/sin7ek/OSCAR/pull/112) returned `Integrity PASS` for both revised discs. [#116](https://github.com/sin7ek/OSCAR/pull/116) records this result. Interruption/reconciliation and separate coordinated GENRE Apply still require live acceptance.
+**Status:** [#110](https://github.com/sin7ek/OSCAR/pull/110) merged the opt-in group LABEL Apply and explicit reconciliation. On Tower, the Boulez group changed 39 tracks on CDs 4 and 6, retaining the originals. The read-only verifier from [#112](https://github.com/sin7ek/OSCAR/pull/112) returned `Integrity PASS` for both revised discs. [#116](https://github.com/sin7ek/OSCAR/pull/116) records this result. Tower subsequently confirmed completed RELEASECOUNTRY revisions and read back DE on all 90 Boulez and 63 Mahler tracks. Full two-generation country Verify, interruption/reconciliation and coordinated GENRE Apply remain open. See the [Tower acceptance record](PROJECT_STATUS.md#tower-acceptance--2026-11-25).
 
 ## Combined metadata review
 
