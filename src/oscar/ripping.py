@@ -434,10 +434,12 @@ def plan(stable_id, selected_tracks=None):
 
 
 def start(stable_id, *, runner=subprocess.run, on_created=None, on_completed=None,
-          selected_tracks=None):
+          selected_tracks=None, expected_disc_id=None):
     if selected_tracks is not None and (on_created is not None or on_completed is not None):
         raise RipError("Selected-track diagnostics cannot enter a Go workflow")
     information = plan(stable_id, selected_tracks=selected_tracks)
+    if expected_disc_id is not None and information["disc_id"] != expected_disc_id:
+        raise RipError("Inserted disc does not match the saved Disc ID for this diagnostic")
     root = staging_root()
     with _LOCK:
         if stable_id in _ACTIVE or stable_id in _TRAY_BUSY:

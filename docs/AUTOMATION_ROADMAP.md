@@ -4,6 +4,12 @@
 
 Go! runs rip and verification, records edition lookup evidence and guides the operator through the configured release and archive review. The three policy choices are available. Explicitly enabled Best Guess can automatically publish when all of its checks pass. Semi Automatic has been exercised through reviewed publication on Tower. Automatic CD insertion and fully unattended orchestration remain open.
 
+### RipReview
+
+The Go! worklist reads the persistent job ledger and saved extraction evidence. It groups jobs by next action, including read again, audio/data review, edition review and archive review. Lookup gaps remain visible separately from a reported mismatch. For a proven track-specific issue, Review recommends an eligible idle drive using DriveFit and can start a separate, explicitly confirmed diagnostic after checking the inserted Disc ID. Track Recovery opens with both job IDs and the affected tracks filled in.
+
+Insertion-triggered ripping, unattended re-reads and automatic recovery remain future increments. RipReview neither changes verification and publication policy nor starts another physical read merely because an issue was detected.
+
 ### Advanced review handoffs
 
 Review provides prefilled handoffs from a verified rip to metadata preview, tagged-copy inspection and read-only archive preview. Semi Secure and Secure expose optional physical identifiers for MusicBrainz/Discogs comparison. Guided Disc ID attachment uses operator confirmation on MusicBrainz. Go! records independent CTDB evidence for eligible full-disc rips and includes it in the archive provenance.

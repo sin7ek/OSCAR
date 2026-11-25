@@ -205,10 +205,9 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 <input id="go-job" maxlength="32" placeholder="Created automatically or paste existing Go job ID" style="width:350px;max-width:95%">
 <button type="button" id="go-advance">Check next safe step</button>
 <div id="go-result" aria-live="polite"></div>
-<h3>Tracked Go! jobs</h3>
-<p>Saved MusicBrainz candidates are hints, not physical-edition proof. Published jobs are hidden by default; no archive or staging files are changed by these controls.</p>
+<h3>RipReview</h3>
 <div class="go-job-toolbar">
-<label for="go-job-filter">Show <select id="go-job-filter"><option value="action">Needs attention</option><option value="active">In progress</option><option value="published">Published</option><option value="all">All jobs</option></select></label>
+<label for="go-job-filter">Show <select id="go-job-filter"><option value="action">Needs attention</option><option value="reread">Read again</option><option value="audio_review">Review audio / data</option><option value="edition">Review edition / tags</option><option value="ready">Ready for archive review</option><option value="active">In progress</option><option value="done">Published</option><option value="all">All jobs</option></select></label>
 <label for="go-job-sort">Sort <select id="go-job-sort"><option value="updated">Recent activity</option><option value="created">Newest created</option><option value="priority">Priority</option><option value="album">Album A–Z</option><option value="id">Job ID</option></select></label>
 </div>
 <div id="go-job-summary" aria-live="polite"></div>
@@ -1554,9 +1553,7 @@ document.getElementById('discogs-pressing-search').onclick=async(event)=>{
  finally{button.disabled=false}
 };
 
-document.getElementById('ctdb-verify').onclick=async(event)=>{
- const button=event.currentTarget, target=document.getElementById('ctdb-output');
- const job=document.getElementById('verify-job').value.trim().toLowerCase();
+async function verifyStagedCtdb(job,button,target){
  if(!/^[a-f0-9]{32}$/.test(job)){target.textContent='Enter a valid rip job ID.';return}
  const headers=requestAuthHeaders('Verify staged CD audio against CTDB');
  if(!headers)return;
@@ -1572,7 +1569,11 @@ document.getElementById('ctdb-verify').onclick=async(event)=>{
    (data.message?' · '+data.message:'');
  }catch(error){target.textContent='CTDB verification unavailable: '+error.message}
  finally{button.disabled=false}
-};
+}
+document.getElementById('ctdb-verify').onclick=event=>verifyStagedCtdb(
+ document.getElementById('verify-job').value.trim().toLowerCase(),event.currentTarget,
+ document.getElementById('ctdb-output'));
+
 
 const recoveryAdvice={
  missing_release:'Missing release: search MusicBrainz by physical catalog number and title. Check the actual booklet, all track names/versions, and Disc ID/TOC. If genuinely absent, submit a new physical Various Artists or artist release through MusicBrainz. Never attach unrelated recordings or invent IDs. You can defer this entirely.',
@@ -3027,8 +3028,7 @@ function addGoAction(parent,label,handler){
  button.type='button';button.textContent=label;button.onclick=handler;
  parent.append(button);return button;
 }
-async function startGoDiagnosticTracks(stableId, raw){
- const out=document.getElementById('go-result');
+async function startGoDiagnosticTracks(stableId, raw, out=document.getElementById('go-result'), expectedDiscId=null){
  const parts=raw.split(',').map(n=>n.trim());
  if(!parts.length||parts.length>99||parts.some(n=>!(/^[0-9]{1,2}$/.test(n)))){
   out.textContent='Enter unique comma-separated track numbers, e.g. 7 or 1,5,17.';return;
@@ -3042,11 +3042,13 @@ async function startGoDiagnosticTracks(stableId, raw){
  try{
   const response=await fetch('/api/rip/start',{method:'POST',
    headers:{'Content-Type':'application/json',...headers},
-   body:JSON.stringify({stable_id:stableId,selected_tracks:selected,confirmation:'RIP_DIAGNOSTIC_TRACKS'})});
+   body:JSON.stringify({stable_id:stableId,selected_tracks:selected,confirmation:'RIP_DIAGNOSTIC_TRACKS',
+    ...(expectedDiscId?{expected_disc_id:expectedDiscId}:{})})});
   const data=await response.json();
   if(!response.ok)throw new Error(data.detail||'Diagnostic rip unavailable');
   out.textContent='Diagnostic job '+data.id+' · selected tracks '+selected.join(', ')+'. Separate staging; not a Go workflow.';
   await refreshGoCards(false);
+  return data;
  }catch(error){out.textContent='Diagnostic rip blocked: '+error.message}
 }
 async function stopGoRip(jobId){
@@ -3164,7 +3166,7 @@ async function refreshGoCards(interactive=true){
  try{
   const [driveResponse,jobResponse]=await Promise.all([
     fetch('/api/rip/dashboard',{headers}),
-    fetch('/api/workflow/jobs',{headers})
+    fetch('/api/workflow/jobs?rip_review=true',{headers})
   ]);
   if(!driveResponse.ok||!jobResponse.ok)throw new Error('Drive/workflow status unavailable');
   const dashboard=await driveResponse.json(), ledger=await jobResponse.json();
@@ -3250,7 +3252,8 @@ async function refreshGoCards(interactive=true){
    if(!ready)start.title='Available only for a detected, enabled, calibrated and idle drive';
    target.append(card);
   }
-  if((dashboard.drives||[]).some(d=>d.status==='ripping'))scheduleGoDashboardRefresh();
+  if((dashboard.drives||[]).some(d=>d.status==='ripping')||
+    ledger.jobs?.some(job=>job.rip_review?.reason==='Verifying staged audio'))scheduleGoDashboardRefresh();
   else if(goDashboardTimer){clearTimeout(goDashboardTimer);goDashboardTimer=null}
   if(!(dashboard.drives||[]).length)
    target.textContent='No enabled optical drives. Configure them under Settings.';
@@ -3265,15 +3268,16 @@ async function refreshGoCards(interactive=true){
  }
 }
 // Presentation-only list: no MusicBrainz requests, file writes, or identification approvals.
-const goPublishedPhases=new Set(['ARCHIVE_PUBLISHED']);
-const goActivePhases=new Set(['RIP_IN_PROGRESS','METADATA_COPY_RUNNING','ARCHIVE_PUBLISH_RUNNING']);
-const goJobPriority={'RIP_FAILED':0,'RIP_INTERRUPTED':0,'VERIFICATION_PENDING':1,
- 'METADATA_REVIEW_REQUIRED':2,'ARCHIVE_REVIEW_REQUIRED':2,'RELEASE_REVIEW_PENDING':3,
- 'DEFERRED_REVIEW':3,'METADATA_READY':4,'RELEASE_ACCEPTED':4};
-function goJobGroup(job){
- if(goPublishedPhases.has(job.phase))return 'published';
- if(goActivePhases.has(job.phase))return 'active';
- return 'action';
+const ripReviewGroups={reread:'Read again',audio_review:'Review audio / data',
+ edition:'Review edition / tags',ready:'Ready for archive review',active:'In progress',done:'Published'};
+const ripReviewButtons={retry:'Review next read',verify:'Review audio',
+ layout:'Review disc layout',edition:'Review edition',metadata:'Review metadata',
+ archive:'Open archive review',progress:'View progress',published:'View published job'};
+function appendRipReviewAction(row,job){
+ const action=job.rip_review.action;
+ const advance=['archive','progress','published'].includes(action)||
+  (action==='edition'&&job.identification_mode!=='semi_automatic');
+ addGoAction(row,ripReviewButtons[action],()=>advance?continueJobInGo(job.job_id):openTrackedReview(job.job_id));
 }
 function renderTrackedGoJobs(jobs){
  const target=document.getElementById('go-workflows');
@@ -3281,14 +3285,15 @@ function renderTrackedGoJobs(jobs){
  if(!target||!summary)return;
  const filter=document.getElementById('go-job-filter').value;
  const sort=document.getElementById('go-job-sort').value;
- const counts={action:0,active:0,published:0};
- for(const job of jobs)counts[goJobGroup(job)]++;
- summary.textContent=counts.action+' need attention · '+counts.active+' active · '+
-  counts.published+' published · '+jobs.length+' tracked';
- const visible=jobs.filter(job=>filter==='all'||goJobGroup(job)===filter);
+ const groups=Object.keys(ripReviewGroups);
+ const counts=Object.fromEntries(groups.map(group=>[group,0]));
+ for(const job of jobs)counts[job.rip_review.group]++;
+ summary.textContent=groups.map(group=>counts[group]+' '+ripReviewGroups[group].toLowerCase()).join(' · ');
+ const visible=jobs.filter(job=>filter==='all'||job.rip_review.group===filter||
+  (filter==='action'&&!['active','done'].includes(job.rip_review.group)));
  const title=job=>job.working_title||job.candidate_title||'Unknown CD';
  visible.sort((a,b)=>{
-  if(sort==='priority')return ((goJobPriority[a.phase]??5)-(goJobPriority[b.phase]??5)) ||
+  if(sort==='priority')return (groups.indexOf(a.rip_review.group)-groups.indexOf(b.rip_review.group)) ||
    String(b.updated_at||'').localeCompare(String(a.updated_at||''));
   if(sort==='album')return title(a).localeCompare(title(b)) || a.job_id.localeCompare(b.job_id);
   if(sort==='id')return a.job_id.localeCompare(b.job_id);
@@ -3301,28 +3306,23 @@ function renderTrackedGoJobs(jobs){
   const info=document.createElement('div');info.className='go-job-details';
   const name=document.createElement('div');name.className='go-job-title';name.textContent=title(job);
   const state=document.createElement('div');state.className='go-job-state';
-  state.textContent=job.phase.replaceAll('_',' ')+' · '+job.identification_mode+
-   (job.match_status==='INFERRED_OPERATOR_ACCEPTED'?' · operator accepted inferred release':
-    job.match_status==='INFERRED_NOT_PHYSICALLY_VERIFIED'?' · possible MusicBrainz match (NOT edition verified)':' · release unresolved');
+  const route=job.rip_review;
+  state.textContent=route.reason+(route.tracks?.length?' · tracks '+route.tracks.join(', '):'')+
+   (route.layout?' · '+route.layout:'');
   const details=document.createElement('small');
-  details.textContent=(job.candidate_date?'Candidate date: '+job.candidate_date+' · ':'')+
-    'Job '+job.job_id.slice(0,8)+' · Updated '+(job.updated_at||'unknown');
+  details.textContent=job.phase.replaceAll('_',' ')+' · Job '+job.job_id.slice(0,8)+
+   (job.match_status==='INFERRED_OPERATOR_ACCEPTED'?' · operator accepted inferred release':
+    job.match_status==='INFERRED_NOT_PHYSICALLY_VERIFIED'?' · possible MusicBrainz match (NOT edition verified)':'')+
+   (job.candidate_date?' · '+job.candidate_date:'');
   details.title=job.job_id;
   info.append(name,state,details);row.append(info);
-  addGoAction(row,goJobGroup(job)==='published'?'View published job':
-    goJobGroup(job)==='active'?'View progress / status':'Open / Check next safe step',()=>{
-   document.getElementById('go-job').value=job.job_id;
-   showOscarTab('go');goAdvance();
-  });
+  appendRipReviewAction(row,job);
   target.append(row);
  }
  if(!visible.length)target.textContent=jobs.length?'No jobs in this filter.':'No tracked Go! jobs yet.';
 }
 for(const id of ['go-job-filter','go-job-sort'])
  document.getElementById(id).addEventListener('change',()=>refreshGoCards(false));
-const reviewPhases=new Set(['RIP_FAILED','RIP_INTERRUPTED','METADATA_REVIEW_REQUIRED',
- 'ARCHIVE_REVIEW_REQUIRED','VERIFICATION_PENDING','RELEASE_REVIEW_PENDING',
- 'DEFERRED_REVIEW','METADATA_READY','RELEASE_ACCEPTED']);
 async function refreshReviewQueue(interactive=true){
  const target=document.getElementById('review-jobs');
  if(!target)return;
@@ -3331,11 +3331,11 @@ async function refreshReviewQueue(interactive=true){
  else if(trustedLocalUI)headers={'X-OSCAR-UI-ACTION':'confirmed'};
  if(!headers)return;
  try{
-  const response=await fetch('/api/workflow/jobs',{headers});
+  const response=await fetch('/api/workflow/jobs?rip_review=true',{headers});
   if(!response.ok)throw new Error('Unable to read workflow ledger');
   const data=await response.json();
   target.replaceChildren();
-  const matching=(data.jobs||[]).filter(job=>reviewPhases.has(job.phase));
+  const matching=(data.jobs||[]).filter(job=>!['done','active'].includes(job.rip_review.group));
   for(const job of matching){
    const row=document.createElement('div');row.className='go-workflow-row';
    const title=document.createElement('strong');
@@ -3343,7 +3343,7 @@ async function refreshReviewQueue(interactive=true){
    const id=document.createElement('small');id.textContent=job.phase+' · '+job.identification_mode+
     ' · '+job.job_id.slice(0,8);id.title=job.job_id;
    row.append(title,id);
-   addGoAction(row,'Open job in Review',()=>openTrackedReview(job.job_id));
+   appendRipReviewAction(row,job);
    target.append(row);
   }
   if(!matching.length)target.textContent='No tracked jobs currently require review.';
@@ -3360,6 +3360,53 @@ function continueJobInGo(id){
  document.getElementById('go-job').value=id;
  showOscarTab('go');
  goAdvance();
+}
+
+async function showRipReviewRetry(actions,job,headers){
+ const route=job.rip_review;
+ const output=metadataElement('p','Checking other drives…');
+ output.setAttribute('role','status');
+ actions.append(output);
+ try{
+  const [dashboard,tags]=await Promise.all([
+   reviewRequest('/api/rip/dashboard',headers),readGoDrivefitLabels(headers,false)
+  ]);
+  const drives=(dashboard.drives||[]).filter(drive=>drive.status==='ready'&&
+   drive.stable_id!==route.source_drive&&dashboard.slots_available>0);
+  if(!drives.length){
+   output.textContent='No other calibrated drive is idle. Check drive status and try again.';
+   return;
+  }
+  const rank=drive=>{
+   const names=(tags.get(drive.stable_id)||[]).map(tag=>tag.name);
+   return names.includes('Recovery')?0:names.includes('Low errors')?1:2;
+  };
+  drives.sort((a,b)=>rank(a)-rank(b));
+  const drive=drives[0];
+  output.textContent='Try '+drive.label+(rank(drive)<2?' · '+(rank(drive)===0?'Recovery':'Low errors'):'')+
+   '. Move the same physical disc before starting a new read.';
+  if(!route.tracks?.length||!route.disc_id){
+   addGoAction(actions,'Open drive controls',()=>showOscarTab('go'));
+   return;
+  }
+  const result=metadataElement('p','');
+  const retry=addGoAction(actions,'Rip tracks '+route.tracks.join(', ')+' on '+drive.label,async()=>{
+   retry.disabled=true;
+   try{
+    const attempt=await startGoDiagnosticTracks(drive.stable_id,route.tracks.join(','),result,route.disc_id);
+    if(!attempt)return;
+    retry.hidden=true;
+    addGoAction(actions,'Open prepared Track Recovery',()=>{
+     document.getElementById('recovery-original').value=job.job_id;
+     document.getElementById('recovery-diagnostic').value=attempt.id;
+     document.getElementById('recovery-tracks').value=route.tracks.join(',');
+     showOscarTab('go');
+     document.getElementById('track-recovery').scrollIntoView();
+    });
+   }finally{retry.disabled=false}
+  });
+  actions.append(result);
+ }catch(error){output.textContent='Drive recommendation unavailable: '+error.message}
 }
 
 let reviewGeneration=0;
@@ -3384,6 +3431,20 @@ async function openTrackedReview(id, previousMessage='', expectedMedium=null){
   if(previousMessage)actions.append(metadataElement('p',previousMessage));
   const reviewAction=action=>reviewRequest(workflowPath+'/review',headers,{
    method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action})});
+  const route=job.rip_review;
+  if(route?.layout)actions.append(metadataElement('p',route.layout));
+  if(['lookup_failed','unavailable'].includes(route?.ctdb)&&
+      job.phase!=='VERIFICATION_PENDING'&&route.action!=='verify'&&route.action!=='layout'){
+   const ctdbResult=metadataElement('div','');
+   const retry=addGoAction(actions,'Retry CTDB lookup',()=>verifyStagedCtdb(id,retry,ctdbResult));
+   actions.append(ctdbResult);
+  }
+  if(route?.action==='retry'){
+   actions.append(metadataElement('p',route.reason+
+    (route.tracks?.length?' · Tracks '+route.tracks.join(', '):'')));
+   await showRipReviewRetry(actions,job,headers);
+   return;
+  }
   if(job.phase==='DEFERRED_REVIEW'){
    actions.append(metadataElement('p','Edition review was saved for later.'));
    addGoAction(actions,'Resume edition review',async()=>{
@@ -3392,7 +3453,8 @@ async function openTrackedReview(id, previousMessage='', expectedMedium=null){
    });
    return;
   }
-  if(job.phase==='VERIFICATION_PENDING'){
+  if(job.phase==='VERIFICATION_PENDING'||['verify','layout'].includes(route?.action)){
+   if(route?.reason)actions.append(metadataElement('p',route.reason));
    const report=await reviewRequest('/api/rip/jobs/'+id+'/verification',headers);
    const ar=report.accuraterip_coverage?' · AccurateRip: '+report.accuraterip_coverage.replaceAll('_',' '):'';
    const ctdb=report.ctdb?' · CTDB: '+report.ctdb.status.replaceAll('_',' '):'';
@@ -3402,6 +3464,12 @@ async function openTrackedReview(id, previousMessage='', expectedMedium=null){
     if(window.confirm('Reverify this saved rip? The prior verification report is backed up.'))
      verifyExistingJob(id,result);
    });
+   if(['lookup_failed','unavailable'].includes(route?.ctdb)){
+    const retry=addGoAction(actions,'Retry CTDB lookup',()=>verifyStagedCtdb(id,retry,result));
+   }
+   if(route?.action==='layout'){
+    addGoAction(actions,'Continue to audio/data review in Go!',()=>continueJobInGo(id));
+   }
    actions.append(result);
    return;
   }

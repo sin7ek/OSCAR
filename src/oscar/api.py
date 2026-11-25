@@ -228,6 +228,7 @@ class RipRequest(BaseModel):
     stable_id: str = Field(min_length=1, max_length=256)
     confirmation: str
     selected_tracks: list[int] | None = Field(default=None, max_length=99)
+    expected_disc_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9._-]{28}$")
 
 
 def _rip_auth(token: str | None, request: Request | None = None):
@@ -294,7 +295,8 @@ def start_rip(request: RipRequest, http_request: Request, x_oscar_rip_token: str
     if request.confirmation != expected:
         raise HTTPException(status_code=422, detail="Explicit staging confirmation required")
     try:
-        return start(request.stable_id, selected_tracks=request.selected_tracks)
+        options = {"expected_disc_id": request.expected_disc_id} if request.expected_disc_id else {}
+        return start(request.stable_id, selected_tracks=request.selected_tracks, **options)
     except (RipError, OSError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
@@ -1529,7 +1531,7 @@ def workflow_refresh(job_id: str, request: Request,
     from oscar.ripping import RipError
     _rip_auth(x_oscar_rip_token,request)
     try:
-        return refresh(job_id)
+        return refresh(job_id, include_rip_review=True)
     except (WorkflowError, RipError, OSError, ValueError) as exc:
         raise HTTPException(status_code=409,detail=str(exc)) from exc
 
@@ -1546,11 +1548,12 @@ def workflow_review(job_id: str, body: WorkflowReviewAction, request: Request,
 
 
 @app.get("/api/workflow/jobs")
-def workflow_jobs(request: Request, x_oscar_rip_token: str | None = Header(default=None)):
+def workflow_jobs(request: Request, rip_review: bool = False,
+                  x_oscar_rip_token: str | None = Header(default=None)):
     from oscar.workflow_ledger import WorkflowError, list_jobs
     _rip_auth(x_oscar_rip_token,request)
     try:
-        return list_jobs()
+        return list_jobs(limit=250, include_rip_review=True) if rip_review else list_jobs()
     except (WorkflowError, OSError, ValueError) as exc:
         raise HTTPException(status_code=409,detail=str(exc)) from exc
 
@@ -1695,7 +1698,8 @@ def go_start(request: RipRequest, http_request: Request,
     from oscar.ripping import RipError
     from oscar.workflow_ledger import WorkflowError
     _rip_auth(x_oscar_rip_token,http_request)
-    if request.selected_tracks is not None or request.confirmation != "RIP_TO_STAGING":
+    if (request.selected_tracks is not None or request.expected_disc_id is not None
+            or request.confirmation != "RIP_TO_STAGING"):
         raise HTTPException(status_code=422, detail="Go! only accepts complete-disc rips")
     try:
         return start(request.stable_id)

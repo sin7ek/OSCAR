@@ -710,7 +710,7 @@ def test_review_reverify_uses_existing_auth_protected_verification_api():
     html = TestClient(app).get("/").text
     assert "Reverify saved rip" in html
     assert "verifyExistingJob(id,result)" in html
-    assert "if(job.phase==='VERIFICATION_PENDING')" in html
+    assert "job.phase==='VERIFICATION_PENDING'" in html
     assert "The prior verification report is backed up" in html
     assert "/api/rip/jobs/'+job+'/verification" in html
     assert "window.confirm('Reverify this saved rip" in html

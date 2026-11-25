@@ -34,6 +34,8 @@ xychart-beta
 
 - The archive additions scan can propose embedded Classical tags for a verified classical publishing profile when provider genres are absent. Bulk scans reuse release responses within the run. Tower timing and coordinated GENRE Apply remain open.
 
+- RipReview groups saved jobs and offers the next action, including a confirmed diagnostic and a prefilled Track Recovery handoff. Tower acceptance is open. [Automation roadmap](AUTOMATION_ROADMAP.md#ripreview)
+
 ## How to update this living dashboard
 
 1. **At every meaningful feature PR:** review impacted percentages, the supporting evidence and remaining gaps alongside [PROJECT_STATUS.md](PROJECT_STATUS.md). A PR should link both documents when it changes a roadmap domain.

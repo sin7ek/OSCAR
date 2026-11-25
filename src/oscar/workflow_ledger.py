@@ -275,7 +275,7 @@ def register_recovery(job_id):
         return _view(db, job_id)
 
 
-def refresh(job_id):
+def refresh(job_id, *, include_rip_review=False):
     """Reconcile durable state with saved rip/verification evidence only."""
     state = _state(job_id)
     from oscar import ripping
@@ -292,7 +292,13 @@ def refresh(job_id):
         if phase in {"RIP_IN_PROGRESS","VERIFICATION_PENDING"} and observed in {
                 "VERIFICATION_PENDING","RELEASE_REVIEW_PENDING","RIP_FAILED","RIP_INTERRUPTED"}:
             _transition(db,job_id,phase,observed,"source_staging_reconciliation")
-        return _view(db,job_id)
+        result = _view(db,job_id)
+    if include_rip_review:
+        from oscar import rip_review
+
+        result["rip_review"] = rip_review.next_step(
+            job_id, result["phase"], has_candidate=bool(result["proposed_release_id"]))
+    return result
 
 
 
@@ -649,7 +655,7 @@ def set_archived(job_id, archived):
     return {"job_id": job_id, "archived": archived}
 
 
-def list_jobs(limit=100, *, include_archived=False):
+def list_jobs(limit=100, *, include_archived=False, include_rip_review=False):
     if not 1 <= limit <= 250:
         raise WorkflowError("Invalid workflow listing limit")
     with _db() as db:
@@ -658,7 +664,7 @@ def list_jobs(limit=100, *, include_archived=False):
             "created_at,updated_at,proposed_release_id,accepted_release_id,"
             "candidate_options,archived_at FROM workflow_jobs "
             "WHERE (? OR archived_at='') ORDER BY updated_at DESC LIMIT ?", (include_archived, limit))]
-    from oscar import rip_working_title
+    from oscar import rip_review, rip_working_title
 
     # The title worker runs outside the list request and never selects a release.
     for row in rows:
@@ -679,5 +685,8 @@ def list_jobs(limit=100, *, include_archived=False):
         row["match_status"] = ("INFERRED_OPERATOR_ACCEPTED" if row["accepted_release_id"]
                                else "INFERRED_NOT_PHYSICALLY_VERIFIED" if selected
                                else "UNRESOLVED")
+        if include_rip_review:
+            row["rip_review"] = rip_review.next_step(
+                row["job_id"], row["phase"], has_candidate=bool(selected))
     return {"jobs":rows, "engine_running":False,
             "notice":"Persistent Go archive reservations and safe reconciliation; no automatic retry after interruption."}
