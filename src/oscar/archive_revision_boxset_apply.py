@@ -71,7 +71,8 @@ def _entries(review, operation_id):
     entries = []
     for disc in review["disc_reviews"]:
         changes = [{"field": name, "fingerprint": values["fingerprint"],
-                    "before": values["before"], "after": values["after"]}
+                    "before": values["before"], "after": values["after"],
+                    **({"source_url": values["source_url"]} if values.get("source_url") else {})}
                    for name, values in disc["metadata"].items() if values["fingerprint"]]
         if not changes:
             continue
