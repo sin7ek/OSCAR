@@ -11,21 +11,29 @@ See the [dashboard](PROGRESS.md) for area-by-area maturity and the [developer ha
 | [#169](https://github.com/sin7ek/OSCAR/pull/169) | Unified Cleanup, aged verified staging cleanup, job history and external revision storage. Tower output shows retained history at `/staging/.oscar-archive-versions`, outside the live `/archive` mount. |
 | [#170](https://github.com/sin7ek/OSCAR/pull/170) | Verified staging cleanup honors the artwork filename recorded in the archive manifest, including legacy `cover.jpg` and `cover.png`. A post-change successful Tower deletion has no recorded result. |
 | [#171](https://github.com/sin7ek/OSCAR/pull/171) | Danger Zone permits direct, explicit deletion of selected cleanup folders. Verified duplicate checks remain available in the standard path. Active Archive and live staging workers are protected. Manual deletion on Tower has no recorded acceptance result. |
-| [#172](https://github.com/sin7ek/OSCAR/pull/172) | Tower reported that clicking **Verify & Clean retained revision** gave no visible feedback in the row. Now **Verify retained revision** shows progress, success or failure in place. For eligible verified history, a separate deletion control appears only when enabled. 522 local tests and a focused JavaScript flow check passed. PR [Tests](https://github.com/sin7ek/OSCAR/actions/runs/45512217464) and [Docker build](https://github.com/sin7ek/OSCAR/actions/runs/45512217531) passed. Tower acceptance remains open. |
+| [#172](https://github.com/sin7ek/OSCAR/pull/172) | Tower reported that clicking **Verify & Clean retained revision** gave no visible feedback in the row. Now **Verify retained revision** shows progress, success or failure in place. For eligible verified history, a separate deletion control appears only when enabled. 522 local tests and a focused JavaScript flow check passed. PR [Tests](https://github.com/sin7ek/OSCAR/actions/runs/45512217464) and [Docker build](https://github.com/sin7ek/OSCAR/actions/runs/45512217531) passed. Tower accepted the inline result and chain-protection explanation on both Anastacia generations. |
 
 **Deployment baseline:** #172 merged as `3340b589d72a9c1514af38cac1b302efe8b192e7`. See [main Tests](https://github.com/sin7ek/OSCAR/actions/runs/45519871627) and the [main image build](https://github.com/sin7ek/OSCAR/actions/runs/45519871638). Both runs passed. GHCR Linux/amd64 `ghcr.io/sin7ek/oscar:main` matched the merge revision at manifest digest `sha256:aa919c20ed492edd68e6f1702d396b6e1500cdcfd1fbed2205eb1b08f4e405b6`.
 
 Tower listed seven journal-linked retained generations totaling about 2.14 GiB, including two Anastacia generations. Cleanup should show a successful read-only Verify for an intact retained revision even when a history chain disallows verified deletion. Normal staging cleanup requires an exact active archive match and preserves unresolved dependencies, unmatched rips and unique evidence for review. The other Tower rows included interrupted extraction, Track Recovery sources and artifact or provenance differences. See [Cleanup](CLEANUP.md) for the current workflow.
 
+### Tower acceptance — 2026-11-25
+
+| Fixture | Observed result | Remaining coverage |
+| --- | --- | --- |
+| Anastacia — *Freak of Nature* | **Verify retained revision** displayed inline success on both retained generations (`0a3d44544ed041a484698159854cd9e9` and `f5e41eef584c44288cc76a2a8477e635`). Each verified 12 revised and 12 retained FLACs, CUE, publication evidence and Collection. Both explained that the revision chain prevents verified cleanup. | The supplied output confirms the final inline result and protection. Eligible deletion and cancellation remain separate. |
+| Various Artists — *Get the Hits 2*, job `e089287dd17a463e8a9aa9167e00e884` | Published `SOURCES.txt` reports automatic CTDB match at 45/46 and lists the archived `ExtractionEvidence/ctdb-report.json` with SHA-256. All 16 tracks show cyanrip-reported AccurateRip v1 and v2 matches. Artwork provenance names Discogs 1065075 and records `folder.jpg` and FLAC PICTURE blocks. Physical edition is marked `INFERRED_OPERATOR_ACCEPTED`. | Broader automatic CTDB coverage, preview-to-publication comparison and direct artwork readback remain separate. |
+| Jean Michel Jarre — *Équinoxe* | Collection shows separate eight-track `published_verified` rows for `487376 2` (1997) and `800 025-2` (undated). Both show Electronic. | Individual folder navigation, genre-source provenance and the date/country folder migration remain separate. |
+
 ### Next acceptance checks
 
 | Area | Tower test |
 | --- | --- |
-| Cleanup | Verify one retained single-disc generation from its row and observe progress and result. Verify a protected Anastacia row and check the explanation. Test deletion modes with an explicitly approved disposable fixture. |
+| Cleanup | Confirm the in-progress state on a slower verification. Test deletion modes with an explicitly approved disposable fixture. |
 | CD-Extra | Re-rip *Machines in Motion* on a compatible drive. Expect two matching raw reads of 61,755 sectors (145,247,760 bytes), then preview adding the verified supplement to the active archive. Existing job `385f8276c19543f3a5355660aad664d5` has only an 8,475-byte BIN and no verified data capture record. |
-| Collection and tagged metadata | Check distinct Équinoxe editions, the proposed MusicBrainz date/country correction once visible, Discogs Electronic genre provenance, cover-source switching and upload, and the Leviathan multidisc Disc ID handoff. |
+| Collection and tagged metadata | Check Équinoxe folder navigation, the proposed MusicBrainz date/country correction once visible and Discogs Electronic genre provenance. Check cover-source switching, upload and the Leviathan multidisc Disc ID handoff. |
 | Archive revisions | Verify coordinated GENRE and RELEASECOUNTRY changes on the intended Boulez/Mahler media. Check Mahler Disc 11 per-track provenance in Proposed SOURCES.txt and published evidence if approved. |
-| Go! and staging | Verify saved automatic CTDB results on fresh eligible rips, real DriveFit attribution and ETA, optical tray controls, and interrupted job reconciliation. |
+| Go! and staging | Extend automatic CTDB coverage to other layouts and compare Proposed SOURCES.txt to publication. Check DriveFit attribution and ETA, optical tray controls and interrupted job reconciliation. |
 | Onboarding | Review the example Compose and test a clean install with staging, active archive and revision history laid out separately. |
 
 ### Feature and Tower evidence
@@ -44,11 +52,11 @@ Tower listed seven journal-linked retained generations totaling about 2.14 GiB, 
 
 **CTDB split-file CUE:** Tower reported a 15-track rip with valid FLAC decode and hashes, no reported AccurateRip matches and a CUE rejected before CTDB lookup. The verifier now accepts cyanrip split pregaps using a temporary compatible sheet, preserving original file order and index values. The later full-TOC fallback passed on the Machines in Motion audio fixture.
 
-**Automatic CTDB:** OSCAR automatically checks eligible full-disc staging rips against CTDB after extraction and records the result in Review, SOURCES.txt and publication evidence. AccurateRip keeps its existing verdict. Tower acceptance with known-good CD audio and a real CTDB lookup remains open.
+**Automatic CTDB:** OSCAR automatically checks eligible full-disc staging rips against CTDB after extraction and records the result in Review, SOURCES.txt and publication evidence. AccurateRip keeps its existing verdict. Tower confirmed automatic CTDB through publication on *Get the Hits 2* (45/46).
 
 **Archive metadata revisions:** The operator confirmed single-disc changes were applied and verified on Tower. The new boxset metadata preview combines LABEL, GENRE and RELEASECOUNTRY for one coordinated revision. Tower acceptance is pending for Boulez and Mahler: scan missing metadata, approve DE on affected CDs, preview the group, apply and verify it on each set.
 
-**Collection editions:** Collection imports verified archives with and without a known release year. Distinct archive paths keep editions separate. On Tower, re-import the existing Équinoxe archives and confirm both catalog numbers appear.
+**Collection editions:** Collection imports verified archives with and without a known release year. Distinct archive paths keep editions separate. Tower confirmed both Équinoxe catalog numbers appear as separate Collection rows.
 
 **Discogs genre fallback:** MusicBrainz release and release-group genres take precedence. When both lack a curated genre, matching Discogs CDs can suggest a genre at staging review or as a Collection metadata addition for a published single CD. Verify the Electronic proposal and source URL for Équinoxe on Tower before approving it alongside DATE and RELEASECOUNTRY.
 

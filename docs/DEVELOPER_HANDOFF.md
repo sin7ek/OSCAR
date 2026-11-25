@@ -15,14 +15,16 @@ Reconciled 2026-11-25 through [#172](https://github.com/sin7ek/OSCAR/pull/172). 
 - **Review and tagging** support identifier comparison, user-guided MusicBrainz Disc ID attachment, reviewed cover artwork and proposed `SOURCES.txt`. A matching Disc ID and passing audio verification are separate from physical edition certainty.
 - **Archives and Collection** support date/country corrections, metadata generations, coordinated boxset changes and distinct release editions. See [archive lifecycle](ARCHIVE_METADATA_LIFECYCLE.md) and [multidisc revisions](MULTIDISC_ARCHIVE_REVISION.md).
 
+Tower accepted the inline result and chain-protection message on both Anastacia generations, automatic CTDB through publication for *Get the Hits 2* (45/46), and separate Collection rows for both Équinoxe editions. See the [Tower evidence](PROJECT_STATUS.md#tower-acceptance--2026-11-25).
+
 ## Next on Tower
 
 | Priority | Test | Existing evidence |
 | --- | --- | --- |
-| 1 | Scan Cleanup and verify one retained revision. Observe progress and result in the same row. Try an Anastacia history-chain row and confirm that verification explains protection. | External history inventory is visible. The previous combined action's feedback was hard to see. #172 acceptance is open. |
+| 1 | Check the in-progress message on a slower revision. Use a disposable fixture for any approved deletion test. | Both Anastacia rows show successful verification and explain why they are protected. |
 | 2 | Fresh full rip of Cenobite *Machines in Motion*. Check two-read raw capture, then review the data supplement for the existing archive. | Tower audio matched CTDB 5/5 and AccurateRip v2 on 15 tracks. Old job `385f8276c19543f3a5355660aad664d5` has an 8,475-byte BIN and no verified capture record. Expected new capture is 61,755 sectors, 145,247,760 bytes. |
-| 3 | Check both Équinoxe editions in Collection. Revisit the date, country and Electronic genre candidate for catalog `800 025-2` when MusicBrainz exposes the reviewed corrections. | Tower identifier comparison showed Discogs 4709815, the matrix variant and the country disagreement. |
+| 3 | Check folder navigation for both Équinoxe rows. Revisit the date, country and Electronic genre candidate for catalog `800 025-2` when MusicBrainz exposes the reviewed corrections. | Tower identifier comparison showed Discogs 4709815, the matrix variant and the country disagreement. |
 | 4 | Run coordinated metadata preview and Verify for approved Boulez/Mahler changes. Separately validate Mahler Disc 11's proposed SOURCES.txt. | Boulez LABEL passed on Tower. Mahler Disc 11 recovery matched 17/17 AccurateRip v1 and v2 and reached Archive Review. |
-| 5 | Exercise the remaining acceptance checks for guided Disc ID attachment, cover source selection and upload, post-rip CTDB, and DriveFit with real drives. | Individual results and limitations are in the [work document](PROJECT_STATUS.md#next-acceptance-checks). |
+| 5 | Exercise the remaining acceptance checks for guided Disc ID attachment, cover source selection and upload, automatic CTDB on additional layouts, and DriveFit with real drives. | Individual results and limitations are in the [work document](PROJECT_STATUS.md#next-acceptance-checks). |
 
 For first-time installs, the current Compose example is a draft. The reviewed onboarding guide and a fresh storage-layout acceptance test remain open.

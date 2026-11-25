@@ -11,25 +11,25 @@ Percentages are editorial maturity estimates. The evidence column distinguishes 
 | CD ripping on Unraid | **90%** | `█████████░` | Concurrent audio rips and an LG diagnostic extraction observed. Explicit tray/Stop and raw CD-Extra capture need live tests. |
 | FLAC & staging verification | **85%** | `████████▌░` | FLAC decode, SHA-256, CUE and per-track evidence checked on Tower. Broader drive and disc-layout coverage remains open. |
 | MusicBrainz & release selection | **85%** | `████████▌░` | Équinoxe identifier and Discogs comparison observed. Missing Disc ID guidance for multidisc releases shipped. Validate the complete review-to-tagging flow. |
-| Classical metadata | **70%** | `███████░░░` | Boulez label revision and integrity Verify passed. Coordinated GENRE and RELEASECOUNTRY application need acceptance. |
+| Classical metadata | **70%** | `███████░░░` | Boulez LABEL verified on Tower, with 90/90 labels correct and Integrity PASS on the two revised CDs. Collection also showed Classical. No Tower group Verify result is recorded for GENRE or RELEASECOUNTRY. |
 | Archive publishing | **90%** | `█████████░` | Reviewed publications and revisions observed. Operator reports artwork working. Validate embedded artwork and the CD-Extra data supplement separately. |
-| Independent AccurateRip / CTDB | **55%** | `█████▌░░░░` | Mahler Track Recovery independently matched 17/17 v1 and v2. Machines in Motion matched CTDB 5/5 and AccurateRip v2 on Tower. Automatic post-rip CTDB and wider layouts still need live coverage. |
-| Automatic end-to-end workflow | **55%** | `█████▌░░░░` | Guided Go!, persistent jobs, edition-evidence capture and automatic CTDB shipped. Flow still starts in Go! and retains configured review gates. |
-| Recovery, resume & cleanup | **45%** | `████▌░░░░░` | Track Recovery, revision Verify and an external-history inventory observed. Verified cleanup, manual deletion, inline feedback and controlled interruption need distinct acceptance. |
-| Local & multi-platform collection management | **30%** | `███░░░░░░░` | Local catalog, exports and read-only Discogs support. Edition indexing is path-based and handles undated releases. Re-import acceptance and MusicBrainz OAuth remain open. |
+| Independent AccurateRip / CTDB | **65%** | `██████▌░░░` | Mahler recovery matched 17/17 independently. Machines in Motion matched CTDB 5/5 on Tower. Get the Hits 2 matched automatic CTDB 45/46 and carried the evidence into publication. Wider layout coverage remains open. |
+| Automatic end-to-end workflow | **60%** | `██████░░░░` | Automatic CTDB ran during a Tower workflow and reached the published SOURCES.txt. Go! still retains configured review gates. |
+| Recovery, resume & cleanup | **50%** | `█████░░░░░` | Tower showed inline verification and protection for both Anastacia revisions. Verified deletion, manual deletion and controlled interruption need separate acceptance. |
+| Local & multi-platform collection management | **35%** | `███▌░░░░░░` | Tower shows both Équinoxe pressings separately, including the undated edition. Folder navigation and MusicBrainz OAuth remain open. |
 
 ```mermaid
 xychart-beta
     title "OSCAR estimated maturity — 2026-11-25"
     x-axis ["Ripping", "FLAC staging", "Release selection", "Classical", "Publishing", "AR / CTDB", "Automation", "Recovery", "Collection"]
     y-axis "Estimated maturity (%)" 0 --> 100
-    bar [90, 85, 85, 70, 90, 55, 55, 45, 30]
+    bar [90, 85, 85, 70, 90, 65, 60, 50, 35]
 ```
 
 ## Current deployment
 
 - [#172](https://github.com/sin7ek/OSCAR/pull/172) adds per-revision feedback in Cleanup. The [PR Tests](https://github.com/sin7ek/OSCAR/actions/runs/45512217464) and [PR Docker build](https://github.com/sin7ek/OSCAR/actions/runs/45512217531) passed before merge. Main CI passed and GHCR was verified against merge `3340b58`. See the [build record](PROJECT_STATUS.md#deployment-and-cleanup-evidence) for the published image.
-- Tower reported that the previous **Verify & Clean retained revision** action had no visible feedback in the row. Open **Cleanup → Scan storage → Verify retained revision** to accept the new read-only flow on Tower.
+- Tower confirmed inline read-only success and chain protection on both Anastacia generations. The same acceptance report includes a published automatic CTDB match and two distinct Équinoxe listings. See the [Tower evidence](PROJECT_STATUS.md#tower-acceptance--2026-11-25).
 - The [work document](PROJECT_STATUS.md#next-acceptance-checks) lists the remaining Tower tests. For setup and operation use [Cleanup](CLEANUP.md), [staging verification](STAGING_VERIFICATION.md) and [archive publishing](ARCHIVE_PUBLISHER.md).
 
 ## How to update this living dashboard
@@ -45,6 +45,7 @@ xychart-beta
 
 | Date | Change | Evidence |
 |---|---|---|
+| 2026-11-25 | AR/CTDB 55 → 65, automation 55 → 60, recovery/cleanup 45 → 50, Collection 30 → 35. | Tower observed automatic CTDB in the published archive, inline verification of two protected revisions, and separate Collection rows for both Équinoxe editions. |
 | 2026-11-25 | Release selection 80 → 85, AR/CTDB 20 → 55, automation 45 → 55, recovery/cleanup 20 → 45, Collection 25 → 30. | Tower edition comparison and CTDB evidence, plus merged guided Review, automatic CTDB, edition indexing and unified Cleanup. Open hardware tests remain visible above. |
 | 2026-11-22 | Reviewed through #140; no percentage change. | Recorded the narrow Tower Track Recovery and archive-revision results. Broader verification, hardware acceptance, cleanup and orchestration remain open. |
 | 2026-11-20 | Reassessed MusicBrainz 75 → 80, archive 85 → 90, Go! automation 30 → 45; added separate collection-management 25. These are **subjective** domain maturity estimates, not completion or CI coverage. | Real Unraid: Boulez CD 4 and CD 6 both `published_verified`, separate `Disc 04`/`Disc 06` folders under one boxset; Disc ID of Carmen Gomes *Desire* attached to MusicBrainz via human-confirmed handoff; #74–#76 merged/tested. MusicBrainz OAuth, automated insertion, error recovery still not built. |
