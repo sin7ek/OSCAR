@@ -313,7 +313,10 @@ def _copy_and_retag(plan, temp, source, *, flac_factory=None, runner=None):
     }
     if genre_source := next((item["source_url"] for item in changes
                              if item["field"] == "GENRE" and item.get("source_url")), ""):
-        original_manifest["revision"]["genre_source_url"] = genre_source
+        if genre_source == scanner.CLASSICAL_PROFILE_SOURCE:
+            original_manifest["revision"]["genre_source"] = "archive_profile"
+        else:
+            original_manifest["revision"]["genre_source_url"] = genre_source
     new_manifest = json.dumps(original_manifest, ensure_ascii=False, indent=2) + "\n"
     manifest_path.write_text(new_manifest, encoding="utf-8")
     # Verify every new FLAC against its NEW whole-file digest and manifest,

@@ -16,6 +16,8 @@ from mutagen.flac import FLAC
 from oscar import collection_catalog as catalog, musicbrainz
 from oscar.boxsets import lookup_release_medium, RELEASE_ID, DISC_ID
 
+CLASSICAL_PROFILE_SOURCE = "archive-profile:classical"
+
 _ID = re.compile(r"[a-f0-9]{64}\Z")
 _MAX_ALBUMS = 20
 _SCHEMA = """
@@ -135,6 +137,7 @@ def _archive_snapshot(archive_path):
         "path": str(album), "manifest_sha256": hashlib.sha256(raw).hexdigest(),
         "publish_id": publish_id, "release_id": release,
         "disc_id": next(iter(disc_ids)), "tracks": tracks,
+        "profile": manifest.get("profile"),
         "disc_number": manifest.get("disc_number", 1),
         "disc_total": manifest.get("disc_total", 1),
     }
@@ -197,6 +200,11 @@ def _fresh_values(snapshot, lookup, *, allow_discogs=False):
     if allow_discogs and snapshot["disc_total"] == 1 and not genre_values[0] and not provider_genres:
         from oscar.genre_evidence import discogs_fallback
         provider_genres, genre_source_url = discogs_fallback(result)
+    if (not provider_genres and not result.get("genre_lookup_incomplete")
+            and snapshot.get("profile") == "classical"
+            and genre_values[0] in ([], ["Classical"])):
+        provider_genres = ["Classical"]
+        genre_source_url = CLASSICAL_PROFILE_SOURCE
     candidates = [
         ("release", 0, "CATALOGNUMBER", snapshot["tracks"][0]["tags"].get("CATALOGNUMBER", []), numbers),
         ("release", 0, "LABEL", _existing_label_values(snapshot["tracks"][0]["tags"]), label_names),
@@ -250,7 +258,10 @@ def _as_dict(row):
     d = dict(row)
     d["before"] = json.loads(d.pop("before_json"))
     d["after"] = json.loads(d.pop("after_json"))
-    d["source"] = "discogs" if d["source_url"] else "musicbrainz"
+    if d["source_url"] == CLASSICAL_PROFILE_SOURCE:
+        d["source"] = "archive_profile"
+    else:
+        d["source"] = "discogs" if d["source_url"] else "musicbrainz"
     d["source_url"] = d["source_url"] or ("https://musicbrainz.org/release/" + d["release_id"])
     return d
 
@@ -377,8 +388,10 @@ def reopen_decision(fingerprint, *, lookup=None):
             archived, lookup or lookup_release_medium, allow_discogs=bool(row["source_url"]))
         matches = [entry for entry in candidates if _matches_proposal(entry, row, genre_source_url)]
         if len(matches) != 1:
-            source = "Discogs" if row["source_url"] else "MusicBrainz"
-            raise ScanError(f"{source} data changed; rescan instead of reopening stale proposal")
+            source = _as_dict(row)["source"]
+            label = {"archive_profile": "Archive profile", "discogs": "Discogs",
+                     "musicbrainz": "MusicBrainz"}[source]
+            raise ScanError(f"{label} data changed; rescan instead of reopening stale proposal")
         now = datetime.now(timezone.utc).isoformat()
         db.execute(
             "UPDATE metadata_proposals SET status='pending', decided_at='' WHERE fingerprint=? AND status IN ('ignored','accepted')",
