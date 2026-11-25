@@ -23,6 +23,7 @@ Tower listed seven journal-linked retained generations totaling about 2.14 GiB, 
 | --- | --- | --- |
 | Anastacia — *Freak of Nature* | **Verify retained revision** displayed inline success on both retained generations (`0a3d44544ed041a484698159854cd9e9` and `f5e41eef584c44288cc76a2a8477e635`). Each verified 12 revised and 12 retained FLACs, CUE, publication evidence and Collection. Both explained that the revision chain prevents verified cleanup. | The supplied output confirms the final inline result and protection. Eligible deletion and cancellation remain separate. |
 | Various Artists — *Get the Hits 2*, job `e089287dd17a463e8a9aa9167e00e884` | Published `SOURCES.txt` reports automatic CTDB match at 45/46 and lists the archived `ExtractionEvidence/ctdb-report.json` with SHA-256. All 16 tracks show cyanrip-reported AccurateRip v1 and v2 matches. Artwork provenance names Discogs 1065075 and records `folder.jpg` and FLAC PICTURE blocks. Physical edition is marked `INFERRED_OPERATOR_ACCEPTED`. | Broader automatic CTDB coverage, preview-to-publication comparison and direct artwork readback remain separate. |
+| Boulez — *Boulez Conducts Stravinsky* | The operator confirmed applying the coordinated country update `RELEASECOUNTRY=DE` on Tower. Earlier LABEL verification passed for CDs 4 and 6, with 90/90 labels correct across the box. | A separate post-update Verify result for the country revision has not been supplied. Coordinated GENRE and Mahler remain separate. |
 | Jean Michel Jarre — *Équinoxe* | Collection shows separate eight-track `published_verified` rows for `487376 2` (1997) and `800 025-2` (undated). Both show Electronic. | Individual folder navigation, genre-source provenance and the date/country folder migration remain separate. |
 
 ### Next acceptance checks
@@ -32,7 +33,7 @@ Tower listed seven journal-linked retained generations totaling about 2.14 GiB, 
 | Cleanup | Confirm the in-progress state on a slower verification. Test deletion modes with an explicitly approved disposable fixture. |
 | CD-Extra | Re-rip *Machines in Motion* on a compatible drive. Expect two matching raw reads of 61,755 sectors (145,247,760 bytes), then preview adding the verified supplement to the active archive. Existing job `385f8276c19543f3a5355660aad664d5` has only an 8,475-byte BIN and no verified data capture record. |
 | Collection and tagged metadata | Check Équinoxe folder navigation, the proposed MusicBrainz date/country correction once visible and Discogs Electronic genre provenance. Check cover-source switching, upload and the Leviathan multidisc Disc ID handoff. |
-| Archive revisions | Verify coordinated GENRE and RELEASECOUNTRY changes on the intended Boulez/Mahler media. Check Mahler Disc 11 per-track provenance in Proposed SOURCES.txt and published evidence if approved. |
+| Archive revisions | Check the existing Boulez country revision with read-only group Verify. Check coordinated GENRE and any Mahler changes separately. Check Mahler Disc 11 per-track provenance in Proposed SOURCES.txt and published evidence if approved. |
 | Go! and staging | Extend automatic CTDB coverage to other layouts and compare Proposed SOURCES.txt to publication. Check DriveFit attribution and ETA, optical tray controls and interrupted job reconciliation. |
 | Onboarding | Review the example Compose and test a clean install with staging, active archive and revision history laid out separately. |
 
@@ -54,7 +55,7 @@ Tower listed seven journal-linked retained generations totaling about 2.14 GiB, 
 
 **Automatic CTDB:** OSCAR automatically checks eligible full-disc staging rips against CTDB after extraction and records the result in Review, SOURCES.txt and publication evidence. AccurateRip keeps its existing verdict. Tower confirmed automatic CTDB through publication on *Get the Hits 2* (45/46).
 
-**Archive metadata revisions:** The operator confirmed single-disc changes were applied and verified on Tower. The new boxset metadata preview combines LABEL, GENRE and RELEASECOUNTRY for one coordinated revision. Tower acceptance is pending for Boulez and Mahler: scan missing metadata, approve DE on affected CDs, preview the group, apply and verify it on each set.
+**Archive metadata revisions:** The operator confirmed single-disc changes were applied and verified on Tower. The new boxset metadata preview combines LABEL, GENRE and RELEASECOUNTRY for one coordinated revision. The operator confirmed the Boulez `RELEASECOUNTRY=DE` group Apply on Tower. Post-Apply Verify for this revision, Boulez GENRE and Mahler acceptance remain open.
 
 **Collection editions:** Collection imports verified archives with and without a known release year. Distinct archive paths keep editions separate. Tower confirmed both Équinoxe catalog numbers appear as separate Collection rows.
 
