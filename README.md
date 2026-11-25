@@ -1,3 +1,5 @@
+![OSCAR — Preserve every note.](src/oscar/assets/OSCAR-header.png)
+
 # OSCAR
 **Open Source CD Archiving & Ripping**
 
