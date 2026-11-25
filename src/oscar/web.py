@@ -818,7 +818,20 @@ async function init(){
   const offsetLabel=document.createElement('label');safeText(offsetLabel,' Read offset (samples; blank = unknown) ');
   const offset=document.createElement('input');offset.type='number';offset.min=-2000;offset.max=2000;
   offset.value=drive.offset_samples===null?'':drive.offset_samples;
-  offset.oninput=()=>{drive.offset_samples=offset.value===''?null:Number(offset.value)};
+  const candidateLabel=document.createElement('label');candidateLabel.hidden=true;
+  candidateLabel.append(document.createTextNode(' AccurateRip offset candidates '));
+  const candidates=document.createElement('select');candidates.style.maxWidth='100%';
+  candidateLabel.append(candidates);
+  candidates.onchange=()=>{
+   if(candidates.value==='')return;
+   offset.value=candidates.value;
+   drive.offset_samples=Number(candidates.value);
+   hint.textContent='Candidate selected. Save settings to use this offset.';
+  };
+  offset.oninput=()=>{
+   drive.offset_samples=offset.value===''?null:Number(offset.value);
+   candidates.value='';
+  };
   offsetLabel.append(offset);row.append(head,device,label,offsetLabel,autoLabel);
   const assist=document.createElement('div');
   const link=document.createElement('a');link.href='https://www.accuraterip.com/driveoffsets.htm';
@@ -829,25 +842,46 @@ async function init(){
   const lookup=document.createElement('button');lookup.type='button';
   lookup.style.marginRight='8px';lookup.textContent='Look up offset';
   lookup.onclick=async()=>{
+   lookup.disabled=true;
    hint.textContent='Checking AccurateRip drive-offset database…';
+   candidateLabel.hidden=true;
    try{
     const r=await fetch('/api/drive-offset/lookup?'+new URLSearchParams({stable_id:drive.stable_id}));
     if(!r.ok)throw new Error(await r.text());
     const data=await r.json();
-    if(data.suggested_offset!==null){
-     hint.textContent='Database suggests '+data.suggested_offset+' samples. Review before saving.';
-     if(drive.offset_samples===null){
-       offset.value=String(data.suggested_offset);
-       drive.offset_samples=data.suggested_offset;
-       hint.textContent+=' Suggested value filled in; click Save settings to persist.';
-     }
+    const fmt=new Intl.NumberFormat();
+    candidates.replaceChildren(new Option('Choose a candidate…',''));
+    let markedLeader=false;
+    for(const entry of data.matches){
+     const samples=entry.offset_samples>0?'+'+entry.offset_samples:String(entry.offset_samples);
+     const leader=entry.selectable&&entry.offset_samples===data.leading_offset&&!markedLeader;
+     if(leader)markedLeader=true;
+     const approx=entry.agreement_percent===100?'':'≈';
+     const result=new Option(samples+' samples · '+approx+fmt.format(entry.estimated_confirmations)+
+      ' confirmations · '+fmt.format(entry.submissions)+' submissions · '+
+      fmt.format(entry.agreement_percent)+'% agree · '+entry.name+
+      (leader?' · Most confirmed candidate':''),String(entry.offset_samples));
+     result.disabled=!entry.selectable;
+     if(result.disabled)result.text+=' · Outside supported offset range';
+     candidates.add(result);
+    }
+    candidateLabel.hidden=!data.matches.length;
+    if(data.suggested_offset!==null && drive.offset_samples===null){
+     offset.value=String(data.suggested_offset);
+     drive.offset_samples=data.suggested_offset;
+     candidates.value=offset.value;
+     hint.textContent='Suggested value filled in. Save settings to use this offset.';
+    }else if(data.purged){
+     hint.textContent='AccurateRip marks a matching entry as variable. Calibrate this drive with a known CD.';
+    }else if(data.matches.length){
+     hint.textContent=data.status==='conflict'
+      ?'Matching records disagree. Compare the ranked candidates before selecting an offset.'
+      :'Compare the matching candidates or calibrate this drive with a known CD.';
     }else{
-     hint.textContent=data.status==='conflict'?'Conflicting reported offsets for this model: '+
-      [...new Set(data.matches.map(x=>x.offset_samples))].join(', ')+
-      '. Do not guess; calibrate with a known disc or review the database.':
-      'No reliable matching database offset. Try CD calibration or manual lookup.';
+     hint.textContent='No matching database candidate. Try CD calibration or manual lookup.';
     }
    }catch(e){hint.textContent='Lookup unavailable; use the linked database manually. '+e.message}
+   finally{lookup.disabled=false}
   };
   const detect=document.createElement('button');detect.type='button';
   detect.style.marginRight='8px';detect.textContent='Detect from CD (experimental)';
@@ -872,7 +906,7 @@ async function init(){
     }catch(e){hint.textContent='CD calibration failed: '+e.message}
     finally{detect.disabled=false}
   };
-  assist.append(lookup,detect,link,hint);row.append(assist);area.append(row);
+  assist.append(lookup,detect,link,candidateLabel,hint);row.append(assist);area.append(row);
   if(drive.offset_samples===null)lookup.click();
  }
 }

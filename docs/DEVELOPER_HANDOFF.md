@@ -23,6 +23,8 @@ Collection can propose an explicitly approved `GENRE=Classical` write from a ver
 
 **Automatic start on insertion:** Per-drive and off by default. Test on Tower with one opted-in drive and one manual-only drive. Check insertion, a retained disc across restart, a second insertion, a data-only disc and concurrent-slot limits. See the [automation roadmap](AUTOMATION_ROADMAP.md#automatic-start-on-insertion).
 
+**Drive offset lookup:** Settings lists AccurateRip offset candidates with estimated confirmations, submissions and agreement. Conflicts require an operator selection. Check the GH24NS95 candidates and settings save on Tower. [Drive offset setup](DRIVE_OFFSET.md)
+
 ## Next on Tower
 
 | Priority | Test | Existing evidence |

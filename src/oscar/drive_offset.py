@@ -6,82 +6,131 @@ In that case, never silently select one. This module never persists settings.
 from html.parser import HTMLParser
 import re
 import subprocess
+import threading
+import time
 from urllib.request import Request, urlopen
 
 URL = "https://www.accuraterip.com/driveoffsets.htm"
-_ROW = re.compile(r"^(.+?)\s+([+-]\d{1,5})\s+(\d+)\s+(\d+(?:\.\d+)?)%\s*$")
+_ROW = re.compile(r"^(.+?)\s+([+-]?\d{1,5})\s+(\d+)\s+(\d+(?:\.\d+)?)%\s*$")
+
+_PURGED = re.compile(r"^(.+?)\s+\[Purged\]$", re.I)
+_MAX_DATABASE_BYTES = 4 * 1024 * 1024
+_CACHE_SECONDS = 3600
+_CACHE_LOCK = threading.Lock()
+_DATABASE_CACHE = None
 
 
 class OffsetError(RuntimeError):
     pass
 
 
-class _Text(HTMLParser):
+class _Rows(HTMLParser):
     def __init__(self):
         super().__init__()
-        self.parts = []
+        self.rows = []
+        self.cells = None
+        self.cell = None
 
     def handle_starttag(self, tag, attrs):
-        if tag in ("tr", "br", "p", "li"):
-            self.parts.append("\n")
-        elif tag in ("td", "th"):
-            self.parts.append(" ")
+        if tag == "tr":
+            self.cells = []
+        elif tag in {"td", "th"} and self.cells is not None:
+            self.cell = []
+        elif tag == "br" and self.cell is not None:
+            self.cell.append(" ")
 
     def handle_endtag(self, tag):
-        if tag in ("tr", "p", "li"):
-            self.parts.append("\n")
+        if tag in {"td", "th"} and self.cell is not None:
+            self.cells.append("".join(self.cell))
+            self.cell = None
+        elif tag == "tr" and self.cells is not None:
+            self.rows.append(" ".join(self.cells))
+            self.cells = None
 
     def handle_data(self, data):
-        self.parts.append(data)
+        if self.cell is not None:
+            self.cell.append(data)
+
+
+def _parse_offsets(html, model):
+    model = model.strip()
+    if not re.fullmatch(r"[A-Za-z0-9_.+ -]{3,80}", model):
+        raise OffsetError("Invalid drive model")
+    model_pattern = re.compile(
+        r"(?<![A-Za-z0-9])" + re.escape(model) + r"(?![A-Za-z0-9])", re.I)
+    parser = _Rows()
+    parser.feed(html)
+    records = []
+    purged = False
+    for row in parser.rows:
+        line = re.sub(r"\s+", " ", row).strip()
+        match = _ROW.fullmatch(line)
+        if not match:
+            excluded = _PURGED.fullmatch(line)
+            if excluded and model_pattern.search(excluded[1]):
+                purged = True
+            continue
+        name, offset, submissions, agreement = match.groups()
+        if not model_pattern.search(name):
+            continue
+        percent = float(agreement)
+        if percent > 100:
+            continue
+        records.append({"name": name, "offset_samples": int(offset),
+                        "submissions": int(submissions), "agreement_percent": percent})
+    return records, purged
 
 
 def parse_offsets(html, model):
-    if not re.fullmatch(r"[A-Za-z0-9_.+ -]{3,80}", model):
-        raise OffsetError("Invalid drive model")
-    parser = _Text()
-    parser.feed(html)
-    text = "".join(parser.parts)
-    records = []
-    for line in text.splitlines():
-        line = re.sub(r"\s+", " ", line).strip()
-        match = _ROW.fullmatch(line)
-        if not match:
-            continue
-        name, offset, submissions, agreement = match.groups()
-        # Model must be the final token in vendor/model field, not a prefix
-        # of a differently identified drive such as GH24NS950.
-        if not re.search(r"(?<![A-Za-z0-9])" + re.escape(model.strip()) +
-                         r"(?![A-Za-z0-9])", name, re.I):
-            continue
-        records.append({"name": name, "offset_samples": int(offset),
-                        "submissions": int(submissions),
-                        "agreement_percent": float(agreement)})
-    return records
+    return _parse_offsets(html, model)[0]
 
 
-def lookup(model, *, html=None):
-    if html is None:
+def _database_html():
+    global _DATABASE_CACHE
+    # Settings initializes several drives at once. Share one successful
+    # download across callers and let transient failures be retried.
+    with _CACHE_LOCK:
+        if _DATABASE_CACHE and time.monotonic() < _DATABASE_CACHE[0]:
+            return _DATABASE_CACHE[1]
         request = Request(URL, headers={"User-Agent": "OSCAR/0.1 drive-offset-assistant"})
         try:
             with urlopen(request, timeout=8) as reply:
                 if reply.status != 200:
                     raise OffsetError("Offset database temporarily unavailable")
-                # Avoid parsing unbounded content on a compromised endpoint.
-                data = reply.read(1_500_001)
-                if len(data) > 1_500_000:
-                    raise OffsetError("Offset database response too large")
-                html = data.decode("utf-8", errors="replace")
-        except (OSError, TimeoutError) as exc:
+                data = reply.read(_MAX_DATABASE_BYTES + 1)
+        except OSError as exc:
             raise OffsetError("Offset database unavailable; use manual lookup") from exc
-    matches = parse_offsets(html, model)
-    unique = sorted({entry["offset_samples"] for entry in matches})
-    # If two differently labelled model records disagree, show all instead of
-    # arbitrarily trusting the majority. E.g. GH24NS95 has +6 and +667 entries.
-    suggested = unique[0] if len(unique) == 1 and any(
-        entry["submissions"] >= 10 and entry["agreement_percent"] >= 90
-        for entry in matches) else None
-    return {"source": URL, "model": model, "matches": matches,
-            "suggested_offset": suggested,
+        if len(data) > _MAX_DATABASE_BYTES:
+            raise OffsetError("Offset database response too large")
+        html = data.decode("utf-8", errors="replace")
+        _DATABASE_CACHE = (time.monotonic() + _CACHE_SECONDS, html)
+        return html
+
+
+def lookup(model, *, html=None):
+    records, purged = _parse_offsets(_database_html() if html is None else html, model)
+    matches = []
+    for record in records:
+        matches.append({**record,
+                        "estimated_confirmations": round(record["submissions"] * record["agreement_percent"] / 100),
+                        "selectable": -2000 <= record["offset_samples"] <= 2000})
+    matches.sort(key=lambda row: (-row["estimated_confirmations"], -row["submissions"],
+                                  row["name"].casefold(), row["offset_samples"]))
+    unique = {row["offset_samples"] for row in matches}
+    selectable = [row for row in matches if row["selectable"] and row["estimated_confirmations"] > 0]
+    leading = None
+    if selectable:
+        first = selectable[0]
+        best_offsets = {row["offset_samples"] for row in selectable
+                        if row["estimated_confirmations"] == first["estimated_confirmations"]}
+        if len(best_offsets) == 1 and not purged:
+            leading = first["offset_samples"]
+    suggested = None
+    if len(unique) == 1 and leading is not None and any(
+            row["submissions"] >= 10 and row["agreement_percent"] >= 90 for row in matches):
+        suggested = leading
+    return {"source": URL, "model": model, "matches": matches, "leading_offset": leading,
+            "purged": purged, "suggested_offset": suggested,
             "status": "suggestion" if suggested is not None else
                       ("conflict" if len(unique) > 1 else "manual_review")}
 
