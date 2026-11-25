@@ -497,7 +497,7 @@ def test_group_skips_already_correct_disc_and_versions_only_approved_leaf(prepar
     assert (paths[6] / "01 - Track.flac").read_bytes().endswith(b" TAGGED")
 
 
-@pytest.mark.parametrize("combined", [False, True])
+@pytest.mark.parametrize("combined", [False, True, "profile"])
 def test_real_flac_two_disc_group_apply_preserves_audio_and_cue(prepared, monkeypatch, tmp_path, combined):
     """End-to-end CD leaves with genuine FLAC streams, original CUE and manifest hashes."""
     import array
@@ -546,18 +546,24 @@ def test_real_flac_two_disc_group_apply_preserves_audio_and_cue(prepared, monkey
             "sha256": hashlib.sha256(cue.read_bytes()).hexdigest(),
         }
         data["source_evidence"] = []
+        if combined == "profile":
+            data["profile"] = "classical"
         manifest_path.write_text(json.dumps(data))
     monkeypatch.setattr(scan, "FLAC", ActualFLAC)
     if combined:
         base_lookup = lookup
 
         def lookup(*args):
-            return {**base_lookup(*args), "country": "DE", "genres": ["Classical"]}
+            return {**base_lookup(*args), "country": "DE",
+                    "genres": [] if combined == "profile" else ["Classical"]}
     field = "METADATA" if combined else "LABEL"
     expected_fields = {"LABEL", "RELEASECOUNTRY", "GENRE"} if combined else {"LABEL"}
     for leaf in paths.values():
         pending = scan.scan("additions", str(leaf), lookup=lookup)["pending"]
         assert {item["field"] for item in pending} == expected_fields
+        if combined == "profile":
+            genre = next(item for item in pending if item["field"] == "GENRE")
+            assert genre["source"] == "archive_profile"
         for proposal in pending:
             scan.decide(proposal["fingerprint"], "accept", lookup=lookup)
     monkeypatch.setenv("OSCAR_ENABLE_BOXSET_ARCHIVE_REVISIONS", "1")
@@ -575,6 +581,9 @@ def test_real_flac_two_disc_group_apply_preserves_audio_and_cue(prepared, monkey
         if combined:
             assert tags["RELEASECOUNTRY"] == ["DE"]
             assert tags["GENRE"] == ["Classical"]
+        if combined == "profile":
+            manifest = json.loads((leaf / "manifest.json").read_text())
+            assert manifest["revision"]["genre_source"] == "archive_profile"
         assert format(tags.info.md5_signature, "032x") == old_audio_md5[disc]
         assert (leaf / "album.cue").read_bytes() == original_cues[disc]
     for original in result["originals_retained"]:
