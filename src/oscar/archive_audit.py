@@ -204,21 +204,33 @@ def audit_archive(root: Path) -> dict:
             continue
         relative = folder.relative_to(root)
         if any(part.startswith(".oscar-unpublished-") or part in
-               {"ExtractionEvidence", "FailedAttempts", "Verification", ".oscar-archive-versions",
+               {"ExtractionEvidence", "FailedAttempts", "Verification", "Original", ".oscar-archive-versions",
                 "old-publications"} for part in relative.parts):
             continue
         if any(folder.glob("*.flac")) or (folder / "manifest.json").exists():
             albums.append(folder)
     releases = [audit_release(folder) for folder in sorted(albums)]
+    # Evidence folders are excluded from the album count, but a player may
+    # still index their loose audio. Report it separately, never delete it.
+    evidence_audio = []
+    for path in root.rglob("*"):
+        relative = path.relative_to(root)
+        if not any(part in {"ExtractionEvidence", "FailedAttempts", "Verification", "Original"}
+                   for part in relative.parts[:-1]):
+            continue
+        if path.is_file() and path.suffix.lower() in {".flac", ".wav", ".mp3", ".m4a", ".ogg", ".opus", ".aiff", ".aif", ".ape", ".wv", ".aac", ".alac", ".wma"}:
+            evidence_audio.append(str(relative))
+    evidence_audio.sort()
     return {
         "archive_root": str(root),
         "releases_examined": len(releases),
+        "playable_evidence": evidence_audio,
         "active_flacs": sum(r["active_flacs"] for r in releases),
         "source_types": {source: sum(r["source_type"] == source for r in releases)
                          for source in ("PHYSICAL_CD_RIP", "DIGITAL_ACQUISITION",
                                         "HYBRID_REPAIRED_CD_RIP", "UNKNOWN")},
         "status": ("FAIL" if any(r["status"] == "FAIL" for r in releases)
-                   else "PASS_WITH_WARNINGS" if any(r["warnings"] for r in releases) else "PASS"),
+                   else "PASS_WITH_WARNINGS" if evidence_audio or any(r["warnings"] for r in releases) else "PASS"),
         "releases": releases,
     }
 
@@ -242,6 +254,8 @@ def main(argv=None) -> int:
                 print(f"  ERROR {issue['code']}: {issue['message']}")
             for issue in release["warnings"]:
                 print(f"  WARN  {issue['code']}: {issue['message']}")
+        for path in result["playable_evidence"]:
+            print(f"  WARN PLAYABLE_EVIDENCE: {path}")
         print("AccurateRip/CTDB: not independently checked by this auditor.")
     return 1 if result["status"] == "FAIL" else 0
 
