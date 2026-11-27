@@ -23,3 +23,5 @@ The tool groups source claims conservatively, normalizes into the existing versi
 On Unraid, first re-import Collection if needed. Use **Carmen Gomes — Desire**, optional exact Discogs release ID only if physically reviewed and the Discogs PAT configured. Confirm no-provider/unknown/mismatched-catalog cases fail safely or show abstentions. Repeat with Anastacia, verifying positive MB genres/votes. Verify the archived `SOURCES.txt` and FLACs remain byte-identical after each preview. The 2010 Bernstein/Mahler 11-CD box is a separate **inferred physical edition** and must not be published purely from a genre report.
 
 Next milestone: store auditable provider observations + operator decision in a durable local ledger and generate SOURCES/manifest provenance for **new archive publications**, then independently design a safe versioned provenance revision for existing albums, adding explicit non-audio evidence allowlists and complete historical tests.
+
+See the [genre evidence design](GENRE_EVIDENCE_CONFIDENCE_DESIGN.md) for proposed evidence snapshots, provider eligibility, review and publication requirements.

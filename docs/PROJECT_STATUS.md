@@ -4,6 +4,10 @@
 
 See the [dashboard](PROGRESS.md) for area-by-area maturity and the [developer handoff](DEVELOPER_HANDOFF.md) for starting the next session.
 
+### Genre evidence follow-up
+
+[Genre Evidence v1](GENRE_EVIDENCE_V1.md) provides a read-only source comparison. The [genre evidence design](GENRE_EVIDENCE_CONFIDENCE_DESIGN.md) records the remaining work on durable evidence, review decisions and publication provenance. Live provider-preview acceptance on Tower remains open.
+
 ### External FLAC verification
 
 Collection can browse a separately configured read-only music library and display the per-disc results of a background check. The [UI setup](EXTERNAL_VERIFICATION.md#web-ui) requires a dedicated music mount. Tower verified *The Ruffneck Collection Part VII* (`RUF 043-2`, 1996) through Collection, with all 19 FLACs passing and CTDB confidence 6/6. The UI also exposed ambiguity between a selected subfolder and the current verification target. The folder picker now opens a subfolder on selection; its Tower retest remains open. **Save verification** stores a report and hashes against the existing external folder. The **Saved external rips** section below the published archive records shows the saved reports, including after a restart. Tower acceptance for persistence and the comparison on rerun remains open. A read-only external metadata proposal workflow and archive import are separate follow-up work.
