@@ -91,11 +91,12 @@ def test_dashboard_attaches_progress_to_only_active_jobs(tmp_path, monkeypatch):
     job.update({"stable_id": "drive-a", "created_at": time.time()})
     monkeypatch.setattr(ripping, "_JOBS", {JOB: job})
     monkeypatch.setattr(ripping, "_ACTIVE", {"drive-a"})
-    from types import SimpleNamespace
+    from oscar.settings import DriveSettings, OscarSettings
+
     monkeypatch.setattr(ripping, "discover_settings",
-                        lambda: SimpleNamespace(drives=[
-                            SimpleNamespace(stable_id="drive-a", label="Drive A",
-                                            enabled=True, offset_samples=6)]))
+                        lambda: OscarSettings(drives=[
+                            DriveSettings(stable_id="drive-a", label="Drive A",
+                                          enabled=True, offset_samples=6)]))
     monkeypatch.setattr(ripping, "inspect_drives",
                         lambda: [{"stable_id": "drive-a", "device": "/dev/sr0"}])
     result = ripping.dashboard()

@@ -375,6 +375,102 @@ def publishable(staged, tmp_path, monkeypatch):
     return staged, original, archive, original_hashes
 
 
+@pytest.mark.parametrize("filename", ["folder.jpg", "cover.jpg", "cover.png"])
+def test_cleanup_validates_artwork_filename_from_manifest(tmp_path, monkeypatch, filename):
+    from oscar import cleanup
+
+    monkeypatch.setattr(cleanup.archive_audit, "audit_release",
+                        lambda path: {"status": "PASS", "warnings": []})
+    cover = tmp_path / filename
+    cover.write_bytes(b"published artwork")
+    manifest = {"artwork": {"filename": filename, "sha256": hashlib.sha256(cover.read_bytes()).hexdigest()}}
+    cleanup._verify_archive(tmp_path, manifest)
+    cover.write_bytes(b"different artwork")
+    with pytest.raises(ValueError, match="artwork differs"):
+        cleanup._verify_archive(tmp_path, manifest)
+    cover.unlink()
+    with pytest.raises(ValueError, match="artwork is missing"):
+        cleanup._verify_archive(tmp_path, manifest)
+    manifest["artwork"]["filename"] = "../cover.jpg"
+    with pytest.raises(ValueError, match="no supported artwork filename"):
+        cleanup._verify_archive(tmp_path, manifest)
+
+
+def test_danger_cleanup_deletes_selected_unverified_folders_only(staged, monkeypatch, tmp_path):
+    from oscar import cleanup
+
+    archive = tmp_path / "archive"
+    active = archive / "active album"
+    active.mkdir(parents=True)
+    old = archive / "old-publications" / "unverified publication"
+    old.mkdir(parents=True)
+    history = tmp_path / "history"
+    retained = history / ("a" * 32) / ("b" * 32 + "-disc-01")
+    retained.mkdir(parents=True)
+    for path in (old, retained, active):
+        (path / "unique").write_bytes(b"unique data")
+    monkeypatch.setenv("OSCAR_ARCHIVE_ROOT", str(archive))
+    monkeypatch.setenv("OSCAR_ARCHIVE_HISTORY_ROOT", str(history))
+    monkeypatch.setenv("OSCAR_WORKFLOW_DB", str(tmp_path / "workflow.sqlite3"))
+    paths = [str(path) for path in (staged, old, retained, active, archive, history)]
+    body = {"paths": paths, "confirmation": cleanup.DANGER_CONFIRM}
+    client = TestClient(app)
+    assert client.post("/api/cleanup/danger", json=body).status_code == 403
+    headers = {"X-OSCAR-RIP-TOKEN": TOKEN}
+    with monkeypatch.context() as scoped:
+        scoped.setitem(ripping._JOBS, JOB, {"status": "running"})
+        result = client.post("/api/cleanup/danger", json={**body, "paths": paths[:1]}, headers=headers)
+        assert result.json()["results"][0]["status"] == "blocked"
+        assert staged.is_dir()
+    result = client.post("/api/cleanup/danger", json=body, headers=headers)
+    assert result.status_code == 200, result.text
+    assert [row["status"] for row in result.json()["results"]] == ["removed"] * 3 + ["blocked"] * 3
+    assert (active / "unique").read_bytes() == b"unique data"
+    assert not staged.exists() and not old.exists() and not retained.exists()
+
+
+def test_cleanup_rechecks_staging_and_preserves_active_archive(publishable, monkeypatch, tmp_path):
+    from oscar import cleanup
+
+    job, original, archive, hashes = publishable
+    monkeypatch.setenv("OSCAR_WORKFLOW_DB", str(tmp_path / "workflow.sqlite3"))
+    monkeypatch.setenv("OSCAR_CATALOG_DB", str(tmp_path / "catalog.sqlite3"))
+    for name in hashes:
+        shutil.copyfile(original / name, job / name)
+    (job / "state.json").write_text(json.dumps({
+        "id": JOB, "status": "needs_verification", "files_sha256": hashes,
+    }))
+    plan = archive_publish.prepare(JOB, COPY, profile="standard")
+    result = archive_publish._do_publish(plan, "b" * 32, allow_metadata_observations=True)
+    active = archive / result["relative_directory"]
+    candidate = next(row for row in cleanup.scan(verify=True)["items"] if row["kind"] == "staging")
+    assert candidate["eligible"], candidate
+    evidence = job / "audio" / "original.cue"
+    original_cue = evidence.read_bytes()
+    evidence.write_bytes(original_cue + b"REM changed\n")
+    assert cleanup.remove([candidate], cleanup.CONFIRM)["results"][0]["status"] == "blocked"
+    evidence.write_bytes(original_cue)
+    (job / "audio/03 - Unknown track.bin").write_bytes(b"unique")
+    assert not cleanup.scan()["items"][0]["eligible"]
+    (job / "audio/03 - Unknown track.bin").unlink()
+    candidate = cleanup.scan()["items"][0]
+    assert cleanup.remove([candidate], cleanup.CONFIRM)["results"][0]["status"] == "removed"
+    assert not job.exists()
+    assert (active / "ExtractionEvidence/audio/original.cue").read_bytes() == original_cue
+    assert (active / "01 - Air.flac").is_file()
+    old = archive / "old-publications" / active.name
+    shutil.copytree(active, old)
+    unique = old / "unique.txt"
+    unique.write_text("Keep this evidence")
+    assert not cleanup.scan()["items"][0]["eligible"]
+    unique.unlink()
+    candidate = cleanup.scan(verify=True)["items"][0]
+    assert candidate["eligible"] and candidate["kind"] == "old_publication"
+    assert cleanup.remove([candidate], cleanup.CONFIRM)["results"][0]["status"] == "removed"
+    assert not old.exists()
+    assert (active / "01 - Air.flac").is_file()
+
+
 def test_safe_publisher_writes_verified_new_files_and_preserves_original(publishable):
     job, original, archive, before = publishable
     original_cue = (job / "audio" / "original.cue").read_bytes()
@@ -409,6 +505,82 @@ def test_safe_publisher_writes_verified_new_files_and_preserves_original(publish
     with pytest.raises(archive_publish.PublishError, match="exists"):
         archive_publish._do_publish(plan, "c" * 32,
                                     allow_metadata_observations=True)
+
+
+@pytest.mark.parametrize("add_to_existing", [False, True])
+def test_cd_extra_publishes_audio_cue_without_dangling_data_track(publishable, monkeypatch, add_to_existing):
+    from oscar import cd_extra, go_controller
+    job, _, archive, _ = publishable
+    cue = job / "audio" / "original.cue"
+    source = cue.read_text() + (
+        'FILE "03 - Unknown track.bin" BINARY\n'
+        '  TRACK 03 MODE1/2352\n    PREGAP 02:32:00\n    INDEX 01 00:00:00\n')
+    cue.write_text(source)
+    data = job / "audio" / "03 - Unknown track.bin"
+    data.write_bytes(b"data session")
+    layout = {"track": 3, "source": "audio/" + data.name, "format": "MODE1/2352",
+              "start_lsn": 11402, "sectors": 1, "size": 2352, "disc_toc": "0:1:-11402:11403"}
+    monkeypatch.setattr(cd_extra, "geometry", lambda root: layout)
+    unavailable = archive_publish.prepare(JOB, COPY, "original_tags", profile="standard")
+    assert unavailable["provenance"]["cd_extra_data"]["status"] == "unavailable"
+    with pytest.raises(archive_publish.PublishError, match="CD-Extra data unavailable"):
+        archive_publish._do_publish(unavailable, "d" * 32, allow_metadata_observations=True)
+    excluded = archive_publish.prepare(JOB, COPY, "original_tags", profile="standard", include_data=False)
+    assert excluded["provenance"]["cd_extra_data"]["status"] == "excluded_by_operator"
+    assert excluded["fingerprint"] != unavailable["fingerprint"]
+    if add_to_existing:
+        (job / "audio" / "cyanrip.log").write_text(
+            "Track 3 is data:\n"
+            "  Data bytes: 2352\n  Frames: 1\n  Pregap LSN: 2\n"
+            "  Start LSN: 11402\n  End LSN: 11402\n")
+        excluded = archive_publish.prepare(JOB, COPY, "original_tags", profile="standard", include_data=False)
+        existing = archive_publish._do_publish(excluded, "b" * 32, allow_metadata_observations=True)
+        destination = archive / existing["relative_directory"]
+        originals = {path: path.read_bytes() for path in destination.iterdir() if path.is_file()}
+    payload = b"X" * 2352
+    data.write_bytes(payload)
+    state_file = job / "state.json"
+    state = {}
+    state["cd_extra_data"] = {**layout, "sha256": hashlib.sha256(payload).hexdigest(),
+                              "verification": "two_matching_raw_reads"}
+    state_file.write_text(json.dumps(state))
+    plan = archive_publish.prepare(JOB, COPY, "original_tags", profile="standard")
+    assert plan["provenance"]["cd_extra_data"]["status"] == "included"
+    assert bool(plan.get("data_supplement")) == add_to_existing, plan.get("destination_block_reason")
+    data.write_bytes(b"Y" * 2352)
+    with pytest.raises(archive_publish.PublishError, match="preview changed"):
+        archive_publish._do_publish(plan, "e" * 32, allow_metadata_observations=True)
+    data.write_bytes(payload)
+    assert plan["provenance"]["excluded_data_track"] == 3
+    assert "BINARY" not in plan["cue"]
+    assert plan["cue"].count("INDEX 01") == 2
+    published = archive_publish._do_publish(plan, "c" * 32, allow_metadata_observations=True)
+    destination = archive / published["relative_directory"]
+    assert (destination / "ExtractionEvidence" / "audio" / "original.cue").read_text() == source
+    assert (destination / "album.cue").read_text() == plan["cue"]
+    if add_to_existing:
+        assert published["data_supplement"]
+        assert all(path.read_bytes() == content for path, content in originals.items())
+        assert "SHA-256:" in (destination / "CD-Extra/SOURCES.txt").read_text()
+        assert go_controller._read_published_archive(JOB, {
+            "archive_relative_directory": published["relative_directory"],
+            "archive_publish_id": published["publish_id"], "metadata_copy_id": COPY,
+            "archive_release_id": plan["release_id"], "archive_fingerprint": plan["fingerprint"],
+        })
+        retry = archive_publish.prepare(JOB, COPY, "original_tags", profile="standard")
+        assert "already contains" in retry["destination_block_reason"]
+    else:
+        assert "CD-Extra data track 3: included" in (destination / "SOURCES.txt").read_text()
+    assert data.read_bytes() == payload
+    assert (destination / cd_extra.ARCHIVE_FILENAME).read_bytes() == payload
+    manifest = json.loads((destination / "manifest.json").read_text())
+    cd_extra.check_archive(destination, manifest)
+    exported = archive.parent / "payload.iso"
+    cd_extra.extract_payload(destination, exported)
+    assert exported.read_bytes() == payload[16:2064]
+    (destination / cd_extra.ARCHIVE_FILENAME).write_bytes(b"corrupt")
+    with pytest.raises(cd_extra.DataError, match="integrity"):
+        cd_extra.check_archive(destination, manifest)
 
 
 @pytest.fixture
@@ -784,3 +956,191 @@ def test_documented_catalog_number_does_not_raise_missing_warning(staged):
     result = archive_review.review(JOB, COPY, "original_tags", artwork=False)
     assert not any(f["code"] == "missing_release_catalog_number"
                    for f in result["consistency"]["flags"])
+
+
+def test_matrix_transcription_is_in_proposed_and_published_sources(publishable):
+    _, original, archive, _ = publishable
+    preview_path = original / "metadata-preview.json"
+    preview = json.loads(preview_path.read_text())
+    matrix = "936245901-2.2 WME"
+    preview["album"]["matrix_runout"] = matrix
+    preview_path.write_text(json.dumps(preview))
+    plan = archive_publish.prepare(JOB, COPY, "original_tags", profile="standard")
+    proposed = archive_publish.render_sources(plan, "EDITION_NOT_VERIFIED")
+    assert f"Physical matrix/runout (operator transcription): {matrix}" in proposed
+    published = archive_publish._do_publish(plan, "b" * 32, allow_metadata_observations=True)
+    destination = archive / published["relative_directory"]
+    assert (destination / "SOURCES.txt").read_text() == proposed
+    manifest = json.loads((destination / "manifest.json").read_text())
+    assert manifest["provenance"]["physical_matrix_runout"] == {
+        "value": matrix, "source": "operator_transcription",
+    }
+
+
+def test_archive_carries_saved_ctdb_evidence(publishable):
+    job, _, archive, _ = publishable
+    report = {"status": "matched", "method": "ctdb-cli verify", "confidence": 2, "total": 3,
+              "trigger": "automatic"}
+    path = job / archive_publish.ctdb_verification.REPORT
+    path.write_text(json.dumps(report))
+    # The separate verifier tests verify binding the report to the real input hashes.
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(archive_publish.ctdb_verification, "saved_evidence",
+                      lambda *_: (report, hashlib.sha256(path.read_bytes()).hexdigest()))
+        plan = archive_publish.prepare(JOB, COPY, "original_tags", profile="standard")
+        proposed = archive_publish.render_sources(plan, "EDITION_NOT_VERIFIED")
+        assert "CTDB: matched (2/3 confidence) via ctdb-cli verify (automatic)" in proposed
+        published = archive_publish._do_publish(plan, "b" * 32, allow_metadata_observations=True)
+    destination = archive / published["relative_directory"]
+    assert (destination / "SOURCES.txt").read_text() == proposed
+    assert (destination / "ExtractionEvidence" / path.name).read_bytes() == path.read_bytes()
+
+
+def test_archive_carries_edition_search_for_selected_release(publishable):
+    job, original, archive, _ = publishable
+    disc_id = "a" * 28
+    preview_path = original / "metadata-preview.json"
+    saved_preview = json.loads(preview_path.read_text())
+    saved_preview["album"]["musicbrainz_disc_id"] = disc_id
+    preview_path.write_text(json.dumps(saved_preview))
+    provider = archive_publish.edition_provenance
+    provider.save(JOB, disc_id, "disc_lookup", [{"id": RELEASE, "country": "CA"}])
+    provider.save(JOB, disc_id, "combined_search", [{
+        "id": RELEASE, "country": "CA", "sources": ["disc_lookup", "barcode"],
+        "catalog_matches": True, "barcode_matches": True,
+        "discogs": [{"id": 4709815, "country": "Germany",
+                     "link": "Shared artist, title, barcode and catalog number",
+                     "variants": [{"variant": "Variant 1",
+                                   "comparison": {"Matrix / Runout": "matches"}}]}],
+    }], identifiers={"barcode": "3259180002527", "matrix": "800 025-2 02"}, suggested=RELEASE)
+    assert provider.for_release(job, JOB, "b" * 28, RELEASE) is None
+    assert provider.for_release(job, JOB, disc_id, "b" * 36) is None
+    plan = archive_publish.prepare(JOB, COPY, "original_tags", profile="standard")
+    proposed = archive_publish.render_sources(plan, "EDITION_NOT_VERIFIED")
+    assert "[Edition search]" in proposed
+    assert "MusicBrainz release country: CA" in proposed
+    assert "Discogs release country: Germany" in proposed
+    assert "Variant 1: Matrix / Runout matches" in proposed
+    assert "Combined search suggested this candidate: yes" in proposed
+    result = archive_publish._do_publish(plan, "b" * 32, allow_metadata_observations=True)
+    destination = archive / result["relative_directory"]
+    assert (destination / "SOURCES.txt").read_text() == proposed
+    manifest = json.loads((destination / "manifest.json").read_text())
+    assert manifest["provenance"]["edition_search"] == plan["provenance"]["edition_search"]
+
+
+def _cover_image(color):
+    from io import BytesIO
+    from PIL import Image
+
+    data = BytesIO()
+    Image.new("RGBA", (80, 64), color).save(data, "PNG")
+    return data.getvalue()
+
+
+def test_cover_upload_preview_and_archive_flac_embedding(publishable, monkeypatch):
+    from base64 import b64decode
+
+    _, tagged, archive, original_hashes = publishable
+    monkeypatch.setenv("OSCAR_RIP_TOKEN", TOKEN)
+    monkeypatch.setenv("OSCAR_ENABLE_RIP", "true")
+    client = TestClient(app)
+    path = f"/api/rip/jobs/{JOB}/cover-art/{COPY}?source=upload"
+    assert client.post(path, content=b"unauthenticated").status_code == 403
+    auth = {"X-OSCAR-Rip-Token": TOKEN}
+    assert client.post(path, headers=auth, content=b"bad image").status_code == 409
+    response = client.post(path, headers=auth, content=_cover_image("red"))
+    assert response.status_code == 200, response.text
+    selected = response.json()
+    jpeg = b64decode(selected["preview"].split(",", 1)[1])
+    assert jpeg.startswith(b"\xff\xd8")
+    assert selected["artwork"]["provider"] == "upload"
+    assert selected["artwork"]["sha256"] == hashlib.sha256(jpeg).hexdigest()
+    plan = archive_publish.prepare(JOB, COPY, "original_tags", include_cover=True)
+    assert plan["provenance"]["artwork"] == selected["artwork"]
+    assert "Front cover: User upload" in archive_publish.render_sources(plan, "EDITION_NOT_VERIFIED")
+
+    response = client.post(path, headers=auth, content=_cover_image("blue"))
+    assert response.status_code == 200
+    with pytest.raises(archive_publish.PublishError, match="changed"):
+        archive_publish._do_publish(plan, "a" * 32, allow_metadata_observations=True)
+    renewed = archive_publish.prepare(JOB, COPY, "original_tags", include_cover=True)
+    assert renewed["fingerprint"] != plan["fingerprint"]
+    published = archive_publish._do_publish(renewed, "b" * 32, allow_metadata_observations=True)
+    destination = archive / published["relative_directory"]
+    folder_jpeg = (destination / "folder.jpg").read_bytes()
+    assert folder_jpeg == b64decode(response.json()["preview"].split(",", 1)[1])
+    manifest = json.loads((destination / "manifest.json").read_text())
+    assert manifest["provenance"]["artwork"]["sha256"] == hashlib.sha256(folder_jpeg).hexdigest()
+    sources = (destination / "SOURCES.txt").read_text()
+    for item, entry in zip(manifest["files"], renewed["tracks"], strict=True):
+        path = destination / item["filename"]
+        flac = FLAC(path)
+        original = FLAC(tagged / entry["source"])
+        assert flac.tags == original.tags
+        assert flac.info.md5_signature == original.info.md5_signature
+        assert [(p.type, p.mime, p.data) for p in flac.pictures] == [(3, "image/jpeg", folder_jpeg)]
+        assert hashlib.sha256(path.read_bytes()).hexdigest() == item["sha256"]
+        assert f"Published FLAC SHA-256: {item['sha256']}" in sources
+    for rel, digest in original_hashes.items():
+        assert hashlib.sha256((tagged / rel).read_bytes()).hexdigest() == digest
+
+
+def test_cover_lookup_prefers_exact_musicbrainz_then_linked_discogs(tmp_path, monkeypatch):
+    from oscar import cover_art
+
+    calls = []
+    archive = tmp_path / "musicbrainz"
+    archive.mkdir()
+    discogs = tmp_path / "discogs"
+    discogs.mkdir()
+
+    def download(url):
+        calls.append(url)
+        if url.startswith("https://coverartarchive.org") and len(calls) > 1:
+            raise urllib.error.HTTPError(url, 404, "missing", None, None)
+        return _cover_image("red")
+
+    monkeypatch.setattr(cover_art, "_download", download)
+    monkeypatch.setattr(cover_art.discogs_readonly, "configured", lambda: True)
+    monkeypatch.setattr(cover_art, "fetch_json", lambda request: {
+        "id": RELEASE,
+        "relations": [{"type": "discogs", "url": {"resource": "https://www.discogs.com/release/42"}}],
+    })
+    monkeypatch.setattr(cover_art.discogs_readonly, "_get", lambda path: {
+        "id": 42, "formats": [{"name": "CD"}],
+        "images": [{"type": "primary", "uri": "https://i.discogs.com/front.jpg"}],
+    })
+
+    assert cover_art.select(archive, RELEASE, "auto")[0]["provider"] == "musicbrainz"
+    assert calls == [f"https://coverartarchive.org/release/{RELEASE}/front-1200"]
+    info, _ = cover_art.select(discogs, RELEASE, "auto")
+    assert info["provider"] == "discogs"
+    assert info["source"] == "https://www.discogs.com/release/42"
+    assert calls[-3:] == [
+        f"https://coverartarchive.org/release/{RELEASE}/front-1200",
+        f"https://coverartarchive.org/release/{RELEASE}/front",
+        "https://i.discogs.com/front.jpg",
+    ]
+    assert cover_art.select(discogs, RELEASE, "auto")[0] == info
+    assert len(calls) == 4
+
+
+def test_publication_blocks_loose_audio_from_evidence(publishable, monkeypatch):
+    from oscar import archive_publish
+
+    _, _, archive, _ = publishable
+    plan = archive_publish.prepare(JOB, COPY, "original_tags", profile="standard")
+    copy_evidence = archive_publish._copy_source_evidence
+
+    def copy_with_loose_audio(job_id, entries, temp):
+        copied = copy_evidence(job_id, entries, temp)
+        folder = temp / "ExtractionEvidence" / "FailedAttempts"
+        folder.mkdir()
+        (folder / "old.flac").write_bytes(b"failed attempt")
+        return copied
+
+    monkeypatch.setattr(archive_publish, "_copy_source_evidence", copy_with_loose_audio)
+    with pytest.raises(archive_publish.PublishError, match=r"FailedAttempts/old\.flac"):
+        archive_publish._do_publish(plan, "b" * 32, allow_metadata_observations=True)
+    assert not (archive / plan["relative_directory"]).exists()

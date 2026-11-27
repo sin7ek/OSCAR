@@ -124,7 +124,7 @@ def _preflight(original_id: str, diagnostic_id: str, selected: list[int]):
     prior = verification.report(original_id)
     reports = prior.get("tracks") or []
     by_number = {t.get("number"): t for t in reports if isinstance(t, dict)}
-    if (len(reports) != count or len(by_number) != count or
+    if (len(reports) != count or set(by_number) != set(range(1, count + 1)) or
             prior.get("ripping_errors") != 0 or
             any(not by_number[n].get("checks_passed") for n in range(1, count + 1) if n not in selected)):
         raise RecoveryError("Unreplaced tracks lack complete saved positive verification evidence")
@@ -200,7 +200,7 @@ def _rip_attempt(job_id, plan, source_file, report):
         "sha256": source_hash,
         "drive_id": plan.get("stable_id"),
         "read_offset_samples": plan.get("offset_samples"),
-        "verification_source": "cyanrip",
+        "verification_source": report.get("evidence_source") or "cyanrip",
         "eac_crc32": report.get("eac_crc32"),
         "accuraterip": report.get("accuraterip") or {},
         "checks_passed": report.get("checks_passed"),

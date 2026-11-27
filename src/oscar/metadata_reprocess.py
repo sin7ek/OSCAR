@@ -85,6 +85,8 @@ def refresh_preview(job_id, *, lookup=None):
     workflow = _accepted_workflow(job_id)
     old = _old_copy_preview(job_id, workflow)
     opts = {"operator_accepted": True}
+    if matrix := workflow.get("matrix_runout"):
+        opts["matrix_runout"] = matrix
     if lookup is not None:
         opts["lookup"] = lookup
     fresh = metadata_staging.preview(job_id, workflow["accepted_release_id"], **opts)
@@ -95,6 +97,7 @@ def refresh_preview(job_id, *, lookup=None):
         "job_id": job_id,
         "release_id": workflow["accepted_release_id"],
         "previous_copy_id": workflow["metadata_copy_id"],
+        "matrix_runout": workflow.get("matrix_runout") or "",
         "historical_status": workflow["release_match_status"],
         "old_catalog_numbers": (old.get("album") or {}).get("catalog_numbers") or [],
         "new_catalog_numbers": (fresh.get("album") or {}).get("catalog_numbers") or [],
@@ -118,9 +121,10 @@ def create_new_staging_copy(job_id, fingerprint, confirmation):
         raise ReprocessError("No new MusicBrainz metadata changes to stage")
     if current["fingerprint"] != fingerprint:
         raise ReprocessError("MusicBrainz changed since preview; compare again")
+    options = {"matrix_runout": current["matrix_runout"]} if current.get("matrix_runout") else {}
     started = metadata_staging.start_copy(
         job_id, current["release_id"], fingerprint, "COPY_TAGGED_TO_STAGING",
-        identification_status="INFERRED_OPERATOR_ACCEPTED")
+        identification_status="INFERRED_OPERATOR_ACCEPTED", **options)
     return {
         **started, "previous_copy_id": current["previous_copy_id"],
         "release_id": current["release_id"],
@@ -179,7 +183,7 @@ def adopt_new_staging_copy_for_go(job_id, copy_id, fingerprint, confirmation):
                 for x in new_tracks]):
         raise ReprocessError("Refreshed copy has changed rip track order/source paths")
     old_album, new_album = old.get("album") or {}, proposal.get("album") or {}
-    for key in ("musicbrainz_release_id", "musicbrainz_disc_id"):
+    for key in ("musicbrainz_release_id", "musicbrainz_disc_id", "matrix_runout"):
         if old_album.get(key) != new_album.get(key):
             raise ReprocessError("Refreshed physical release/Disc ID changed")
     for before, after in zip(old_tracks, new_tracks):

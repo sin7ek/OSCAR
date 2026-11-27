@@ -43,6 +43,14 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 .go-rip-progress .go-progress-unknown{font-size:.82rem;color:#b7c6d8}
 
 .go-workflow-row{border:1px solid #3c4b60;border-radius:10px;padding:11px;margin:10px 0;background:#131c29;overflow-wrap:anywhere}
+.drivefit-drive{border:1px solid #3c4b60;border-radius:10px;padding:14px;margin:12px 0;overflow-wrap:anywhere}
+.drivefit-drive h3{margin-top:0}
+.drivefit-drive details{margin:8px 0}
+.drivefit-badges{display:flex;flex-wrap:wrap;gap:8px;list-style:none;padding:0}
+.drivefit-badges li{border:1px solid #537294;background:#1a3047;border-radius:8px;padding:5px 9px}
+.go-drive-card .drivefit-badges{gap:4px;margin:0 0 8px}
+.go-drive-card .drivefit-badges li{padding:2px 6px;font-size:.75rem;border-radius:5px}
+.go-drive-card .drivefit-badges[hidden]{display:none}
 .go-workflow-row button{padding:7px 12px;margin:6px 8px 0 0}
 .go-job-toolbar{display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin:12px 0}
 .go-job-toolbar label{margin:0}.go-job-toolbar select{margin-left:6px}
@@ -136,7 +144,7 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 <button type="button" id="collection-csv">Export CSV</button>
 <div id="collection-result" aria-live="polite"></div>
 <h3>Archive metadata maintenance (staging-independent)</h3>
-<p>Scan the entire indexed published archive against MusicBrainz, without staging files. Each album is independently verified; errors are reported without interrupting the remaining albums. Accepted proposals remain pending migration, not applied to FLACs.</p>
+<p>Scan the indexed published archive without staging files. Discogs CD matches can suggest a missing genre when MusicBrainz has none. Each album is independently verified; errors are reported without interrupting the remaining albums. Accepted proposals remain pending migration, not applied to FLACs.</p>
 <details class="oscar-advanced"><summary>Advanced · scan only one archive album</summary>
 <label for="archive-scan-album">Published archive to scan (optional)</label>
 <select id="archive-scan-album"><option value="">Import/refresh Collection and select an album</option></select>
@@ -162,8 +170,7 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 <p>Preview approved metadata proposals for an archived single-CD album. Actual migration is disabled unless OSCAR_ENABLE_ARCHIVE_REVISIONS=1. When enabled, OSCAR preserves the original published generation in retained archive history, verifies a new FLAC/tag/manifest generation, and updates Collection. A catalog-number change also updates the album folder name. Boxsets require a separate coordinated migration.</p>
 <button type="button" id="archive-revision-preview">Preview approved archive migration for selected album</button>
 <button type="button" id="archive-revision-operations">View archive revision history and recovery status</button>
-<button type="button" id="archive-boxset-label-preview">Preview coordinated multidisc labels (read-only)</button>
-<button type="button" id="archive-boxset-genre-preview">Preview coordinated multidisc genres (read-only)</button>
+<button type="button" id="archive-boxset-metadata-preview">Preview coordinated multidisc metadata update (read-only)</button>
 <button type="button" id="archive-boxset-history">View multidisc revision history / recovery</button>
 <p>Verify checks new and original FLACs, manifests, CUE/source evidence and Collection. Clean permanently removes only the verified retained original of one operation, destroys OSCAR's internal rollback, and requires OSCAR_ENABLE_ARCHIVE_HISTORY_CLEANUP=1 plus an independent backup and double confirmation. Prefer excluding hidden archive history from media-server scans. Never Clean if you need the original archive for recovery.</p>
 <div id="archive-revision-output" aria-live="polite"></div>
@@ -198,10 +205,9 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 <input id="go-job" maxlength="32" placeholder="Created automatically or paste existing Go job ID" style="width:350px;max-width:95%">
 <button type="button" id="go-advance">Check next safe step</button>
 <div id="go-result" aria-live="polite"></div>
-<h3>Tracked Go! jobs</h3>
-<p>Saved MusicBrainz candidates are hints, not physical-edition proof. Published jobs are hidden by default; no archive or staging files are changed by these controls.</p>
+<h3>RipReview</h3>
 <div class="go-job-toolbar">
-<label for="go-job-filter">Show <select id="go-job-filter"><option value="action">Needs attention</option><option value="active">In progress</option><option value="published">Published</option><option value="all">All jobs</option></select></label>
+<label for="go-job-filter">Show <select id="go-job-filter"><option value="action">Needs attention</option><option value="reread">Read again</option><option value="audio_review">Review audio / data</option><option value="edition">Review edition / tags</option><option value="ready">Ready for archive review</option><option value="active">In progress</option><option value="done">Published</option><option value="all">All jobs</option></select></label>
 <label for="go-job-sort">Sort <select id="go-job-sort"><option value="updated">Recent activity</option><option value="created">Newest created</option><option value="priority">Priority</option><option value="album">Album A–Z</option><option value="id">Job ID</option></select></label>
 </div>
 <div id="go-job-summary" aria-live="polite"></div>
@@ -235,6 +241,8 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 <label for="verify-job">Staging rip job ID (32 hexadecimal characters)</label>
 <input id="verify-job" placeholder="f41806152a614b1a9006b10456b9bbd4" maxlength="32" style="width:340px;max-width:90%">
 <button id="verify-start" type="button">Verify staged rip</button>
+<button id="ctdb-verify" type="button">Verify this staged disc against CTDB</button>
+<div id="ctdb-output" aria-live="polite"></div>
 <div id="verify-output" aria-live="polite"></div></section>
 <section><h2>Metadata &amp; tagging (experimental)</h2>
 <p>Only for a previously verified staging rip. Preview an explicitly selected MusicBrainz physical release, including its classical work/performer relationships. Review label/catalog details before copying. Original FLACs are never modified.</p>
@@ -242,6 +250,8 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 <input id="metadata-job" maxlength="32" placeholder="Paste 32-character rip job ID" style="width:340px;max-width:90%">
 <label for="metadata-release">MusicBrainz release UUID (exact physical edition, not release group)</label>
 <input id="metadata-release" maxlength="36" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" style="width:360px;max-width:90%">
+<label for="metadata-matrix">Matrix/runout from the CD inner ring (optional)</label>
+<input id="metadata-matrix" maxlength="250" style="width:360px;max-width:95%">
 <button type="button" id="metadata-preview-btn">Preview MusicBrainz tags</button>
 <div id="metadata-output" aria-live="polite"></div></section>
 <section><h2>Find a physical release without a Disc ID match (read-only)</h2>
@@ -250,8 +260,27 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 <button type="button" id="catalog-search-button">Search by catalog number</button>
 <label for="title-search">Album title (alternative search)</label><input id="title-search" maxlength="100" placeholder="Essential Dance Traxx" style="width:320px;max-width:95%">
 <button type="button" id="title-search-button">Search by title</button>
+<label for="barcode-search">Printed barcode</label><input id="barcode-search" maxlength="14" inputmode="numeric">
+<button type="button" id="barcode-search-button">Search by barcode</button>
+<label for="matrix-search">Matrix/runout</label><input id="matrix-search" maxlength="250" placeholder="Distinctive code from the inner ring">
+<button type="button" id="matrix-search-button">Search MusicBrainz annotations</button>
+<p>Matrix search covers MusicBrainz release annotations. Try a distinctive part of the matrix when the full inscription returns no candidates.</p>
 <div id="release-search-results" aria-live="polite"></div>
 </section>
+<section><h2>Compare physical pressings with Discogs</h2>
+<p>Search by the printed barcode or catalog number. Add any codes you can read from the CD. The first five candidates are compared. Unnumbered identifiers may come from different pressings.</p>
+<label for="discogs-pressing-catalog">Catalog number</label>
+<input id="discogs-pressing-catalog" maxlength="100">
+<label for="discogs-pressing-barcode">Barcode</label>
+<input id="discogs-pressing-barcode" maxlength="30">
+<label for="discogs-pressing-matrix">Matrix/runout</label>
+<input id="discogs-pressing-matrix" maxlength="250">
+<label for="discogs-pressing-mastering_sid">Mastering SID</label>
+<input id="discogs-pressing-mastering_sid" maxlength="32">
+<label for="discogs-pressing-mould_sid">Mould SID</label>
+<input id="discogs-pressing-mould_sid" maxlength="32">
+<button type="button" id="discogs-pressing-search">Compare Discogs CD releases</button>
+<div id="discogs-pressing-results" aria-live="polite"></div></section>
 <section><h2>CD not found, wrong edition or incomplete metadata?</h2>
 <p>OSCAR can preserve a verified rip safely while its physical release remains unresolved. A matching Disc ID does not prove an edition. Do not tag from an unrelated release.</p>
 <label for="recovery-reason">What happened?</label>
@@ -305,7 +334,7 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 <button id="v2-preview" type="button">Preview classical v2 tags</button>
 <div id="v2-output" aria-live="polite"></div></section>
 <section><h2>Archive review · consistency, cover &amp; CUE (read-only)</h2>
-<p>Checks documented MusicBrainz recording/work relationships and duration evidence, previews the exact release's Cover Art Archive front candidate, and prepares a CUE preview preserving the original INDEX/PREGAP lines. Nothing is published or modified.</p>
+<p>Checks documented MusicBrainz recording/work relationships and duration evidence, lets you review or upload a front cover, and prepares a CUE preview preserving the original INDEX/PREGAP lines. Nothing is published or modified.</p>
 <label for="review-job">Original rip job ID</label><input id="review-job" maxlength="32" style="width:340px;max-width:95%">
 <label for="review-copy">Completed tagged-copy ID</label><input id="review-copy" maxlength="32" style="width:340px;max-width:95%">
 <label for="review-kind">Copy type</label><select id="review-kind"><option value="original_tags">Original MusicBrainz tagged copy</option><option value="classical_v2">Classical v2 tagged staging copy</option></select>
@@ -326,14 +355,13 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 <option value="standard">Standard (pop / rock / dance)</option>
 <option value="classical">Classical (conductor / ensemble / soloist)</option>
 </select>
-<label><input type="checkbox" id="publish-cover"> Include reviewed Cover Art Archive front image (separate cover file, not embedded)</label>
 <button type="button" id="publish-preview">Preview proposed archive (read-only)</button>
 <div id="publish-plan" aria-live="polite"></div>
 <div id="publish-confirmation" hidden>
 <label><input type="checkbox" id="publish-physical"> I checked this exact physical MusicBrainz edition and tracklist against my CD.</label>
 <label><input type="checkbox" id="publish-cue-approved"> I reviewed the proposed track filenames and the CUE, including source INDEX/PREGAP.</label>
 <label id="publish-observation-label" hidden><input type="checkbox" id="publish-observations"> I reviewed and accept the listed unresolved metadata observations without claiming they are corrected.</label>
-<label id="publish-cover-label" hidden><input type="checkbox" id="publish-cover-approved"> I compared the shown Cover Art Archive candidate with my physical CD and accept this particular image, including any sticker differences.</label>
+<label id="publish-cover-label" hidden><input type="checkbox" id="publish-cover-approved"> I approve this cover for the FLAC files and folder.jpg.</label>
 <button type="button" id="publish-start">Publish reviewed copies to separate archive</button>
 </div>
 <div id="publish-result" aria-live="polite"></div>
@@ -348,7 +376,7 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 // Progressive enhancement: retain every existing form, endpoint and event
 // handler; move the legacy specialist surfaces into a collapsible Review area.
 const oscarTabNames=[
- ['go','Go!'],['review','Review'],['collection','Collection'],['settings','Settings']
+ ['go','Go!'],['review','Review'],['collection','Collection'],['cleanup','Cleanup'],['diagnostics','DriveFit'],['settings','Settings']
 ];
 const oscarNav=document.getElementById('oscar-tabs');
 const oscarPanels=document.getElementById('oscar-panels');
@@ -369,13 +397,225 @@ for(const [name,label] of oscarTabNames){
  oscarTabButtons.set(name,button);oscarPanelsByName.set(name,panel);
 }
 const oscarAdvanced=document.createElement('details');
+const cleanupPanel=oscarPanelsByName.get('cleanup');
+cleanupPanel.innerHTML='<h2>Cleanup</h2><button type="button" id="cleanup-scan">Scan storage</button> <button type="button" id="cleanup-verify">Verify proposals</button> <button type="button" id="cleanup-remove" disabled>Delete selected copies</button><p id="cleanup-status" role="status"></p><div id="cleanup-items"></div><details><summary>Job history and active status</summary><div id="cleanup-jobs"></div></details>';
+const dangerPanel=document.createElement('details');
+dangerPanel.className='oscar-review-card';
+dangerPanel.append(metadataElement('summary','DANGER ZONE'));
+dangerPanel.append(metadataElement('p','DELETE permanently removes the selected folders, including any unique files they contain.'));
+const dangerList=metadataElement('div','Scan storage to list folders.');
+const dangerDelete=metadataElement('button','DELETE');
+dangerDelete.type='button';
+dangerDelete.style.background='#a52331';
+dangerDelete.style.color='#fff';
+dangerDelete.disabled=true;
+const dangerStatus=metadataElement('p','');
+dangerStatus.setAttribute('role','status');
+dangerPanel.append(dangerList,dangerDelete,dangerStatus);
+cleanupPanel.append(dangerPanel);
+const cleanupSelection=new Map();
+let cleanupBusy=false;
+async function refreshCleanup(verify=false){
+ if(cleanupBusy)return;
+ const headers=requestAuthHeaders('Cleanup inventory');if(!headers)return;
+ const status=document.getElementById('cleanup-status');
+ const items=document.getElementById('cleanup-items');
+ const jobs=document.getElementById('cleanup-jobs');
+ const remove=document.getElementById('cleanup-remove');
+ cleanupBusy=true;
+ cleanupSelection.clear();remove.disabled=true;
+ dangerDelete.disabled=true;
+ status.textContent=verify?'Verifying archive files…':'Scanning storage…';
+ try{
+  const result=await reviewRequest('/api/cleanup',headers,{method:verify?'POST':'GET'});
+  items.replaceChildren();jobs.replaceChildren();
+  renderDangerCleanup(result.items,headers);
+  const proposals=result.items.filter(x=>x.eligible);
+  const size=proposals.reduce((total,item)=>total+item.bytes,0);
+  status.textContent=proposals.length+' proposals · '+(size/1073741824).toFixed(2)+' GiB · automatic staging cleanup '+
+   (result.auto_days? 'after '+result.auto_days+' days':'off')+' · history '+result.history_root;
+  async function action(url,body,message){
+   try{
+    await reviewRequest(url,headers,{method:'POST',headers:{'Content-Type':'application/json'},
+     body:JSON.stringify(body)});
+    await refreshCleanup();
+    status.textContent=message+' · '+status.textContent;
+   }catch(error){status.textContent=error.message}
+  }
+  if(result.history_relocation_available){
+   addGoAction(items,'Move retained history outside Archive',()=>{
+    if(window.confirm('Move retained history to '+result.history_root+'?')){
+     action('/api/cleanup/history',{action:'MOVE_OSCAR_HISTORY'},'History moved');
+    }
+   });
+  }
+  for(const item of result.items){
+   const row=metadataElement('section','');
+   row.className='oscar-review-card';
+   const title=metadataElement('label',item.kind.replaceAll('_',' ')+' · '+item.path);
+   row.append(title,metadataElement('p',(item.bytes/1048576).toFixed(1)+' MiB · '+item.reason));
+   if(item.archive)row.append(metadataElement('p','Active archive '+item.archive));
+   if(item.eligible){
+    const box=document.createElement('input');box.type='checkbox';title.prepend(box);
+    box.onchange=()=>{
+     if(box.checked)cleanupSelection.set(item.path,item);else cleanupSelection.delete(item.path);
+     remove.disabled=!cleanupSelection.size;
+    };
+   }
+   if(item.operation_id){
+    addRetainedRevisionActions(row,item,headers,result.history_cleanup_enabled,()=>{
+     result.items=result.items.filter(entry=>entry.path!==item.path);
+     renderDangerCleanup(result.items,headers);
+    });
+   }
+   items.append(row);
+  }
+  for(const job of result.jobs){
+   const row=metadataElement('article','');row.className='oscar-workflow-row';
+   row.append(metadataElement('span',(job.working_title||job.candidate_title||'Unknown CD')+
+    ' · '+job.phase.replaceAll('_',' ')+' · '+job.job_id.slice(0,8)+(job.archived_at?' · hidden from Go!':'')));
+   const active=['RIP_IN_PROGRESS','METADATA_COPY_RUNNING','ARCHIVE_PUBLISH_RUNNING'].includes(job.phase);
+   const verb=job.archived_at?'restore':active?'reconcile':'hide';
+   addGoAction(row,verb==='restore'?'Restore to Go!':verb==='hide'?'Move to job history':'Check actual status',
+    ()=>action('/api/cleanup/jobs/'+job.job_id,{action:verb},'Job status updated'));
+   jobs.append(row);
+  }
+  if(result.events.length){
+   const log=metadataElement('details','');log.append(metadataElement('summary','Recent file cleanup'));
+   for(const event of result.events){
+    log.append(metadataElement('p',event.happened_at+' · '+event.status+' · '+event.path));
+   }
+   jobs.append(log);
+  }
+  remove.onclick=async()=>{
+   const selection=[...cleanupSelection.values()];
+   if(cleanupBusy||!selection.length||!window.confirm('Permanently delete '+selection.length+' selected copies?'))return;
+   remove.disabled=true;
+   try{
+    const response=await reviewRequest('/api/cleanup/remove',headers,{method:'POST',
+     headers:{'Content-Type':'application/json'},body:JSON.stringify({confirmation:'CLEAN_SELECTED_OSCAR_ITEMS',
+      items:selection.map(({kind,path,fingerprint})=>({kind,path,fingerprint}))})});
+    await refreshCleanup();
+    const removed=response.results.filter(x=>x.status==='removed');
+    status.textContent=removed.length+' removed · '+(response.results.length-removed.length)+' blocked';
+    for(const item of response.results.filter(x=>x.status==='blocked')){
+     items.prepend(metadataElement('p',item.path+' · '+item.reason));
+    }
+   }catch(error){status.textContent=error.message;remove.disabled=false}
+  };
+ }catch(error){status.textContent=error.message}
+ finally{cleanupBusy=false}
+}
+function addRetainedRevisionActions(row,item,headers,cleanupEnabled,onRemoved){
+ const feedback=metadataElement('p','');
+ feedback.setAttribute('role','status');
+ let receipt=null;
+ function revisionRequest(action,body){
+  return reviewRequest('/api/collection/archive-revisions/'+action,headers,{
+   method:'POST',headers:{'Content-Type':'application/json'},
+   body:JSON.stringify({operation_id:item.operation_id,...body})
+  });
+ }
+ const verify=addGoAction(row,'Verify retained revision',async()=>{
+  if(cleanupBusy)return;
+  cleanupBusy=true;
+  verify.disabled=true;clean.hidden=true;receipt=null;
+  feedback.textContent='Verifying both archive versions. Checking FLACs and publication evidence…';
+  try{
+   const report=await revisionRequest('verify',{});
+   feedback.textContent='Verified '+report.revised_flacs_verified+' revised and '+
+    report.original_flacs_verified+' retained FLACs. CUE, publication evidence and Collection passed.';
+   if(!report.cleanup_eligible){
+    feedback.textContent+=' '+report.note;
+   }else if(!cleanupEnabled){
+    feedback.textContent+=' Verified cleanup is disabled (OSCAR_ENABLE_ARCHIVE_HISTORY_CLEANUP).';
+   }else{
+    receipt=report.verification_fingerprint;
+    clean.hidden=false;
+   }
+  }catch(error){
+   feedback.textContent='Verification failed. '+error.message;
+  }finally{
+   verify.disabled=false;
+   cleanupBusy=false;
+  }
+ });
+ const clean=addGoAction(row,'Delete verified retained revision',async()=>{
+  if(cleanupBusy||!receipt)return;
+  if(!window.confirm('Permanently delete '+item.path+'? Confirm you have a tested external recovery backup.')){
+   feedback.textContent='Deletion cancelled. The verified revision is still retained.';
+   return;
+  }
+  cleanupBusy=true;
+  verify.disabled=true;clean.hidden=true;
+  feedback.textContent='Rechecking both archive versions before deletion…';
+  try{
+   await revisionRequest('clean',{verification_fingerprint:receipt,
+    external_backup_confirmed:true,confirmation:'PERMANENTLY_DELETE_VERIFIED_ORIGINAL_VERSION'});
+   verify.hidden=true;
+   feedback.textContent='Retained revision deleted.';
+   onRemoved();
+  }catch(error){
+   feedback.textContent='Deletion could not be confirmed. '+error.message;
+  }finally{
+   receipt=null;
+   verify.disabled=false;
+   cleanupBusy=false;
+  }
+ });
+ clean.hidden=true;
+ row.append(feedback);
+}
+function renderDangerCleanup(items,headers){
+ dangerList.replaceChildren();
+ dangerDelete.disabled=true;
+ const selected=new Set();
+ for(const item of items){
+  const row=metadataElement('div','');
+  const label=metadataElement('label',item.path+' · '+(item.bytes/1048576).toFixed(1)+' MiB');
+  const box=document.createElement('input');
+  box.type='checkbox';
+  box.onchange=()=>{
+   if(box.checked)selected.add(item.path);else selected.delete(item.path);
+   dangerDelete.disabled=!selected.size;
+  };
+  label.prepend(box);row.append(label);dangerList.append(row);
+ }
+ dangerDelete.onclick=async()=>{
+  if(!selected.size||cleanupBusy)return;
+  dangerDelete.disabled=true;
+  cleanupBusy=true;
+  for(const box of dangerList.querySelectorAll('input'))box.disabled=true;
+  dangerStatus.textContent='Deleting selected folders…';
+  try{
+   const result=await reviewRequest('/api/cleanup/danger',headers,{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({paths:[...selected],confirmation:'DELETE_SELECTED_OSCAR_FOLDERS'})
+   });
+   const removed=result.results.filter(item=>item.status==='removed').length;
+   const blocked=result.results.filter(item=>item.status==='blocked');
+   dangerStatus.replaceChildren(document.createTextNode(removed+' removed · '+blocked.length+' blocked'));
+   for(const item of blocked){
+    dangerStatus.append(document.createElement('br'),document.createTextNode(item.path+' · '+item.reason));
+   }
+   cleanupBusy=false;
+   await refreshCleanup();
+  }catch(error){
+   dangerStatus.textContent=error.message;
+   for(const box of dangerList.querySelectorAll('input'))box.disabled=false;
+   dangerDelete.disabled=false;
+  }finally{cleanupBusy=false}
+ };
+}
+document.getElementById('cleanup-scan').onclick=()=>refreshCleanup();
+document.getElementById('cleanup-verify').onclick=()=>refreshCleanup(true);
 oscarAdvanced.className='oscar-advanced';
 const advancedTitle=document.createElement('summary');
 advancedTitle.textContent='Advanced tools · verification, tagging, physical release checks and manual publishing';
 oscarAdvanced.append(advancedTitle);
 const mainReview=oscarPanelsByName.get('review');
 const reviewIntro=document.createElement('section');
-reviewIntro.innerHTML='<h2>Jobs requiring review</h2><p>Find blocked, uncertain or historical jobs here. Only explicit actions change metadata or publish an archive.</p><div id="review-jobs"></div><button type="button" id="review-refresh">Refresh review queue</button>';
+reviewIntro.innerHTML='<h2>Jobs requiring review</h2><p>Find blocked, uncertain or historical jobs here. Only explicit actions change metadata or publish an archive.</p><div id="review-jobs"></div><button type="button" id="review-refresh">Refresh review queue</button><section id="review-job-detail" aria-live="polite" hidden></section>';
 mainReview.append(reviewIntro,oscarAdvanced);
 const mainGo=oscarPanelsByName.get('go');
 const goIntro=document.createElement('p');
@@ -390,6 +630,118 @@ for(const section of [...document.body.querySelectorAll(':scope > section')]){
  else if(settingsSectionTitles.has(title))oscarPanelsByName.get('settings').append(section);
  else oscarAdvanced.append(section);
 }
+const diagnosticsPanel=oscarPanelsByName.get('diagnostics');
+const drivefitSection=document.createElement('section');
+drivefitSection.id='drivefit';
+const drivefitHeading=document.createElement('h2');
+drivefitHeading.textContent='Optical drive history';
+const drivefitIntro=document.createElement('p');
+drivefitIntro.textContent='Performance tags are based on saved rip and verification evidence.';
+const drivefitRefresh=document.createElement('button');
+drivefitRefresh.type='button';drivefitRefresh.id='drivefit-refresh';
+drivefitRefresh.textContent='Refresh DriveFit';
+const drivefitOutput=document.createElement('div');
+drivefitOutput.id='drivefit-output';drivefitOutput.setAttribute('aria-live','polite');
+drivefitSection.append(drivefitHeading,drivefitIntro,drivefitRefresh,drivefitOutput);
+diagnosticsPanel.append(drivefitSection);
+async function refreshDriveFit(){
+ const out=document.getElementById('drivefit-output');
+ const auth=requestAuthHeaders('DriveFit diagnostics');if(!auth)return;
+ out.textContent='Reading saved rip and verification history…';
+ try{
+  const response=await fetch('/api/diagnostics/drivefit',{headers:auth});
+  const data=await response.json();
+  if(!response.ok)throw Error(data.detail||'DriveFit unavailable');
+  out.replaceChildren();
+  const comparisons=document.createElement('section');
+  const heading=document.createElement('h3');heading.textContent='Compare drives';comparisons.append(heading);
+  const rule=document.createElement('p');
+  rule.textContent='Fast and Low errors need at least two comparable drives with five measured full rips each.';
+  comparisons.append(rule);
+  for(const [key,title,unit] of [['speed','Median rip speed','×'],['errors','Mean extraction errors per rip',''],['accuracy','Full rips passing verification','%']]){
+   const results=data.leaderboards[key];
+   if(!results.length)continue;
+   const caption=document.createElement('h4');caption.textContent=title;comparisons.append(caption);
+   const list=document.createElement('ol');
+   for(const item of results){
+    const row=document.createElement('li');
+    row.textContent=item.label+' · '+item.value+unit+' · '+item.samples+' rips'+
+     (item.samples<5?' · small sample':item.leader?' · tag supported':'');
+    list.append(row);
+   }
+   comparisons.append(list);
+  }
+  out.append(comparisons);
+  for(const item of data.drives||[]){
+   const section=document.createElement('section');
+   section.className='drivefit-drive';
+   const name=document.createElement('h3');name.textContent=item.label+' · '+item.stable_id;section.append(name);
+   const badges=document.createElement('ul');badges.className='drivefit-badges';
+   for(const tag of item.badges){
+    const badge=document.createElement('li');
+    const label=document.createElement('strong');label.textContent=tag.name;
+    badge.append(label,document.createTextNode(' · '+tag.evidence));badges.append(badge);
+   }
+   if(item.badges.length)section.append(badges);
+   const facts=[
+    'Connected: '+(item.present?'yes':'no')+' · firmware: '+(item.firmware||'unknown'),
+    'History: '+item.sample_count+' saved jobs · '+item.extractions_completed+' completed extractions',
+    'Diagnostic jobs: '+item.diagnostic_jobs+
+      ' · independently confirmed replacements: '+item.recovery_tracks.length,
+    'Verification: '+item.verified_jobs+' passed · '+item.review_required_jobs+' review required',
+    'Failed jobs: '+item.failed_jobs+' · interrupted: '+item.interrupted_jobs+
+      ' · reports with ripping errors: '+item.ripping_error_reports,
+    'Median full-rip duration: '+(item.median_duration_seconds===null?
+      'not available':Math.round(item.median_duration_seconds/60*10)/10+' min')+
+      ' · median throughput: '+(item.median_speed===null?'not available':
+       item.median_speed+'× from '+item.timed_verified_rips+' verified full rips'),
+    item.assessment==='insufficient_data'?
+      'Evidence: too few complete rips for a useful baseline':'Evidence: history available; benchmark with the same known-good CD'
+   ];
+   for(const fact of facts){const p=document.createElement('p');p.textContent=fact;section.append(p)}
+   const details=document.createElement('details');
+   const summary=document.createElement('summary');summary.textContent='Recent rip observations';
+   details.append(summary);
+   for(const job of item.recent_jobs){
+    const row=document.createElement('p');
+    row.textContent=job.job_id.slice(0,8)+' · '+job.status+
+      ' · '+(job.duration_seconds===null?'time unknown':Math.round(job.duration_seconds/60*10)/10+' min')+
+      ' · '+(job.tracks||'?')+' tracks · '+job.verification_status;
+    details.append(row);
+   }
+   if(item.recovery_tracks.length){
+    const recovery=document.createElement('details');
+    const heading=document.createElement('summary');heading.textContent='Verified recovery contributions';
+    recovery.append(heading);
+    for(const track of item.recovery_tracks){
+     const row=document.createElement('p');
+     row.textContent='Track '+String(track.track).padStart(2,'0')+
+      ' · diagnostic '+track.source_job_id+' · recovery '+track.recovery_job_id;
+     recovery.append(row);
+    }
+    section.append(recovery);
+   }
+   if(item.difficult_disc_comparisons.length){
+    const comparison=document.createElement('details');
+    const heading=document.createElement('summary');heading.textContent='Same-disc recovery comparisons';
+    comparison.append(heading);
+    for(const trial of item.difficult_disc_comparisons){
+     const row=document.createElement('p');
+     row.textContent=trial.disc_id+' · '+trial.verified_tracks+'/'+trial.tracks+' tracks passed · '+
+      trial.ripping_errors+' reported extraction errors · '+trial.verification_status+' · '+
+      trial.compared_drives+' drives'+(trial.strictly_best?' · Best verified result':'')+' · job '+trial.job_id;
+     comparison.append(row);
+    }
+    section.append(comparison);
+   }
+   section.append(details);out.append(section);
+  }
+  const note=document.createElement('p');
+  note.textContent='History: '+data.history_scope+' These are observations, not a hardware-health score. AccurateRip misses may reflect database coverage; compare the same known-good disc across drives.';
+  out.append(note);
+ }catch(error){out.textContent='DriveFit diagnostics unavailable: '+error.message}
+}
+drivefitRefresh.onclick=refreshDriveFit;
 const saveButton=document.getElementById('save');
 const saveStatus=document.getElementById('status');
 oscarPanelsByName.get('settings').append(saveButton,saveStatus);
@@ -402,6 +754,7 @@ function showOscarTab(name){
  }
  if(name==='go')refreshGoCards(false);
  if(name==='review')refreshReviewQueue(false);
+ if(name==='diagnostics')refreshDriveFit();
 }
 oscarNav.addEventListener('keydown',event=>{
  if(!['ArrowRight','ArrowLeft','Home','End'].includes(event.key))return;
@@ -456,11 +809,30 @@ async function init(){
   const label=document.createElement('label');const check=document.createElement('input');
   check.type='checkbox';check.checked=drive.enabled;check.onchange=()=>drive.enabled=check.checked;
   label.append(check,document.createTextNode(' Enable drive'));
+  const autoLabel=document.createElement('label');
+  const auto=document.createElement('input');auto.type='checkbox';
+  auto.checked=!!drive.auto_rip_on_insert;
+  auto.onchange=()=>drive.auto_rip_on_insert=auto.checked;
+  autoLabel.append(auto,document.createTextNode(' Start ripping automatically when I insert an audio CD'));
+  autoLabel.title='Enable and calibrate this drive, then save. OSCAR must see the drive empty before starting from insertion.';
   const offsetLabel=document.createElement('label');safeText(offsetLabel,' Read offset (samples; blank = unknown) ');
   const offset=document.createElement('input');offset.type='number';offset.min=-2000;offset.max=2000;
   offset.value=drive.offset_samples===null?'':drive.offset_samples;
-  offset.oninput=()=>{drive.offset_samples=offset.value===''?null:Number(offset.value)};
-  offsetLabel.append(offset);row.append(head,device,label,offsetLabel);
+  const candidateLabel=document.createElement('label');candidateLabel.hidden=true;
+  candidateLabel.append(document.createTextNode(' AccurateRip offset candidates '));
+  const candidates=document.createElement('select');candidates.style.maxWidth='100%';
+  candidateLabel.append(candidates);
+  candidates.onchange=()=>{
+   if(candidates.value==='')return;
+   offset.value=candidates.value;
+   drive.offset_samples=Number(candidates.value);
+   hint.textContent='Candidate selected. Save settings to use this offset.';
+  };
+  offset.oninput=()=>{
+   drive.offset_samples=offset.value===''?null:Number(offset.value);
+   candidates.value='';
+  };
+  offsetLabel.append(offset);row.append(head,device,label,offsetLabel,autoLabel);
   const assist=document.createElement('div');
   const link=document.createElement('a');link.href='https://www.accuraterip.com/driveoffsets.htm';
   link.target='_blank';link.rel='noopener noreferrer';link.textContent='AccurateRip drive offset database';
@@ -470,25 +842,46 @@ async function init(){
   const lookup=document.createElement('button');lookup.type='button';
   lookup.style.marginRight='8px';lookup.textContent='Look up offset';
   lookup.onclick=async()=>{
+   lookup.disabled=true;
    hint.textContent='Checking AccurateRip drive-offset database…';
+   candidateLabel.hidden=true;
    try{
     const r=await fetch('/api/drive-offset/lookup?'+new URLSearchParams({stable_id:drive.stable_id}));
     if(!r.ok)throw new Error(await r.text());
     const data=await r.json();
-    if(data.suggested_offset!==null){
-     hint.textContent='Database suggests '+data.suggested_offset+' samples. Review before saving.';
-     if(drive.offset_samples===null){
-       offset.value=String(data.suggested_offset);
-       drive.offset_samples=data.suggested_offset;
-       hint.textContent+=' Suggested value filled in; click Save settings to persist.';
-     }
+    const fmt=new Intl.NumberFormat();
+    candidates.replaceChildren(new Option('Choose a candidate…',''));
+    let markedLeader=false;
+    for(const entry of data.matches){
+     const samples=entry.offset_samples>0?'+'+entry.offset_samples:String(entry.offset_samples);
+     const leader=entry.selectable&&entry.offset_samples===data.leading_offset&&!markedLeader;
+     if(leader)markedLeader=true;
+     const approx=entry.agreement_percent===100?'':'≈';
+     const result=new Option(samples+' samples · '+approx+fmt.format(entry.estimated_confirmations)+
+      ' confirmations · '+fmt.format(entry.submissions)+' submissions · '+
+      fmt.format(entry.agreement_percent)+'% agree · '+entry.name+
+      (leader?' · Most confirmed candidate':''),String(entry.offset_samples));
+     result.disabled=!entry.selectable;
+     if(result.disabled)result.text+=' · Outside supported offset range';
+     candidates.add(result);
+    }
+    candidateLabel.hidden=!data.matches.length;
+    if(data.suggested_offset!==null && drive.offset_samples===null){
+     offset.value=String(data.suggested_offset);
+     drive.offset_samples=data.suggested_offset;
+     candidates.value=offset.value;
+     hint.textContent='Suggested value filled in. Save settings to use this offset.';
+    }else if(data.purged){
+     hint.textContent='AccurateRip marks a matching entry as variable. Calibrate this drive with a known CD.';
+    }else if(data.matches.length){
+     hint.textContent=data.status==='conflict'
+      ?'Matching records disagree. Compare the ranked candidates before selecting an offset.'
+      :'Compare the matching candidates or calibrate this drive with a known CD.';
     }else{
-     hint.textContent=data.status==='conflict'?'Conflicting reported offsets for this model: '+
-      [...new Set(data.matches.map(x=>x.offset_samples))].join(', ')+
-      '. Do not guess; calibrate with a known disc or review the database.':
-      'No reliable matching database offset. Try CD calibration or manual lookup.';
+     hint.textContent='No matching database candidate. Try CD calibration or manual lookup.';
     }
    }catch(e){hint.textContent='Lookup unavailable; use the linked database manually. '+e.message}
+   finally{lookup.disabled=false}
   };
   const detect=document.createElement('button');detect.type='button';
   detect.style.marginRight='8px';detect.textContent='Detect from CD (experimental)';
@@ -513,7 +906,7 @@ async function init(){
     }catch(e){hint.textContent='CD calibration failed: '+e.message}
     finally{detect.disabled=false}
   };
-  assist.append(lookup,detect,link,hint);row.append(assist);area.append(row);
+  assist.append(lookup,detect,link,candidateLabel,hint);row.append(assist);area.append(row);
   if(drive.offset_samples===null)lookup.click();
  }
 }
@@ -528,9 +921,11 @@ document.getElementById('probe').onclick=async()=>{
   for(const disc of results){
    const p=document.createElement('p');
    p.textContent=disc.label+' ('+disc.device+'): '+disc.status+
-      (disc.disc_type?' · '+disc.disc_type:'')+(disc.error?' · '+disc.error:'');
+      (disc.disc_type==='mixed'?' · mixed audio/data CD':disc.disc_type?' · '+disc.disc_type:'')+
+      (disc.audio_tracks!=null?' · '+disc.audio_tracks+' audio / '+disc.data_tracks+' data tracks':'')+
+      (disc.error?' · '+disc.error:'');
    el.append(p);
-   if(disc.status==='disc_present' && disc.disc_type==='audio'){
+   if(disc.status==='disc_present' && ['audio','mixed'].includes(disc.disc_type)){
      const button=document.createElement('button');button.type='button';
      button.textContent='Read TOC and MusicBrainz ID';
      button.onclick=()=>showToc(disc.stable_id);
@@ -897,6 +1292,16 @@ async function verifyExistingJob(jobOverride=null, targetOverride=null){
       ' · CUE references match: '+(data.cue?.references_match?'yes':'no')+
       (data.error?' · '+data.error:'');
    target.append(summary);
+   if(data.ctdb){
+    const ctdb=document.createElement('p');
+    const result=data.ctdb;
+    ctdb.textContent='CTDB: '+result.status.replaceAll('_',' ')+
+     (result.confidence!=null?' · '+result.confidence+'/'+result.total+' confidence':'')+
+     (result.cue_layout==='cd_extra_full_toc'?' · CD-Extra: full-disc TOC, audio verification only':
+      result.cue_layout==='cd_extra_audio_session'?' · CD-Extra audio session only':'')+
+   (result.message?' · '+result.message:'');
+    target.append(ctdb);
+   }
    if(data.tracks?.length){
     const table=document.createElement('table');table.style.width='100%';
     const header=document.createElement('tr');
@@ -920,6 +1325,10 @@ async function verifyExistingJob(jobOverride=null, targetOverride=null){
    const note=document.createElement('p');
    note.textContent=(data.notes||[]).join(' ');
    target.append(note);
+   if(data.status==='checks_passed'){
+    continueAdvanced(target,'Next: preview MusicBrainz tags',{'metadata-job':job,'metadata-release':'','metadata-matrix':''},
+     'metadata-preview-btn',{focus:'metadata-release'});
+   }
   }
   await poll();
  }catch(e){target.textContent='Verification unavailable: '+e.message}
@@ -928,6 +1337,22 @@ document.getElementById('verify-start').onclick=()=>verifyExistingJob();
 
 let reviewedMetadata=null;
 function metadataElement(tag,text){const e=document.createElement(tag);e.textContent=String(text??'—');return e;}
+function openAdvanced(values, nextButton, {run=false, focus=nextButton}={}){
+ for(const [id,value] of Object.entries(values))document.getElementById(id).value=value;
+ showOscarTab('review');
+ oscarAdvanced.open=true;
+ document.getElementById(focus).focus();
+ if(run)document.getElementById(nextButton).click();
+}
+function continueAdvanced(result, label, values, nextButton, options){
+ addGoAction(result,label,()=>openAdvanced(values,nextButton,options));
+}
+
+function proposedSources(text){
+ const panel=document.createElement('details');
+ panel.append(metadataElement('summary','Proposed SOURCES.txt'),metadataElement('pre',text));
+ return panel;
+}
 document.getElementById('metadata-preview-btn').onclick=async()=>{
  const output=document.getElementById('metadata-output');output.replaceChildren();
  reviewedMetadata=null;
@@ -936,27 +1361,37 @@ document.getElementById('metadata-preview-btn').onclick=async()=>{
  if(!/^[a-f0-9]{32}$/.test(job)||!/^[a-f0-9-]{36}$/.test(release)){
   output.textContent='Enter a valid staging job ID and MusicBrainz release UUID.';return;
  }
+ const matrix=document.getElementById('metadata-matrix').value.trim();
  const access=requestAuthHeaders('Inspect MusicBrainz metadata preview');
  if(!access)return;
  output.textContent='Checking completed rip, exact MusicBrainz medium and relationships…';
  try{
   const r=await fetch('/api/rip/jobs/'+job+'/metadata/preview',{
     method:'POST',headers:{'Content-Type':'application/json',...access},
-    body:JSON.stringify({release_id:release})
+    body:JSON.stringify({release_id:release,matrix_runout:matrix||null})
   });
   if(!r.ok)throw new Error(await r.text());
   const result=await r.json();reviewedMetadata=result;
   output.replaceChildren();
   output.append(metadataElement('h3',result.album.title));
+  const cover=metadataElement('img','');
+  cover.className='oscar-review-cover';cover.alt='MusicBrainz front cover candidate';
+  cover.onerror=()=>cover.remove();
+  cover.src='https://coverartarchive.org/release/'+encodeURIComponent(result.release_id)+'/front-250';
+  output.append(cover);
   output.append(metadataElement('p','Album artist: '+result.album.artist+
    ' · Release date: '+(result.album.date||'unknown')+
    ' · Disc '+result.disc_number+'/'+result.disc_total));
   output.append(metadataElement('p','Labels: '+(result.album.labels||[]).map(x=>
     (x.name||'?')+' ['+(x.catalog_number||'no catalogue number')+']').join(', ')+
     ' · Barcode: '+(result.album.barcode||'unknown')));
+  if(result.album.matrix_runout){
+   output.append(metadataElement('p','Proposed FLAC MATRIX_RUNOUT tag (transcribed from the CD): '+
+     result.album.matrix_runout));
+  }
   output.append(metadataElement('p','Proposed FLAC GENRE tags: '+
    ((result.album.genres||[]).join(' · ')||'none available')+
-   ' · Source: '+(result.album.genre_source||'no verified genre evidence')+
+   ' · Source: '+(result.album.genre_source_url||result.album.genre_source||'no verified genre evidence')+
    '. These genres are included only in the reviewed tagged staging copies.'));
   const link=document.createElement('a');
   link.href='https://musicbrainz.org/release/'+encodeURIComponent(result.release_id);
@@ -993,7 +1428,7 @@ document.getElementById('metadata-preview-btn').onclick=async()=>{
     const response=await fetch('/api/rip/jobs/'+job+'/metadata/copy',{
       method:'POST',headers:{'Content-Type':'application/json',...copyAccess},
       body:JSON.stringify({release_id:release,fingerprint:result.fingerprint,
-                           confirmation:'COPY_TAGGED_TO_STAGING'})
+                           confirmation:'COPY_TAGGED_TO_STAGING',matrix_runout:matrix||null})
     });
     if(!response.ok)throw new Error(await response.text());
     const started=await response.json();
@@ -1006,13 +1441,15 @@ document.getElementById('metadata-preview-btn').onclick=async()=>{
        status.textContent='Tagging in progress; original FLACs remain unchanged…';
        setTimeout(()=>poll().catch(e=>status.textContent=e.message),3000);
       }else{
-       if(task.status==='tagged_copy_ready_for_review'){
-        document.getElementById('inspect-job').value=job;
-        document.getElementById('inspect-copy').value=started.copy_id;
-       }
        status.textContent=task.status+' · '+(task.count??'?')+' tagged FLAC copies'+
         (task.error?' · '+task.error:'')+
         ' · copy ID '+started.copy_id+'. No archive promotion.';
+       if(task.status==='tagged_copy_ready_for_review'){
+        document.getElementById('inspect-job').value=job;
+        document.getElementById('inspect-copy').value=started.copy_id;
+        continueAdvanced(output,'Next: inspect saved FLAC tags',
+         {'inspect-job':job,'inspect-copy':started.copy_id},'inspect-start',{run:true});
+       }
       }
     }await poll();
    }catch(e){status.textContent='Tagged-copy request failed: '+e.message}
@@ -1044,6 +1481,10 @@ document.getElementById('inspect-start').onclick=async()=>{
   overview.textContent=result.track_count+' tracks · '+result.status+
     ' · source: actual saved FLAC tags (not a MusicBrainz lookup)';
   target.append(overview);
+  if(result.status==='tags_match_preview'){
+   continueAdvanced(target,'Next: preview archive and SOURCES.txt',
+    {'publish-job':job,'publish-copy':copy,'publish-kind':'original_tags'},'publish-preview');
+  }
   const table=document.createElement('table');table.style.width='100%';
   const h=document.createElement('tr');
   for(const v of ['Track','Title','Composer','Work / grouping','Conductor','Orchestra','Checks']){
@@ -1085,10 +1526,12 @@ document.getElementById('inspect-start').onclick=async()=>{
 
 
 
+const releaseSearchFields={catalog_number:'catalog-search',title:'title-search',
+ barcode:'barcode-search',matrix_runout:'matrix-search'};
 async function searchPhysicalReleases(kind){
  const target=document.getElementById('release-search-results');target.replaceChildren();
- const value=document.getElementById(kind==='catalog_number'?'catalog-search':'title-search').value.trim();
- if(!value||value.length>100){target.textContent='Enter a catalog number or a release title.';return}
+ const value=document.getElementById(releaseSearchFields[kind]).value.trim();
+ if(!value){target.textContent='Enter a value to search.';return}
  target.textContent='Searching MusicBrainz release candidates…';
  try{
   const response=await fetch('/api/release-search?'+new URLSearchParams({[kind]:value}));
@@ -1099,22 +1542,78 @@ async function searchPhysicalReleases(kind){
   info.textContent=data.releases.length+' candidate(s) from '+data.query_kind+' search. No physical edition or Disc ID has been verified.';
   target.append(info);
   if(!data.releases.length){
-   const msg=document.createElement('p');msg.textContent='No release found. Try the alternative title search. Do not use unrelated releases just because their Disc ID matches.';target.append(msg);
+   const msg=document.createElement('p');msg.textContent='No release found. Try another search field.';target.append(msg);
   }
   for(const item of data.releases){
    const line=document.createElement('p');const a=document.createElement('a');
    a.href='https://musicbrainz.org/release/'+encodeURIComponent(item.id);
    a.target='_blank';a.rel='noopener noreferrer';
-   a.textContent=(item.title||'Untitled')+' · '+(item.artist||'Unknown artist')+
-      ' · '+(item.date||'?')+' · '+item.labels.map(x=>(x.name||'')+' '+(x.catalog_number||'')).join(', ');
+   a.textContent=[item.title||'Untitled',item.artist,item.date,item.barcode,
+      item.labels.map(x=>(x.name||'')+' '+(x.catalog_number||'')).join(', ')].filter(Boolean).join(' · ');
    line.append(a);target.append(line);
+   continueAdvanced(line,'Use in metadata preview',
+    {'metadata-release':item.id},'metadata-preview-btn');
+   if(item.annotation) target.append(metadataElement('p',item.annotation));
   }
-  const warning=document.createElement('p');warning.textContent='Candidates only. Follow up with the separate Physical release comparison using a verified staging job; do not tag from this list alone.';
+  const warning=document.createElement('p');warning.textContent=data.note;
   target.append(warning);
  }catch(error){target.textContent='Release search failed: '+error.message}
 }
 document.getElementById('catalog-search-button').onclick=()=>searchPhysicalReleases('catalog_number');
 document.getElementById('title-search-button').onclick=()=>searchPhysicalReleases('title');
+document.getElementById('barcode-search-button').onclick=()=>searchPhysicalReleases('barcode');
+document.getElementById('matrix-search-button').onclick=()=>searchPhysicalReleases('matrix_runout');
+
+document.getElementById('discogs-pressing-search').onclick=async(event)=>{
+ const button=event.currentTarget, target=document.getElementById('discogs-pressing-results');
+ const headers=requestAuthHeaders('Compare Discogs CD pressings');
+ if(!headers)return;
+ const body=Object.fromEntries(['catalog','barcode','matrix','mastering_sid','mould_sid'].map(key=>
+  [key,document.getElementById('discogs-pressing-'+key).value.trim()]));
+ button.disabled=true;
+ target.textContent='Comparing Discogs CD releases…';
+ try{
+  const response=await fetch('/api/discogs/pressings',{method:'POST',
+   headers:{'Content-Type':'application/json',...headers},body:JSON.stringify(body)});
+  const data=await response.json();
+  if(!response.ok)throw Error(data.detail);
+  target.replaceChildren(metadataElement('p',data.releases.length+' CD candidates reviewed'+
+   (data.search_total!=null?' · '+data.search_total+' search results':'')));
+  for(const release of data.releases){
+   const link=metadataElement('a',[release.title,release.country,release.year].filter(Boolean).join(' · '));
+   link.href='https://www.discogs.com/release/'+release.id;
+   link.target='_blank';link.rel='noopener noreferrer';
+   const row=metadataElement('p','');row.append(link);target.append(row);
+   for(const item of release.variants){
+    target.append(metadataElement('p',item.variant+' · '+Object.entries(item.comparison)
+     .map(([field,status])=>field+' '+status.replaceAll('_',' ')).join(' · ')));
+   }
+  }
+ }catch(error){target.textContent='Discogs comparison unavailable: '+error.message}
+ finally{button.disabled=false}
+};
+
+async function verifyStagedCtdb(job,button,target){
+ if(!/^[a-f0-9]{32}$/.test(job)){target.textContent='Enter a valid rip job ID.';return}
+ const headers=requestAuthHeaders('Verify staged CD audio against CTDB');
+ if(!headers)return;
+ button.disabled=true;target.textContent='Checking staged audio against CTDB…';
+ try{
+  const response=await fetch('/api/rip/jobs/'+job+'/ctdb-verification',{method:'POST',headers});
+  const data=await response.json();
+  if(!response.ok)throw Error(data.detail);
+  target.textContent='CTDB: '+data.status.replaceAll('_',' ')+
+   (data.confidence!=null?' · confidence '+data.confidence+'/'+data.total:'')+
+   (data.cue_layout==='cd_extra_full_toc'?' · CD-Extra: full-disc TOC, audio verification only':
+    data.cue_layout==='cd_extra_audio_session'?' · CD-Extra audio session only':'')+
+   (data.message?' · '+data.message:'');
+ }catch(error){target.textContent='CTDB verification unavailable: '+error.message}
+ finally{button.disabled=false}
+}
+document.getElementById('ctdb-verify').onclick=event=>verifyStagedCtdb(
+ document.getElementById('verify-job').value.trim().toLowerCase(),event.currentTarget,
+ document.getElementById('ctdb-output'));
+
 
 const recoveryAdvice={
  missing_release:'Missing release: search MusicBrainz by physical catalog number and title. Check the actual booklet, all track names/versions, and Disc ID/TOC. If genuinely absent, submit a new physical Various Artists or artist release through MusicBrainz. Never attach unrelated recordings or invent IDs. You can defer this entirely.',
@@ -1224,6 +1723,10 @@ document.getElementById('physical-compare-btn').onclick=async()=>{
   const safety=document.createElement('p');
   safety.textContent='Read-only comparison. OSCAR did NOT approve the edition, attach the Disc ID, tag, rename or archive anything.';
   out.append(safety);
+  if(evidence.disc_id_attached_to_matching_medium){
+   continueAdvanced(out,'Next: preview MusicBrainz tags',
+    {'metadata-job':job,'metadata-release':release},'metadata-preview-btn',{run:true});
+  }
  }catch(error){out.textContent='Physical release comparison failed: '+error.message}
 };
 
@@ -1403,6 +1906,98 @@ function reviewCard(title,bodyText){
  const text=document.createElement('p');text.textContent=bodyText;
  box.append(heading,text);return box;
 }
+function assertReviewedCover(plan,included,selection){
+ if(included && (plan.provenance?.artwork?.sha256!==selection?.sha256 ||
+    plan.provenance?.artwork?.provider!==selection?.provider ||
+    plan.provenance?.artwork?.source!==selection?.source)){
+  throw Error('Cover selection changed. Reopen the archive review.');
+ }
+}
+function coverControls(job,copy,kind,headers,onChange=async()=>{},onBusy=()=>{},dataTrack=null,dataOnly=false){
+ const panel=document.createElement('fieldset');
+ panel.append(metadataElement('legend',dataOnly?'CD-Extra data':'Cover artwork'));
+ const photo=document.createElement('img');
+ photo.className='oscar-review-cover';photo.alt='Selected front cover';photo.hidden=true;
+ const status=metadataElement('p','');status.setAttribute('aria-live','polite');
+ const credit=metadataElement('a','Source');credit.hidden=true;
+ credit.target='_blank';credit.rel='noopener noreferrer';
+ const upload=document.createElement('input');upload.type='checkbox';
+ const uploadLabel=metadataElement('label','Upload your own cover artwork');
+ uploadLabel.prepend(upload);
+ const file=document.createElement('input');file.type='file';file.accept='image/jpeg,image/png,image/webp';
+ file.setAttribute('aria-label','Select cover image');file.hidden=true;
+ const include=document.createElement('input');include.type='checkbox';include.disabled=true;
+ const includeLabel=metadataElement('label','Include cover in FLACs and as folder.jpg');
+ includeLabel.prepend(include);
+ const discogs=document.createElement('input');discogs.placeholder='Discogs release ID or URL';
+ discogs.setAttribute('aria-label','Discogs release ID or URL (optional)');
+ const button=(label,action)=>{
+  const control=metadataElement('button',label);control.type='button';control.onclick=action;return control;
+ };
+ let selection=null;
+ const preserveData=document.createElement('input');preserveData.type='checkbox';
+ preserveData.checked=true;
+ if(dataTrack){
+  const dataLabel=metadataElement('label','Archive CD-Extra data session (recommended)');
+  dataLabel.prepend(preserveData);
+  panel.append(dataLabel,metadataElement('p',
+   dataTrack.status==='included'?'Raw data track '+dataTrack.track+' · '+dataTrack.size+' bytes · two matching reads':
+   dataTrack.message||'Data image unavailable'));
+ }
+ async function changed(){
+  await onChange(Boolean(selection && include.checked),selection,preserveData.checked);
+ }
+ async function load(source,body){
+  panel.disabled=true;
+  onBusy();
+  status.textContent='Loading cover artwork…';
+  try{
+   const query=new URLSearchParams({kind,source});
+   if(source==='discogs'&&discogs.value.trim())query.set('discogs_release',discogs.value.trim());
+   const response=await fetch('/api/rip/jobs/'+job+'/cover-art/'+copy+'?'+query,{
+    method:'POST',headers,body});
+   const result=await response.json();
+   if(!response.ok)throw Error(result.detail||'Cover could not be loaded');
+   selection=result.artwork;
+   const providers={musicbrainz:'MusicBrainz Cover Art Archive',discogs:'Discogs',upload:'Your upload'};
+   status.textContent=selection?providers[selection.provider]+' · '+selection.width+' × '+selection.height:
+    'No cover found. Try a Discogs release ID or upload your own.';
+   credit.hidden=!selection?.source;
+   if(selection?.source){credit.href=selection.source;credit.textContent=selection.provider==='discogs'?'Data provided by Discogs':'View source';}
+   photo.hidden=!selection;
+   if(selection)photo.src=result.preview;
+   else photo.removeAttribute('src');
+   include.checked=Boolean(selection);include.disabled=!selection;
+   if(selection?.provider==='upload'){upload.checked=true;file.hidden=false;}
+   else{upload.checked=false;file.hidden=true;}
+   await changed();
+  }catch(error){
+   status.textContent=error.message;
+   try{await changed()}catch(previewError){status.textContent+=' · '+previewError.message;}
+  }finally{panel.disabled=false;}
+ }
+ upload.onchange=()=>{file.hidden=!upload.checked;if(upload.checked)file.focus();};
+ file.onchange=()=>{if(file.files[0])load('upload',file.files[0]);};
+ include.onchange=async()=>{
+  panel.disabled=true;
+  onBusy();
+  try{await changed()}catch(error){status.textContent=error.message;}
+  finally{panel.disabled=false;}
+ };
+ preserveData.onchange=include.onchange;
+ if(dataOnly){
+  panel.append(status);
+  queueMicrotask(include.onchange);
+  return panel;
+ }
+ panel.append(photo,status,credit,
+  button('Use MusicBrainz cover',()=>load('musicbrainz')),
+  discogs,button('Use Discogs cover',()=>load('discogs')),
+  uploadLabel,file,includeLabel);
+ load('auto');
+ return panel;
+}
+
 let reviewedArchivePlan=null;
 document.getElementById('publish-preview').onclick=async()=>{
  reviewedArchivePlan=null;
@@ -1413,7 +2008,7 @@ document.getElementById('publish-preview').onclick=async()=>{
  const copy=document.getElementById('publish-copy').value.trim().toLowerCase();
  const kind=document.getElementById('publish-kind').value;
  const profile=document.getElementById('publish-profile').value;
- const includeCover=document.getElementById('publish-cover').checked;
+ const includeCover=false;
  if(!/^[a-f0-9]{32}$/.test(job)||!/^[a-f0-9]{32}$/.test(copy)){
   plan.textContent='Enter the completed rip job ID and tagged copy ID.';return
  }
@@ -1443,24 +2038,36 @@ document.getElementById('publish-preview').onclick=async()=>{
    const reason=typeof data.detail==='string'?data.detail:'Preview failed';
    throw Error('HTTP '+r.status+': '+reason);
   }
-  reviewedArchivePlan={...data,headers,job,copy,kind,profile,includeCover};
   plan.replaceChildren();
   const heading=document.createElement('h3');heading.textContent='Destination: '+data.relative_directory;plan.append(heading);
   const info=document.createElement('p');info.textContent=data.tracks.length+
    ' FLAC files · Disc '+data.disc_number+'/'+data.disc_total+
    ' · Processing '+data.profile+' · '+data.metadata_observations.length+' metadata observations'+
-   (data.output_exists?' · DESTINATION ALREADY EXISTS':'');
+   (data.data_supplement?' · Add CD-Extra data to existing archive':
+    data.output_exists?' · '+(data.destination_block_reason||'Destination already exists'):'');
   plan.append(info);
-  if(includeCover){
-   const coverNote=document.createElement('p');
-   coverNote.textContent='Exact-release cover candidate; compare against the physical booklet/box, including removable stickers:';
-   plan.append(coverNote);
-   const img=document.createElement('img');
-   img.className='oscar-review-cover';
-   img.src='https://coverartarchive.org/release/'+encodeURIComponent(data.release_id)+'/front-250';
-   img.alt='MusicBrainz physical release cover candidate; requires human confirmation';
-   plan.append(img);
-  }
+  const sources=metadataElement('div','');
+  const controls=coverControls(job,copy,kind,headers,async (included,selection,includeData)=>{
+   const approval=document.getElementById('publish-confirmation');
+   approval.hidden=true;
+   reviewedArchivePlan=null;
+   const preview=await reviewRequest('/api/rip/jobs/'+job+'/archive-publish/preview',headers,{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({copy_id:copy,kind,profile,include_cover:included,include_data:includeData})});
+   if(!plan.contains(controls))return;
+   assertReviewedCover(preview,included,selection);
+   reviewedArchivePlan={...preview,headers,job,copy,kind,profile,includeCover:included,includeData};
+   document.getElementById('publish-cover-approved').checked=false;
+   document.getElementById('publish-cover-label').hidden=!included;
+   approval.hidden=(preview.output_exists&&!preview.data_supplement)||preview.provenance?.cd_extra_data?.status==='unavailable';
+   document.getElementById('publish-start').textContent=preview.data_supplement?
+    'Add CD-Extra data to archive':'Publish reviewed archive';
+   sources.replaceChildren(proposedSources(preview.sources_preview));
+  },()=>{
+   reviewedArchivePlan=null;
+   document.getElementById('publish-confirmation').hidden=true;
+  },data.provenance?.cd_extra_data,data.output_exists&&Boolean(data.provenance?.cd_extra_data));
+  plan.append(controls);
   const output=document.createElement('pre');output.className='oscar-review-card';
   output.style.whiteSpace='pre-wrap';output.style.maxHeight='360px';output.style.overflow='auto';
   output.textContent=data.tracks.map(t=>t.filename).join('\\n');plan.append(output);
@@ -1468,6 +2075,7 @@ document.getElementById('publish-preview').onclick=async()=>{
   const summary=document.createElement('summary');summary.textContent='Inspect full proposed album.cue';cue.append(summary);
   const preview=document.createElement('pre');preview.textContent=data.cue;
   preview.style.whiteSpace='pre-wrap';preview.style.overflow='auto';cue.append(preview);plan.append(cue);
+  plan.append(sources);
   for(const finding of data.metadata_observations){
    const p=document.createElement('p');p.textContent='Review: '+finding.code+' (tracks '+finding.tracks.join(', ')+') — '+finding.message;plan.append(p);
   }
@@ -1476,7 +2084,7 @@ document.getElementById('publish-preview').onclick=async()=>{
   }
   document.getElementById('publish-observation-label').hidden=data.metadata_observations.length===0;
   document.getElementById('publish-cover-label').hidden=!includeCover;
-  document.getElementById('publish-confirmation').hidden=!!data.output_exists;
+  document.getElementById('publish-confirmation').hidden=true;
  }catch(error){reviewedArchivePlan=null;plan.textContent='Archive preview unavailable: '+error.message}
 };
 document.getElementById('publish-start').onclick=async()=>{
@@ -1486,17 +2094,18 @@ document.getElementById('publish-start').onclick=async()=>{
  const cue=document.getElementById('publish-cue-approved').checked;
  const observations=document.getElementById('publish-observations').checked;
  const cover=document.getElementById('publish-cover-approved').checked;
- if(!physical||!cue||(state.metadata_observations.length&&!observations)||(state.includeCover&&!cover)){
+ if(!state.data_supplement&&(!physical||!cue||(state.metadata_observations.length&&!observations)||(state.includeCover&&!cover))){
   output.textContent='Please review and confirm the physical edition, filenames/CUE, metadata observations and optional cover first.';return
  }
- if(!window.confirm('Publish '+state.tracks.length+' copied FLACs to '+state.relative_directory+'? This creates a new archive folder without modifying originals.'))return;
+ if(!window.confirm(state.data_supplement?'Add the verified CD-Extra data to '+state.relative_directory+'?':
+    'Publish '+state.tracks.length+' copied FLACs to '+state.relative_directory+'?'))return;
  const startButton=document.getElementById('publish-start');startButton.disabled=true;
  output.textContent='Publishing verified copies in a separate archive folder…';
  try{
   const response=await fetch('/api/rip/jobs/'+state.job+'/archive-publish/start',{
    method:'POST',headers:{'Content-Type':'application/json',...state.headers},
    body:JSON.stringify({copy_id:state.copy,kind:state.kind,profile:state.profile,
-    include_cover:state.includeCover,approve_cover:cover,
+    include_cover:state.includeCover,approve_cover:cover,include_data:state.includeData,
     acknowledge_metadata_observations:observations,
     fingerprint:state.fingerprint,confirmation:'PUBLISH_REVIEWED_ARCHIVE'})
   });
@@ -1511,7 +2120,8 @@ document.getElementById('publish-start').onclick=async()=>{
     output.textContent='Archive publication '+started.publish_id+': running; no source files are modified.';
     setTimeout(async()=>{try{await poll()}catch(e){output.textContent='Status lookup failed: '+e.message}},3000);
    }else if(data.status==='published_verified'){
-    output.textContent='Archive published and verified: '+data.relative_directory+
+    output.textContent=data.data_supplement?'CD-Extra data added and verified: '+data.relative_directory:
+      'Archive published and verified: '+data.relative_directory+
       ' · '+data.file_count+' FLACs · Original staging preserved. Manifest SHA-256: '+data.manifest_sha256;
     document.getElementById('publish-confirmation').hidden=true;
    }else output.textContent='Publication failed: '+(data.error||'Unknown error')+
@@ -1535,7 +2145,7 @@ document.getElementById('review-start').onclick=async()=>{
  if(!headers)return;
  output.textContent='Reading staged FLAC metadata, looking up cover candidate and preparing CUE…';
  try{
-  const url='/api/rip/jobs/'+job+'/archive-review/'+copy+'?'+new URLSearchParams({kind,profile});
+  const url='/api/rip/jobs/'+job+'/archive-review/'+copy+'?'+new URLSearchParams({kind,profile,artwork:false});
   const response=await fetch(url,{headers});
   if(!response.ok)throw new Error(await response.text());
   const data=await response.json();output.replaceChildren();
@@ -1552,14 +2162,7 @@ document.getElementById('review-start').onclick=async()=>{
     ' review items. Shared work IDs do not automatically mean audio or recording duplication.'));
   sections.append(reviewCard('CUE',data.cue.status+
     ' · '+(data.cue.track_count??'?')+' tracks. Original INDEX and PREGAP lines kept, no new indexes invented.'));
-  sections.append(reviewCard('Cover Art Archive',data.cover_art.status+
-    ' · candidate tied to selected MusicBrainz physical release; check against booklet.'));
-  output.append(sections);
-  if(data.cover_art.thumbnail_url){
-   const photo=document.createElement('img');photo.className='oscar-review-cover';
-   photo.src=data.cover_art.thumbnail_url;photo.alt='Cover candidate; inspect physical edition';
-   photo.loading='lazy';output.append(photo);
-  }
+  output.append(sections,coverControls(job,copy,kind,headers));
   const warning=document.createElement('p');warning.className='oscar-review-note';
   warning.textContent='This is a review, not approval. MusicBrainz Work is not Recording. No AcoustID, CTDB or automatic publishing.';
   output.append(warning);
@@ -1699,10 +2302,11 @@ async function showArchiveProposals(){
   heading.textContent=(item.scope==='track'?'Track '+item.track:'Album')+' · '+item.field;
   article.append(heading);
   const values=document.createElement('p');
-  values.textContent='Archive: '+JSON.stringify(item.before)+' · MusicBrainz: '+JSON.stringify(item.after);
+  const source={discogs:'Discogs',archive_profile:'Classical publishing profile'}[item.source]||'MusicBrainz';
+  values.textContent='Archive: '+JSON.stringify(item.before)+' · '+source+': '+JSON.stringify(item.after);
   article.append(values);
   const loc=document.createElement('small');
-  loc.textContent=item.archive_path+' · '+item.source_url;
+  loc.textContent=item.source==='archive_profile'?item.archive_path:item.archive_path+' · '+item.source_url;
   article.append(loc);
   for(const [choice,label] of [['accept','Accept proposal (approval only)'],['ignore','Ignore this exact change']]){
    const button=document.createElement('button');button.type='button';button.textContent=label;
@@ -1924,14 +2528,15 @@ async function showArchiveRevisionOperations(){
   }
  }catch(error){out.textContent='Revision journal: '+error.message}
 }
-async function previewCoordinatedBoxset(field){
+async function previewCoordinatedBoxset(){
+ const field="METADATA";
  const out=document.getElementById('archive-revision-output');
  const selected=document.getElementById('archive-scan-album');
  const release=selected.selectedOptions[0]?.dataset.releaseId;
  if(!release){out.textContent='Select a disc in Advanced · scan only one archive album first.';return}
  const headers=requestAuthHeaders('Read-only coordinated boxset metadata review');
  if(!headers)return;
- out.textContent='Verifying all archived CD media and reviewed MusicBrainz '+field+' values…';
+ out.textContent='Checking archived discs and MusicBrainz metadata…';
  try{
   const response=await fetch('/api/collection/archive-revisions/boxset-preview',{
    method:'POST',headers:{'Content-Type':'application/json',...headers},
@@ -1940,21 +2545,34 @@ async function previewCoordinatedBoxset(field){
   const data=await response.json();
   if(!response.ok)throw Error(data.detail||'Boxset review unavailable');
   out.replaceChildren();
-  const h=document.createElement('h4');h.textContent='Multidisc release '+(field==='GENRE'?'genre':'label')+' review (read-only)';out.append(h);
+  const h=document.createElement('h4');h.textContent='Coordinated multidisc metadata review';out.append(h);
   for(const line of [
    'MusicBrainz release: '+data.release_id,
    'Archived discs: '+data.present_disc_numbers.join(', ')+' of '+data.disc_total,
    'Missing discs: '+(data.missing_disc_numbers.join(', ')||'none'),
-   'Reviewed '+field+': '+(field==='GENRE'?data.reviewed_genres:data.reviewed_labels).join('; '),
-   'All existing discs reviewed: '+(data.all_present_discs_reviewed?'yes':'no'),
+   'Fields with approvals: '+(data.active_fields.join(', ')||'none'),
    data.note
   ]){const p=document.createElement('p');p.textContent=line;out.append(p)}
+  const descriptions={already_correct:'up to date',approved_for_review:'approved',
+   needs_operator_approval:'needs approval',unavailable:'no MusicBrainz value'};
   for(const disc of data.disc_reviews){
+   const heading=document.createElement('strong');
+   heading.textContent='Disc '+disc.disc+' · '+disc.track_count+' tracks';out.append(heading);
+   const fields=document.createElement('ul');
+   for(const [name,values] of Object.entries(disc.metadata)){
+    const item=document.createElement('li');
+    const before=values.before.join('; ')||'(missing)';
+    item.textContent=name+' · '+before+
+     (['needs_operator_approval','approved_for_review'].includes(values.status)?' → '+values.after.join('; '):'')+
+     ' · '+descriptions[values.status];
+    fields.append(item);
+   }
+   out.append(fields);
+  }
+  if(data.disc_reviews.some(disc=>Object.values(disc.metadata).some(value=>value.status==='needs_operator_approval'))){
    const p=document.createElement('p');
-   p.textContent='Disc '+disc.disc+' · '+disc.track_count+' tracks · '+
-    (field==='GENRE'?disc.genre_status:disc.label_status)+
-    ' · FLAC '+field+': '+((field==='GENRE'?disc.existing_flac_genres:disc.existing_flac_labels).join('; ')||'(missing)')+
-    ' · '+disc.archive_path;out.append(p);
+   p.textContent='Scan Collection for metadata additions or changes, then accept each proposed field on each affected disc before applying it to the set.';
+   out.append(p);
   }
   if(data.apply_supported){
    const apply=document.createElement('button');
@@ -1991,8 +2609,7 @@ async function previewCoordinatedBoxset(field){
   }
  }catch(error){out.textContent='Read-only boxset preview blocked: '+error.message}
 }
-document.getElementById('archive-boxset-label-preview').onclick=()=>previewCoordinatedBoxset('LABEL');
-document.getElementById('archive-boxset-genre-preview').onclick=()=>previewCoordinatedBoxset('GENRE');
+document.getElementById('archive-boxset-metadata-preview').onclick=previewCoordinatedBoxset;
 document.getElementById('archive-boxset-history').onclick=async()=>{
  const out=document.getElementById('archive-revision-output');
  const headers=requestAuthHeaders('Boxset migration journal');if(!headers)return;
@@ -2061,7 +2678,7 @@ document.getElementById('archive-revision-preview').onclick=async()=>{
   out.textContent='Select an album in Advanced · scan only one archive album, then preview its approved migration.';return;
  }
  const headers=requestAuthHeaders('Preview approved archive migration');if(!headers)return;
- out.textContent='Verifying archive integrity and approved current MusicBrainz metadata…';
+ out.textContent='Verifying archive integrity and approved metadata…';
  try{
   const response=await fetch('/api/collection/archive-revisions/preview',{
    method:'POST',headers:{'Content-Type':'application/json',...headers},
@@ -2073,7 +2690,10 @@ document.getElementById('archive-revision-preview').onclick=async()=>{
   for(const line of [
    'Original: '+plan.source_path,'New archive: '+plan.dest_path,
    'Catalog number: '+(plan.catalog_number||'(none)'),
-   'Reviewed change(s): '+plan.accepted_changes.length,
+   ...plan.accepted_changes.map(item=>
+    (item.scope==='track'?'Track '+item.track+' · ':'')+item.field+' · '+
+    (item.before.join('; ')||'(missing)')+' → '+item.after.join('; ')+
+    (item.source_url?' · '+item.source_url:'')),
    'Tracks: '+plan.track_count,
    'Original publication: '+plan.original_publish_id,
    plan.note]){
@@ -2448,8 +3068,7 @@ function addGoAction(parent,label,handler){
  button.type='button';button.textContent=label;button.onclick=handler;
  parent.append(button);return button;
 }
-async function startGoDiagnosticTracks(stableId, raw){
- const out=document.getElementById('go-result');
+async function startGoDiagnosticTracks(stableId, raw, out=document.getElementById('go-result'), expectedDiscId=null){
  const parts=raw.split(',').map(n=>n.trim());
  if(!parts.length||parts.length>99||parts.some(n=>!(/^[0-9]{1,2}$/.test(n)))){
   out.textContent='Enter unique comma-separated track numbers, e.g. 7 or 1,5,17.';return;
@@ -2463,11 +3082,13 @@ async function startGoDiagnosticTracks(stableId, raw){
  try{
   const response=await fetch('/api/rip/start',{method:'POST',
    headers:{'Content-Type':'application/json',...headers},
-   body:JSON.stringify({stable_id:stableId,selected_tracks:selected,confirmation:'RIP_DIAGNOSTIC_TRACKS'})});
+   body:JSON.stringify({stable_id:stableId,selected_tracks:selected,confirmation:'RIP_DIAGNOSTIC_TRACKS',
+    ...(expectedDiscId?{expected_disc_id:expectedDiscId}:{})})});
   const data=await response.json();
   if(!response.ok)throw new Error(data.detail||'Diagnostic rip unavailable');
   out.textContent='Diagnostic job '+data.id+' · selected tracks '+selected.join(', ')+'. Separate staging; not a Go workflow.';
   await refreshGoCards(false);
+  return data;
  }catch(error){out.textContent='Diagnostic rip blocked: '+error.message}
 }
 async function stopGoRip(jobId){
@@ -2533,11 +3154,42 @@ function appendGoRipProgress(card,drive){
  caveat.textContent='Track-based estimate; long tracks, re-reads and verification can change the ETA.';
  wrap.append(caveat);card.append(wrap);
 }
-function scheduleGoDashboardRefresh(){
+function scheduleGoDashboardRefresh(delay=3500){
  if(goDashboardTimer)clearTimeout(goDashboardTimer);
  goDashboardTimer=null;
  if(!goDashboardHeaders||document.getElementById('panel-go').hidden)return;
- goDashboardTimer=setTimeout(()=>refreshGoCards(false),3500);
+ goDashboardTimer=setTimeout(()=>refreshGoCards(false),delay);
+}
+let goDrivefitLabels=new Map();
+let goDrivefitNextRefresh=0;
+let goDrivefitRequest=null;
+function readGoDrivefitLabels(headers, force){
+ if(goDrivefitRequest)return goDrivefitRequest;
+ if(!force&&Date.now()<goDrivefitNextRefresh)return Promise.resolve(goDrivefitLabels);
+ goDrivefitNextRefresh=Date.now()+60000;
+ goDrivefitRequest=fetch('/api/diagnostics/drivefit',{headers})
+  .then(response=>{
+   if(!response.ok)throw Error('DriveFit unavailable');
+   return response.json();
+  })
+  .then(data=>{
+   goDrivefitLabels=new Map((data.drives||[]).map(drive=>[drive.stable_id,drive.badges]));
+   return goDrivefitLabels;
+  })
+  .catch(()=>goDrivefitLabels)
+  .finally(()=>{goDrivefitRequest=null});
+ return goDrivefitRequest;
+}
+function renderGoDrivefitLabels(list, badges){
+ list.replaceChildren();
+ list.hidden=!badges?.length;
+ for(const tag of badges||[]){
+  const label=document.createElement('li');
+  label.textContent=tag.name;
+  label.title=tag.evidence;
+  label.setAttribute('aria-label',tag.name+' · '+tag.evidence);
+  list.append(label);
+ }
 }
 async function refreshGoCards(interactive=true){
  const target=document.getElementById('go-drive-cards');
@@ -2554,17 +3206,25 @@ async function refreshGoCards(interactive=true){
  try{
   const [driveResponse,jobResponse]=await Promise.all([
     fetch('/api/rip/dashboard',{headers}),
-    fetch('/api/workflow/jobs',{headers})
+    fetch('/api/workflow/jobs?rip_review=true',{headers})
   ]);
   if(!driveResponse.ok||!jobResponse.ok)throw new Error('Drive/workflow status unavailable');
   const dashboard=await driveResponse.json(), ledger=await jobResponse.json();
   target.replaceChildren();workflows.replaceChildren();
+  const cardsWithLabels=new Map();
+  const labels=readGoDrivefitLabels(headers,interactive);
   for(const drive of dashboard.drives||[]){
    const card=document.createElement('article');card.className='go-drive-card';
    const h=document.createElement('h3');h.textContent=drive.label;card.append(h);
+   const badges=document.createElement('ul');
+   badges.className='drivefit-badges';
+   badges.setAttribute('aria-label','DriveFit');
+   renderGoDrivefitLabels(badges,goDrivefitLabels.get(drive.stable_id));
+   card.append(badges);cardsWithLabels.set(drive.stable_id,badges);
    const device=document.createElement('small');
    device.textContent=(drive.device||'Not detected')+
-    ' · '+(drive.offset_set?'offset configured':'offset missing');
+    ' · '+(drive.offset_set?'offset configured':'offset missing')+
+    (drive.auto_rip_on_insert?' · automatic start enabled':'');
    card.append(device);
    const state=document.createElement('strong');
    const ready=drive.status==='ready'&&dashboard.slots_available>0;
@@ -2579,7 +3239,10 @@ async function refreshGoCards(interactive=true){
    const last=drive.job;
    if(last&&last.id){
     const info=document.createElement('small');
-    info.textContent='Last rip: '+last.id+' · '+(last.status||'unknown');
+    const tracked=ledger.jobs?.find(job=>job.job_id===last.id);
+    info.textContent='Last rip: '+(tracked?.working_title||last.working_title||last.id.slice(0,8))+
+     ' · '+(last.status||'unknown')+
+     (last.start_trigger==='disc_insertion'?' · started on insertion':'');
     card.append(info);
     if(Array.isArray(last.selected_tracks)&&last.selected_tracks.length){
      addGoAction(card,'Inspect diagnostic job',async()=>{
@@ -2631,25 +3294,33 @@ async function refreshGoCards(interactive=true){
    if(!ready)start.title='Available only for a detected, enabled, calibrated and idle drive';
    target.append(card);
   }
-  if((dashboard.drives||[]).some(d=>d.status==='ripping'))scheduleGoDashboardRefresh();
+  if((dashboard.drives||[]).some(d=>d.status==='ripping')||
+    ledger.jobs?.some(job=>job.rip_review?.reason==='Verifying staged audio'))scheduleGoDashboardRefresh();
+  else if((dashboard.drives||[]).some(d=>d.present&&d.auto_rip_on_insert))scheduleGoDashboardRefresh(8000);
   else if(goDashboardTimer){clearTimeout(goDashboardTimer);goDashboardTimer=null}
   if(!(dashboard.drives||[]).length)
    target.textContent='No enabled optical drives. Configure them under Settings.';
+  void labels.then(tags=>{
+   for(const [id,list] of cardsWithLabels){
+    if(list.isConnected)renderGoDrivefitLabels(list,tags.get(id));
+   }
+  });
   renderTrackedGoJobs(ledger.jobs||[]);
  }catch(error){
   target.textContent='Drive status unavailable: '+error.message;
  }
 }
 // Presentation-only list: no MusicBrainz requests, file writes, or identification approvals.
-const goPublishedPhases=new Set(['ARCHIVE_PUBLISHED']);
-const goActivePhases=new Set(['RIP_IN_PROGRESS','METADATA_COPY_RUNNING','ARCHIVE_PUBLISH_RUNNING']);
-const goJobPriority={'RIP_FAILED':0,'RIP_INTERRUPTED':0,'VERIFICATION_PENDING':1,
- 'METADATA_REVIEW_REQUIRED':2,'ARCHIVE_REVIEW_REQUIRED':2,'RELEASE_REVIEW_PENDING':3,
- 'DEFERRED_REVIEW':3,'METADATA_READY':4,'RELEASE_ACCEPTED':4};
-function goJobGroup(job){
- if(goPublishedPhases.has(job.phase))return 'published';
- if(goActivePhases.has(job.phase))return 'active';
- return 'action';
+const ripReviewGroups={reread:'Read again',audio_review:'Review audio / data',
+ edition:'Review edition / tags',ready:'Ready for archive review',active:'In progress',done:'Published'};
+const ripReviewButtons={retry:'Review next read',verify:'Review audio',
+ layout:'Review disc layout',edition:'Review edition',metadata:'Review metadata',
+ archive:'Open archive review',progress:'View progress',published:'View published job'};
+function appendRipReviewAction(row,job){
+ const action=job.rip_review.action;
+ const advance=['archive','progress','published'].includes(action)||
+  (action==='edition'&&job.identification_mode!=='semi_automatic');
+ addGoAction(row,ripReviewButtons[action],()=>advance?continueJobInGo(job.job_id):openTrackedReview(job.job_id));
 }
 function renderTrackedGoJobs(jobs){
  const target=document.getElementById('go-workflows');
@@ -2657,14 +3328,15 @@ function renderTrackedGoJobs(jobs){
  if(!target||!summary)return;
  const filter=document.getElementById('go-job-filter').value;
  const sort=document.getElementById('go-job-sort').value;
- const counts={action:0,active:0,published:0};
- for(const job of jobs)counts[goJobGroup(job)]++;
- summary.textContent=counts.action+' need attention · '+counts.active+' active · '+
-  counts.published+' published · '+jobs.length+' tracked';
- const visible=jobs.filter(job=>filter==='all'||goJobGroup(job)===filter);
- const title=job=>job.candidate_title||'Unknown CD';
+ const groups=Object.keys(ripReviewGroups);
+ const counts=Object.fromEntries(groups.map(group=>[group,0]));
+ for(const job of jobs)counts[job.rip_review.group]++;
+ summary.textContent=groups.map(group=>counts[group]+' '+ripReviewGroups[group].toLowerCase()).join(' · ');
+ const visible=jobs.filter(job=>filter==='all'||job.rip_review.group===filter||
+  (filter==='action'&&!['active','done'].includes(job.rip_review.group)));
+ const title=job=>job.working_title||job.candidate_title||'Unknown CD';
  visible.sort((a,b)=>{
-  if(sort==='priority')return ((goJobPriority[a.phase]??5)-(goJobPriority[b.phase]??5)) ||
+  if(sort==='priority')return (groups.indexOf(a.rip_review.group)-groups.indexOf(b.rip_review.group)) ||
    String(b.updated_at||'').localeCompare(String(a.updated_at||''));
   if(sort==='album')return title(a).localeCompare(title(b)) || a.job_id.localeCompare(b.job_id);
   if(sort==='id')return a.job_id.localeCompare(b.job_id);
@@ -2677,27 +3349,23 @@ function renderTrackedGoJobs(jobs){
   const info=document.createElement('div');info.className='go-job-details';
   const name=document.createElement('div');name.className='go-job-title';name.textContent=title(job);
   const state=document.createElement('div');state.className='go-job-state';
-  state.textContent=job.phase.replaceAll('_',' ')+' · '+job.identification_mode+
-   (job.match_status==='INFERRED_OPERATOR_ACCEPTED'?' · operator accepted inferred release':
-    job.match_status==='INFERRED_NOT_PHYSICALLY_VERIFIED'?' · possible MusicBrainz match (NOT edition verified)':' · release unresolved');
+  const route=job.rip_review;
+  state.textContent=route.reason+(route.tracks?.length?' · tracks '+route.tracks.join(', '):'')+
+   (route.layout?' · '+route.layout:'');
   const details=document.createElement('small');
-  details.textContent=(job.candidate_date?'Candidate date: '+job.candidate_date+' · ':'')+
-    'Job '+job.job_id+' · Updated '+(job.updated_at||'unknown');
+  details.textContent=job.phase.replaceAll('_',' ')+' · Job '+job.job_id.slice(0,8)+
+   (job.match_status==='INFERRED_OPERATOR_ACCEPTED'?' · operator accepted inferred release':
+    job.match_status==='INFERRED_NOT_PHYSICALLY_VERIFIED'?' · possible MusicBrainz match (NOT edition verified)':'')+
+   (job.candidate_date?' · '+job.candidate_date:'');
+  details.title=job.job_id;
   info.append(name,state,details);row.append(info);
-  addGoAction(row,goJobGroup(job)==='published'?'View published job':
-    goJobGroup(job)==='active'?'View progress / status':'Open / Check next safe step',()=>{
-   document.getElementById('go-job').value=job.job_id;
-   showOscarTab('go');goAdvance();
-  });
+  appendRipReviewAction(row,job);
   target.append(row);
  }
  if(!visible.length)target.textContent=jobs.length?'No jobs in this filter.':'No tracked Go! jobs yet.';
 }
 for(const id of ['go-job-filter','go-job-sort'])
  document.getElementById(id).addEventListener('change',()=>refreshGoCards(false));
-const reviewPhases=new Set(['RIP_FAILED','RIP_INTERRUPTED','METADATA_REVIEW_REQUIRED',
- 'ARCHIVE_REVIEW_REQUIRED','VERIFICATION_PENDING','RELEASE_REVIEW_PENDING',
- 'DEFERRED_REVIEW','METADATA_READY','RELEASE_ACCEPTED']);
 async function refreshReviewQueue(interactive=true){
  const target=document.getElementById('review-jobs');
  if(!target)return;
@@ -2706,40 +3374,425 @@ async function refreshReviewQueue(interactive=true){
  else if(trustedLocalUI)headers={'X-OSCAR-UI-ACTION':'confirmed'};
  if(!headers)return;
  try{
-  const response=await fetch('/api/workflow/jobs',{headers});
+  const response=await fetch('/api/workflow/jobs?rip_review=true',{headers});
   if(!response.ok)throw new Error('Unable to read workflow ledger');
   const data=await response.json();
   target.replaceChildren();
-  const matching=(data.jobs||[]).filter(job=>reviewPhases.has(job.phase));
+  const matching=(data.jobs||[]).filter(job=>!['done','active'].includes(job.rip_review.group));
   for(const job of matching){
    const row=document.createElement('div');row.className='go-workflow-row';
    const title=document.createElement('strong');
-   title.textContent=job.phase+' · '+job.identification_mode;
-   const id=document.createElement('small');id.textContent=job.job_id;
+   title.textContent=job.working_title||job.candidate_title||'Unknown CD';
+   const id=document.createElement('small');id.textContent=job.phase+' · '+job.identification_mode+
+    ' · '+job.job_id.slice(0,8);id.title=job.job_id;
    row.append(title,id);
-   addGoAction(row,'Inspect in Go!',()=>{
-    document.getElementById('go-job').value=job.job_id;
-    showOscarTab('go');goAdvance();
-   });
-   if(job.phase==='VERIFICATION_PENDING'){
-    const status=document.createElement('div');
-    status.setAttribute('aria-live','polite');
-    row.append(status);
-    const reverify=addGoAction(row,'Reverify saved rip',async()=>{
-     if(!window.confirm('Reverify this saved rip from existing FLAC files and cyanrip log? The original audio, CUE and rip log will not change. The prior verification report is backed up; this does not start a new rip or publish an archive.'))return;
-     reverify.disabled=true;
-     try{
-      await verifyExistingJob(job.job_id,status);
-     }finally{reverify.disabled=false}
-    });
-   }
+   appendRipReviewAction(row,job);
    target.append(row);
   }
   if(!matching.length)target.textContent='No tracked jobs currently require review.';
  }catch(error){target.textContent='Review queue unavailable: '+error.message}
 }
+async function reviewRequest(path, headers, options={}){
+ const response=await fetch(path,{...options,headers:{...headers,...options.headers}});
+ const data=await response.json();
+ if(!response.ok)throw Error(data.detail||'Review action unavailable');
+ return data;
+}
+
+function continueJobInGo(id){
+ document.getElementById('go-job').value=id;
+ showOscarTab('go');
+ goAdvance();
+}
+
+async function showRipReviewRetry(actions,job,headers){
+ const route=job.rip_review;
+ const output=metadataElement('p','Checking other drives…');
+ output.setAttribute('role','status');
+ actions.append(output);
+ try{
+  const [dashboard,tags]=await Promise.all([
+   reviewRequest('/api/rip/dashboard',headers),readGoDrivefitLabels(headers,false)
+  ]);
+  const drives=(dashboard.drives||[]).filter(drive=>drive.status==='ready'&&
+   drive.stable_id!==route.source_drive&&dashboard.slots_available>0);
+  if(!drives.length){
+   output.textContent='No other calibrated drive is idle. Check drive status and try again.';
+   return;
+  }
+  const rank=drive=>{
+   const names=(tags.get(drive.stable_id)||[]).map(tag=>tag.name);
+   return names.includes('Recovery')?0:names.includes('Low errors')?1:2;
+  };
+  drives.sort((a,b)=>rank(a)-rank(b));
+  const drive=drives[0];
+  output.textContent='Try '+drive.label+(rank(drive)<2?' · '+(rank(drive)===0?'Recovery':'Low errors'):'')+
+   '. Move the same physical disc before starting a new read.';
+  if(!route.tracks?.length||!route.disc_id){
+   addGoAction(actions,'Open drive controls',()=>showOscarTab('go'));
+   return;
+  }
+  const result=metadataElement('p','');
+  const retry=addGoAction(actions,'Rip tracks '+route.tracks.join(', ')+' on '+drive.label,async()=>{
+   retry.disabled=true;
+   try{
+    const attempt=await startGoDiagnosticTracks(drive.stable_id,route.tracks.join(','),result,route.disc_id);
+    if(!attempt)return;
+    retry.hidden=true;
+    addGoAction(actions,'Open prepared Track Recovery',()=>{
+     document.getElementById('recovery-original').value=job.job_id;
+     document.getElementById('recovery-diagnostic').value=attempt.id;
+     document.getElementById('recovery-tracks').value=route.tracks.join(',');
+     showOscarTab('go');
+     document.getElementById('track-recovery').scrollIntoView();
+    });
+   }finally{retry.disabled=false}
+  });
+  actions.append(result);
+ }catch(error){output.textContent='Drive recommendation unavailable: '+error.message}
+}
+
+let reviewGeneration=0;
+async function openTrackedReview(id, previousMessage='', expectedMedium=null){
+ const headers=requestAuthHeaders('Open OSCAR job review');
+ if(!headers)return;
+ const generation=++reviewGeneration;
+ const detail=document.getElementById('review-job-detail');
+ showOscarTab('review');
+ detail.hidden=false;
+ detail.textContent='Loading job and checking the next available action…';
+ const workflowPath='/api/workflow/jobs/'+id;
+ const musicbrainzPath='/api/go/jobs/'+id+'/musicbrainz';
+ try{
+  const job=await reviewRequest(workflowPath+'/refresh',headers,{method:'POST'});
+  if(generation!==reviewGeneration)return;
+  detail.replaceChildren();
+  detail.append(metadataElement('h3',job.working_title||'Rip review'));
+  detail.append(metadataElement('small','Job '+id.slice(0,8)));
+  const actions=metadataElement('div','');
+  detail.append(actions);
+  if(previousMessage)actions.append(metadataElement('p',previousMessage));
+  const reviewAction=action=>reviewRequest(workflowPath+'/review',headers,{
+   method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action})});
+  const route=job.rip_review;
+  if(route?.layout)actions.append(metadataElement('p',route.layout));
+  if(['lookup_failed','unavailable'].includes(route?.ctdb)&&
+      job.phase!=='VERIFICATION_PENDING'&&route.action!=='verify'&&route.action!=='layout'){
+   const ctdbResult=metadataElement('div','');
+   const retry=addGoAction(actions,'Retry CTDB lookup',()=>verifyStagedCtdb(id,retry,ctdbResult));
+   actions.append(ctdbResult);
+  }
+  if(route?.action==='retry'){
+   actions.append(metadataElement('p',route.reason+
+    (route.tracks?.length?' · Tracks '+route.tracks.join(', '):'')));
+   await showRipReviewRetry(actions,job,headers);
+   return;
+  }
+  if(job.phase==='DEFERRED_REVIEW'){
+   actions.append(metadataElement('p','Edition review was saved for later.'));
+   addGoAction(actions,'Resume edition review',async()=>{
+    try{await reviewAction('resume');await openTrackedReview(id)}
+    catch(error){actions.append(metadataElement('p',error.message))}
+   });
+   return;
+  }
+  if(job.phase==='VERIFICATION_PENDING'||['verify','layout'].includes(route?.action)){
+   if(route?.reason)actions.append(metadataElement('p',route.reason));
+   const report=await reviewRequest('/api/rip/jobs/'+id+'/verification',headers);
+   const ar=report.accuraterip_coverage?' · AccurateRip: '+report.accuraterip_coverage.replaceAll('_',' '):'';
+   const ctdb=report.ctdb?' · CTDB: '+report.ctdb.status.replaceAll('_',' '):'';
+   actions.append(metadataElement('p','Audio verification: '+report.status.replaceAll('_',' ')+ar+ctdb));
+   const result=metadataElement('div','');
+   addGoAction(actions,'Reverify saved rip',()=>{
+    if(window.confirm('Reverify this saved rip? The prior verification report is backed up.'))
+     verifyExistingJob(id,result);
+   });
+   if(['lookup_failed','unavailable'].includes(route?.ctdb)){
+    const retry=addGoAction(actions,'Retry CTDB lookup',()=>verifyStagedCtdb(id,retry,result));
+   }
+   if(route?.action==='layout'){
+    addGoAction(actions,'Continue to audio/data review in Go!',()=>continueJobInGo(id));
+   }
+   actions.append(result);
+   return;
+  }
+  if(job.phase==='RELEASE_REVIEW_PENDING' && job.candidate_options?.length){
+   actions.append(metadataElement('p','Choose the edition that matches the physical CD.'));
+   if(job.matrix_runout&&!goPhysicalDrafts.has(id))
+    goPhysicalDrafts.set(id,{enabled:true,matrix:job.matrix_runout});
+   renderSemiReleaseSelection(actions,id,{candidates:job.candidate_options,release_id:job.proposed_release_id},
+    ()=>openTrackedReview(id),()=>openTrackedReview(id));
+   return;
+  }
+  if(job.phase!=='RELEASE_ACCEPTED' || !job.accepted_release_id){
+   actions.append(metadataElement('p',job.next_action||'This job needs review.'));
+   addGoAction(actions,'Continue in Go!',()=>continueJobInGo(id));
+   return;
+  }
+  const info=await reviewRequest(musicbrainzPath+'/refresh-match',headers,{method:'POST'});
+  if(generation!==reviewGeneration)return;
+  if(info.release_title)detail.querySelector('h3').textContent=info.release_title;
+  const release=metadataElement('a','View accepted release in MusicBrainz');
+  release.href=info.release_url;release.target='_blank';release.rel='noopener noreferrer';
+  actions.append(release);
+  actions.append(metadataElement('p','Saved rip: '+info.track_count+' tracks · Disc ID '+info.disc_id));
+  if(info.lookup_status==='disc_id_now_attached'){
+   if(expectedMedium!==null && expectedMedium!==info.matched_medium_position){
+    actions.append(metadataElement('p','The Disc ID is on CD '+info.matched_medium_position+
+     ', but you were reviewing CD '+expectedMedium+'. Check the physical disc before continuing.'));
+   }else{
+    actions.append(metadataElement('p','Disc ID is attached to CD '+info.matched_medium_position+'.'));
+    addGoAction(actions,'Continue tagging in Go!',()=>continueJobInGo(id));
+   }
+  }else{
+   const available=info.media.filter(medium=>medium.compatible);
+   actions.append(metadataElement('p',available.length
+    ?'Tagging is waiting for the saved Disc ID to be linked to the correct CD in MusicBrainz.'
+    :info.lookup_status==='disc_id_not_attached'
+    ?'Tagging is paused because no CD in the accepted release matches this rip’s track count and format.'
+    :'MusicBrainz lists an ambiguous or incompatible Disc ID match. Check the linked medium.'));
+   const selection=metadataElement('select','');
+   selection.setAttribute('aria-label','Physical CD to link');
+   if(available.length>1)selection.append(new Option('Choose the physical CD',''));
+   for(const medium of info.media){
+    const label='CD '+(medium.position??'?')+' · '+(medium.title?medium.title+' · ':'')+
+     (medium.track_count??'?')+' tracks · '+(medium.format||'unknown format');
+    const line=metadataElement('div',label);
+    if(medium.duration_differences.length){
+     const details=metadataElement('details','');
+     details.append(metadataElement('summary','Track durations differing by at least 1 second'));
+     for(const item of medium.duration_differences){
+      details.append(metadataElement('p','Track '+item.track+' · rip '+(item.rip_ms/1000).toFixed(1)+
+       ' s · MusicBrainz '+(item.musicbrainz_ms/1000).toFixed(1)+' s'));
+     }
+     line.append(details);
+    }
+    actions.append(line);
+    if(medium.compatible)selection.append(new Option(label,medium.position));
+   }
+   if(available.length){
+    if(expectedMedium!==null)actions.append(metadataElement('p','MusicBrainz does not show the new link yet. Check again after the edit is visible.'));
+    const attach=metadataElement('a','');
+    attach.target='_blank';attach.rel='noopener noreferrer';
+    const update=()=>{
+     const position=Number(selection.value);
+     attach.hidden=!position;
+     attach.href=info.musicbrainz_attach_url;
+     attach.textContent='Link Disc ID to CD '+position+' in MusicBrainz';
+    };
+    if(available.some(medium=>medium.position===expectedMedium))selection.value=String(expectedMedium);
+   if(available.length>1)actions.append(selection);
+    selection.onchange=update;update();
+    actions.append(attach,metadataElement('p','On MusicBrainz, select the indicated CD and confirm the edit.'));
+    addGoAction(actions,'Check Disc ID link',()=>openTrackedReview(id,'',Number(selection.value)||null));
+   }
+  }
+  if(job.phase==='RELEASE_ACCEPTED' && !job.metadata_copy_id){
+   addGoAction(actions,'Choose another edition',async()=>{
+    if(!window.confirm('Reopen the release choice for this rip?'))return;
+    try{await reviewAction('reopen_edition');await openTrackedReview(id)}
+    catch(error){actions.append(metadataElement('p',error.message))}
+   });
+  }
+ }catch(error){
+  if(generation===reviewGeneration){
+   detail.append(metadataElement('p','Could not complete the job check. '+error.message));
+   addGoAction(detail,'Try again',()=>openTrackedReview(id,previousMessage,expectedMedium));
+  }
+ }
+}
+
 document.getElementById('go-refresh-drives').onclick=()=>refreshGoCards(true);
 document.getElementById('review-refresh').onclick=()=>refreshReviewQueue(true);
+const goPhysicalDrafts=new Map();
+function renderGoPhysicalFields(output, job, selectedRelease, releaseSelect=null){
+ const draft=goPhysicalDrafts.get(job)||{};
+ const prefix=output.closest('#review-job-detail')?'review-pressing':'go-pressing';
+ goPhysicalDrafts.set(job,draft);
+ const toggle=document.createElement('input');
+ toggle.type='checkbox';toggle.checked=Boolean(draft.enabled);
+ toggle.id=prefix+'-identifiers';
+ const label=metadataElement('label','Use catalog, barcode and optional other identifiers');
+ label.htmlFor=toggle.id;
+ output.append(toggle,label);
+ const fields=document.createElement('fieldset');
+ fields.hidden=!toggle.checked;
+ toggle.onchange=()=>{draft.enabled=toggle.checked;fields.hidden=!toggle.checked};
+ for(const [key,labelText,maxLength] of [
+  ['catalog','Printed catalog number',100],['barcode','Printed barcode',30],
+  ['matrix','Matrix/runout',250],['mastering_sid','Mastering SID',32],
+  ['mould_sid','Mould SID',32],['discogs_release','Known Discogs release ID or URL (optional)',300]]){
+  const input=document.createElement('input');
+  input.id=prefix+'-'+key;input.value=draft[key]||'';input.maxLength=maxLength;
+  input.oninput=()=>{draft[key]=input.value.trim()};
+  const caption=metadataElement('label',labelText);
+  caption.htmlFor=input.id;fields.append(caption,input);
+ }
+ const results=metadataElement('div','');
+ results.setAttribute('aria-live','polite');
+ let searchGeneration=0;
+ fields.addEventListener('input',()=>{searchGeneration++;results.replaceChildren()});
+ const search=metadataElement('button','Find matching editions');
+ search.type='button';
+ search.onclick=async()=>{
+  const headers=requestAuthHeaders('Find physical editions for this rip');
+  if(!headers)return;
+  const body=Object.fromEntries(['catalog','barcode','matrix','mastering_sid','mould_sid','discogs_release']
+   .map(key=>[key,draft[key]||'']));
+  const generation=++searchGeneration;
+  search.disabled=true;results.textContent='Comparing MusicBrainz and Discogs…';
+  try{
+   const response=await fetch('/api/rip/jobs/'+job+'/edition-search',{method:'POST',
+    headers:{'Content-Type':'application/json',...headers},body:JSON.stringify(body)});
+   const data=await response.json();
+   if(generation!==searchGeneration)return;
+   if(!response.ok)throw Error(data.detail);
+   results.replaceChildren(metadataElement('p',data.recommended?
+    'Suggested edition for review':'No single edition stands out. Review the candidates.'));
+   for(const note of data.notices)results.append(metadataElement('p',note));
+   const regions=new Intl.DisplayNames(['en'],{type:'region'});
+   for(const release of data.releases){
+    const row=metadataElement('div','');
+    const link=metadataElement('a',[release.artist,release.title||release.id,release.country,release.date]
+     .filter(Boolean).join(' · '));
+    link.href='https://musicbrainz.org/release/'+release.id;
+    link.target='_blank';link.rel='noopener noreferrer';
+    row.append(link,metadataElement('p',[
+     release.id===data.recommended?'Suggested for review':'',
+     release.catalog_matches?'Catalog matches':'',
+     release.barcode_matches?'Barcode matches':'',
+     release.barcode_conflict?'Barcode differs':'',
+     release.sources.includes('disc_lookup')?'Found by saved disc lookup':'',
+     release.sources.includes('matrix_runout')?'Matrix found in MusicBrainz annotation':''
+    ].filter(Boolean).join(' · ')));
+    for(const reference of release.discogs){
+     const discogs=metadataElement('a','Discogs '+reference.id+' · '+reference.link+
+      (reference.country?' · '+reference.country:''));
+     discogs.href='https://www.discogs.com/release/'+reference.id;
+     discogs.target='_blank';discogs.rel='noopener noreferrer';
+     row.append(discogs);
+     const code=release.country;
+     const country=code==='XE'?'Europe':code==='XW'?'Worldwide':
+      /^[A-Z]{2}$/.test(code||'')?regions.of(code):'';
+     if(country&&country!==code&&reference.country&&
+        country.toLowerCase()!==reference.country.toLowerCase()){
+      row.append(metadataElement('p','Release country differs: MusicBrainz '+country+
+       ' · Discogs '+reference.country+'. Compare the edition and distribution evidence.'));
+     }
+     for(const variant of reference.variants){
+      row.append(metadataElement('p',variant.variant+' · '+Object.entries(variant.comparison)
+       .map(([key,value])=>key+' '+value.replaceAll('_',' ')).join(' · ')));
+     }
+    }
+    const select=releaseSelect;
+    if(select&&Array.from(select.options).some(option=>option.value===release.id)){
+     addGoAction(row,'Select for Go! release review',()=>{
+      select.value=release.id;select.focus();
+     });
+    }else{
+     continueAdvanced(row,'Preview MusicBrainz tags',
+      {'metadata-job':job,'metadata-release':release.id,'metadata-matrix':body.matrix},
+      'metadata-preview-btn',{run:true});
+    }
+    results.append(row);
+   }
+   for(const item of data.unlinked_discogs){
+    const link=metadataElement('a',['Discogs '+item.id,item.title,item.country,item.year,'no MusicBrainz link found']
+     .filter(Boolean).join(' · '));
+    link.href='https://www.discogs.com/release/'+item.id;
+    link.target='_blank';link.rel='noopener noreferrer';
+    const row=metadataElement('div','');row.append(link);
+    for(const variant of item.variants){
+     row.append(metadataElement('p',variant.variant+' · '+Object.entries(variant.comparison)
+      .map(([key,value])=>key+' '+value.replaceAll('_',' ')).join(' · ')));
+    }
+    results.append(row);
+   }
+  }catch(error){if(generation===searchGeneration)results.textContent='Edition search unavailable: '+error.message}
+  finally{search.disabled=false}
+ };
+ fields.append(search,results);
+ addGoAction(fields,'Compare MusicBrainz edition',()=>openAdvanced({
+  'physical-job':job,'physical-release':selectedRelease(),
+  'physical-catalog':draft.catalog||'','physical-barcode':(draft.barcode||'').replace(/[ -]/g,''),
+  'metadata-matrix':draft.matrix||''
+ },'physical-compare-btn',{focus:selectedRelease()?'physical-compare-btn':'physical-release'}));
+ addGoAction(fields,'Search MusicBrainz matrix annotations',()=>openAdvanced({
+  'matrix-search':draft.matrix||'','metadata-job':job,
+  'metadata-release':'','metadata-matrix':draft.matrix||''
+ },'matrix-search-button',{focus:'matrix-search'}));
+ addGoAction(fields,'Compare Discogs pressings',()=>openAdvanced(Object.fromEntries(
+  ['catalog','barcode','matrix','mastering_sid','mould_sid'].map(key=>
+   ['discogs-pressing-'+key,draft[key]||''])),'discogs-pressing-search'));
+ const sources=metadataElement('p','Search external catalogs: ');
+ function externalSearch(name, domain, getTerms){
+  const link=metadataElement('a',name);
+  link.target='_blank';link.rel='noopener noreferrer';
+  const update=()=>{link.href='https://www.google.com/search?'+new URLSearchParams({
+   q:['site:'+domain,...getTerms().filter(Boolean).map(value=>'"'+value+'"')].join(' ')
+  })};
+  fields.addEventListener('input',update);update();return link;
+ }
+ sources.append(
+  externalSearch('Musik-Sammler','musik-sammler.de/release/',()=>[draft.matrix,draft.catalog]),
+  document.createTextNode(' · '),
+  externalSearch('VGMdb','vgmdb.net/album/',()=>[draft.catalog]));
+ fields.append(sources);
+ output.append(fields);
+ return ()=>draft.enabled?draft.matrix||'':'';
+}
+
+function renderSemiReleaseSelection(output,id,data,afterAccept,afterDefer){
+   const label=document.createElement('label');
+   label.textContent='Review the MusicBrainz candidate (this is NOT physical-edition verification)';
+   const select=document.createElement('select');
+   label.append(select);output.append(label);
+   for(const candidate of data.candidates||[]){
+    const option=document.createElement('option');
+    option.value=candidate.release_id;
+    option.textContent=(candidate.title||candidate.release_id)+' · '+candidate.release_id;
+    select.append(option);
+   }
+   select.value=data.release_id||'';
+   const matrixValue=renderGoPhysicalFields(output,id,()=>select.value,select);
+   const accept=document.createElement('button');accept.type='button';
+   accept.textContent='Accept selected INFERRED release (no tags or publication)';
+   accept.onclick=async()=>{
+    const release_id=select.value;
+    if(!release_id||!window.confirm(
+     'Accept this MusicBrainz release as INFERRED for this verified rip? '+
+     'It may be a different physical edition. No tags or archive will be written.'))return;
+    const headers=requestAuthHeaders('Accept inferred Semi Automatic release');
+    if(!headers)return;
+    try{
+     const response=await fetch('/api/go/jobs/'+id+'/accept-release',{
+      method:'POST',headers:{'Content-Type':'application/json',...headers},
+      body:JSON.stringify({release_id,confirmation:'ACCEPT_INFERRED_RELEASE',
+       matrix_runout:matrixValue()||null})
+     });
+     const result=await response.json();
+     if(!response.ok)throw new Error(result.detail||'Approval rejected');
+     await afterAccept();
+    }catch(error){const p=document.createElement('p');p.textContent='Approval stopped: '+error.message;output.append(p)}
+   };
+   output.append(accept);
+   const defer=document.createElement('button');defer.type='button';
+   defer.textContent='Save verified rip for later';
+   defer.onclick=async()=>{
+    const headers=requestAuthHeaders('Defer Semi Automatic release review');if(!headers)return;
+    try{
+     const response=await fetch('/api/workflow/jobs/'+id+'/review',{
+      method:'POST',headers:{'Content-Type':'application/json',...headers},
+      body:JSON.stringify({action:'defer'})
+     });
+     const result=await response.json();
+     if(!response.ok)throw new Error(result.detail||'Unable to defer');
+     await afterDefer();
+    }catch(error){const p=document.createElement('p');p.textContent='Deferral stopped: '+error.message;output.append(p)}
+   };
+   output.append(defer);
+}
+
 async function goAdvance(){
  const output=document.getElementById('go-result');
  const id=document.getElementById('go-job').value.trim().toLowerCase();
@@ -2753,7 +3806,7 @@ async function goAdvance(){
   const state=data.workflow||{};
   output.replaceChildren();
   const summary=document.createElement('p');
-  summary.textContent='Job '+id+' · '+state.phase+' · '+state.identification_mode+
+  summary.textContent=(state.working_title?state.working_title+' · ':'')+'Job '+id+' · '+state.phase+' · '+state.identification_mode+
    ' · '+data.action;output.append(summary);
   const explanation=document.createElement('p');
   explanation.textContent=data.message||state.next_action||'Review needed';output.append(explanation);
@@ -2761,6 +3814,10 @@ async function goAdvance(){
    const selected=document.createElement('p');
    selected.textContent=(data.action==='semi_release_accepted'?'Operator accepted release ':'MusicBrainz release ')+data.release_id+
     ' · '+(data.release_match_status||state.release_match_status||'INFERRED, NOT physically verified');output.append(selected);
+  }
+  if(['metadata_review_required','verification_review','missing_release',
+      'archive_review_required','failed'].includes(data.action)){
+   addGoAction(output,'Open this job in Review',()=>openTrackedReview(id,data.message||''));
   }
   if(state.identification_mode==='semi_automatic' &&
      state.accepted_release_id && state.release_match_status==='INFERRED_OPERATOR_ACCEPTED'){
@@ -2909,40 +3966,7 @@ async function goAdvance(){
      output.append(warning);
     }finally{matchRefresh.disabled=false}
    };
-   const attach=document.createElement('button');attach.type='button';
-   attach.textContent='Add missing Disc ID to MusicBrainz (manual review)';
-   output.append(attach);
-   attach.onclick=async()=>{
-    const auth=requestAuthHeaders('Prepare MusicBrainz Disc ID submission link');
-    if(!auth)return;
-    attach.disabled=true;
-    try{
-     const response=await fetch('/api/go/jobs/'+id+'/musicbrainz/discid-attach',{headers:auth});
-     const data=await response.json();
-     if(!response.ok)throw new Error(data.detail||'Disc ID submission link unavailable');
-     const section=document.createElement('section');
-     const note=document.createElement('p');
-     note.textContent='Disc ID '+data.disc_id+' · '+data.track_count+
-      ' tracks. Check the physical CD release and correct medium on MusicBrainz. '+
-      'OSCAR does not submit edits, and this does not change existing tags or verification.';
-     section.append(note);
-     const link=document.createElement('a');
-     link.href=data.musicbrainz_attach_url;
-     link.textContent='Open MusicBrainz: review and attach this CD TOC';
-     link.target='_blank';link.rel='noopener noreferrer';
-     section.append(link);
-     const release=document.createElement('p');
-     const releaseLink=document.createElement('a');
-     releaseLink.href=data.release_url;releaseLink.target='_blank';
-     releaseLink.rel='noopener noreferrer';
-     releaseLink.textContent='Review accepted MusicBrainz release '+data.release_id;
-     release.append(releaseLink);section.append(release);
-     output.append(section);
-    }catch(error){
-     const message=document.createElement('p');
-     message.textContent='Disc ID attachment unavailable: '+error.message;output.append(message);
-    }finally{attach.disabled=false}
-   };
+
   }
   if(data.copy_id){
    const copy=document.createElement('p');
@@ -2956,6 +3980,9 @@ async function goAdvance(){
     ' · '+state.phase+' · catalog: '+(state.archive_catalog_status||'pending');
    output.append(p);
   }
+  if(state.matrix_runout){
+   output.append(metadataElement('p','Physical matrix/runout (operator transcription): '+state.matrix_runout));
+  }
   for(const item of data.candidates||[]){
    const link=document.createElement('a');
    link.href='https://musicbrainz.org/release/'+encodeURIComponent(item.release_id);
@@ -2968,16 +3995,19 @@ async function goAdvance(){
      && state.phase==='METADATA_READY'){
    const previewButton=document.createElement('button');
    previewButton.type='button';
-   previewButton.textContent='Review actual tags, classical works, CUE and archive destination';
+   previewButton.textContent='Review tags, cover, CUE and archive destination';
    output.append(previewButton);
+   let displayedReview;
    previewButton.onclick=async()=>{
     const auth=requestAuthHeaders('Read Go archive preview');if(!auth)return;
     previewButton.disabled=true;
+    displayedReview?.remove();
     try{
      const response=await fetch('/api/go/jobs/'+id+'/archive/preview',{method:'POST',headers:auth});
      const info=await response.json();
      if(!response.ok)throw new Error(info.detail||'Archive review unavailable');
-     const r=info.archive_review||{}, p=info.publication_plan||{};
+     const r=info.archive_review||{};
+     let p=info.publication_plan||{};
      const section=document.createElement('section');
      const title=document.createElement('h3');title.textContent='Archive review · '+(r.album?.title||info.release_id);
      section.append(title);
@@ -2986,7 +4016,8 @@ async function goAdvance(){
      section.append(warn);
      const path=document.createElement('p');
      path.textContent='Proposed archive destination: '+(p.relative_directory||'(unavailable)')+
-      (p.output_exists?' · ALREADY EXISTS: publishing blocked':'');
+      (p.data_supplement?' · Add CD-Extra data to existing archive':
+       p.output_exists?' · '+(p.destination_block_reason||'Destination already exists'):'');
      section.append(path);
      const profile=document.createElement('p');
      profile.textContent='Processing profile: '+(r.music_profile?.name||'unknown')+
@@ -3018,33 +4049,49 @@ async function goAdvance(){
       'No automatic metadata consistency warnings (not proof of correctness).';
      section.append(issues);
      const cueTitle=document.createElement('h4');cueTitle.textContent='Proposed archive CUE';section.append(cueTitle);
-     const cue=document.createElement('pre');cue.textContent=r.cue?.archive_cue_proposal||'No CUE proposal';section.append(cue);
-     if(info.sources_preview){
-      const sources=document.createElement('details');
-      const summary=document.createElement('summary');summary.textContent='Proposed SOURCES.txt';sources.append(summary);
-      const text=document.createElement('pre');text.textContent=info.sources_preview;sources.append(text);
-      section.append(sources);
+     if(r.cue?.excluded_data_track){
+      section.append(metadataElement('p',r.cue.note));
      }
-     const fingerprint=document.createElement('p');
-     fingerprint.textContent='Publication fingerprint: '+p.fingerprint;section.append(fingerprint);
-     const approval=document.createElement('button');approval.type='button';
-     approval.textContent='Approve reviewed archive publication (explicit, no source deletion)';
-     approval.disabled=Boolean(p.output_exists);
-     section.append(approval);
+     const cue=document.createElement('pre');cue.textContent=r.cue?.archive_cue_proposal||'No CUE proposal';section.append(cue);
+     const sources=metadataElement('div','');
+     const fingerprint=metadataElement('p','');
+     const approval=metadataElement('button','Approve reviewed archive publication (explicit, no source deletion)');
+     approval.type='button';approval.disabled=true;
+     const coverApproval=document.createElement('input');coverApproval.type='checkbox';
+     const coverLabel=metadataElement('label','I approve this cover for the FLAC files and folder.jpg.');
+     coverLabel.prepend(coverApproval);coverLabel.hidden=true;
+     const dataUnavailable=()=>p.provenance?.cd_extra_data?.status==='unavailable';
+     coverApproval.onchange=()=>{approval.disabled=p.output_exists||dataUnavailable()||!coverApproval.checked;};
+     const controls=coverControls(id,info.copy_id,'original_tags',auth,async (included,selection,includeData)=>{
+      approval.disabled=true;
+      coverApproval.checked=false;
+      const preview=await reviewRequest('/api/go/jobs/'+id+'/archive/preview?'+
+       new URLSearchParams({include_cover:included,include_data:includeData}),auth,{method:'POST'});
+      assertReviewedCover(preview.publication_plan,included,selection);
+      p=preview.publication_plan;
+      coverLabel.hidden=!p.include_cover;
+      fingerprint.textContent='Publication fingerprint: '+p.fingerprint;
+      sources.replaceChildren(proposedSources(preview.sources_preview));
+      approval.textContent=p.data_supplement?'Add CD-Extra data to archive':'Approve reviewed archive publication';
+      approval.disabled=!preview.can_publish||p.include_cover||dataUnavailable();
+     },()=>{approval.disabled=true;coverLabel.hidden=true;coverApproval.checked=false;},p.provenance?.cd_extra_data,
+      p.output_exists&&Boolean(p.provenance?.cd_extra_data));
+     section.append(controls,coverLabel,sources,fingerprint,approval);
      approval.onclick=async()=>{
-      const confirmation=window.confirm(
+      const confirmation=window.confirm(p.data_supplement?'Add the verified CD-Extra data to '+p.relative_directory+'?':
        'Confirm this exact inferred MusicBrainz release, actual tags, CUE and destination for permanent archive publication? The physical edition is NOT verified by OSCAR. No original files are removed.');
       if(!confirmation)return;
-      const acknowledge=observations.length>0 && window.confirm(
+      const acknowledge=!p.data_supplement&&observations.length>0 && window.confirm(
        'The metadata consistency review flagged '+observations.length+' observations. Acknowledge and publish anyway?');
-      if(observations.length&&!acknowledge)return;
+      if(!p.data_supplement&&observations.length&&!acknowledge)return;
       const headers=requestAuthHeaders('Publish reviewed Go archive');if(!headers)return;
       approval.disabled=true;
       try{
        const publishResponse=await fetch('/api/go/jobs/'+id+'/archive/publish',{
         method:'POST',headers:{'Content-Type':'application/json',...headers},
         body:JSON.stringify({fingerprint:p.fingerprint,confirmation:'PUBLISH_REVIEWED_ARCHIVE',
-         acknowledge_metadata_observations:acknowledge})
+         acknowledge_metadata_observations:acknowledge,include_cover:p.include_cover,
+         approve_cover:coverApproval.checked,include_data:p.provenance?.cd_extra_data?.status!=='excluded_by_operator'})
        });
        const started=await publishResponse.json();
        if(!publishResponse.ok)throw new Error(started.detail||'Publication blocked');
@@ -3057,60 +4104,28 @@ async function goAdvance(){
       }catch(err){approval.disabled=false;const msg=document.createElement('p');
        msg.textContent='Publication blocked: '+err.message;section.append(msg)}
      };
+     displayedReview=section;
      output.append(section);
     }catch(err){const error=document.createElement('p');
      error.textContent='Archive preview unavailable: '+err.message;output.append(error)}
     finally{previewButton.disabled=false}
    };
   }
-  if(data.action==='semi_release_review'){
-   const label=document.createElement('label');
-   label.textContent='Review the MusicBrainz candidate (this is NOT physical-edition verification)';
-   label.htmlFor='go-semi-candidate';output.append(label);
-   const select=document.createElement('select');select.id='go-semi-candidate';
-   for(const candidate of data.candidates||[]){
-    const option=document.createElement('option');
-    option.value=candidate.release_id;
-    option.textContent=(candidate.title||candidate.release_id)+' · '+candidate.release_id;
-    select.append(option);
+  if(data.action==='secure_physical_review' ||
+     (data.action==='missing_release' && state.identification_mode!=='best_guess')){
+   const candidates=data.candidates||[];
+   const select=document.createElement('select');
+   select.setAttribute('aria-label','MusicBrainz release to compare');
+   select.append(new Option('Choose a MusicBrainz candidate',''));
+   for(const candidate of candidates){
+    select.append(new Option((candidate.title||candidate.release_id)+' · '+(candidate.date||''),
+     candidate.release_id));
    }
-   select.value=data.release_id||'';
-   output.append(select);
-   const accept=document.createElement('button');accept.type='button';
-   accept.textContent='Accept selected INFERRED release (no tags or publication)';
-   accept.onclick=async()=>{
-    const release_id=select.value;
-    if(!release_id||!window.confirm(
-     'Accept this MusicBrainz release as INFERRED for this verified rip? '+
-     'It may be a different physical edition. No tags or archive will be written.'))return;
-    const headers=requestAuthHeaders('Accept inferred Semi Automatic release');
-    if(!headers)return;
-    try{
-     const response=await fetch('/api/go/jobs/'+id+'/accept-release',{
-      method:'POST',headers:{'Content-Type':'application/json',...headers},
-      body:JSON.stringify({release_id,confirmation:'ACCEPT_INFERRED_RELEASE'})
-     });
-     const result=await response.json();
-     if(!response.ok)throw new Error(result.detail||'Approval rejected');
-     await goAdvance();
-    }catch(error){const p=document.createElement('p');p.textContent='Approval stopped: '+error.message;output.append(p)}
-   };
-   output.append(accept);
-   const defer=document.createElement('button');defer.type='button';
-   defer.textContent='Save verified rip for later';
-   defer.onclick=async()=>{
-    const headers=requestAuthHeaders('Defer Semi Automatic release review');if(!headers)return;
-    try{
-     const response=await fetch('/api/workflow/jobs/'+id+'/review',{
-      method:'POST',headers:{'Content-Type':'application/json',...headers},
-      body:JSON.stringify({action:'defer'})
-     });
-     const result=await response.json();
-     if(!response.ok)throw new Error(result.detail||'Unable to defer');
-     await goAdvance();
-    }catch(error){const p=document.createElement('p');p.textContent='Deferral stopped: '+error.message;output.append(p)}
-   };
-   output.append(defer);
+   if(candidates.length)output.append(select);
+   renderGoPhysicalFields(output,id,()=>select.value);
+  }
+  if(data.action==='semi_release_review'){
+   renderSemiReleaseSelection(output,id,data,goAdvance,goAdvance);
   }
   if(['ripping','verifying','metadata_copy_running','best_guess_proposed',
       'archive_publish_running'].includes(data.action) ||
@@ -3210,8 +4225,18 @@ document.getElementById('save').onclick=async()=>{
  settings.identification_mode=document.getElementById('identification-mode').value;
  settings.secure_review_level=document.getElementById('secure-review-level').value;
  status.textContent='Saving…';
- try{const r=await fetch('/api/settings',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(settings)});
- if(!r.ok)throw new Error(await r.text());status.textContent='Settings saved. No rip started.';}
+ try{
+  const save=auth=>fetch('/api/settings',{method:'PUT',
+   headers:{'Content-Type':'application/json',...auth},body:JSON.stringify(settings)});
+  let r=await save({});
+  if(r.status===403){
+   const auth=requestAuthHeaders('Save settings for automatic ripping');
+   if(!auth){status.textContent='Settings were not saved.';return}
+   r=await save(auth);
+  }
+  if(!r.ok)throw new Error(await r.text());
+  status.textContent='Settings saved.';
+ }
  catch(e){status.textContent='Could not save: '+e.message}
 };
 init().then(async()=>{

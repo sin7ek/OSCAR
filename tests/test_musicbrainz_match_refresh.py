@@ -95,6 +95,7 @@ def test_gui_offer_is_separate_from_go_advance():
     assert "Refresh MusicBrainz match (read-only)" in PAGE
     assert "/musicbrainz/refresh-match" in PAGE
     assert "Historical status:" in PAGE
+    assert "Choose the physical CD" in PAGE
 
 
 def test_refresh_endpoint_requires_rip_auth(monkeypatch):
@@ -104,3 +105,23 @@ def test_refresh_endpoint_requires_rip_auth(monkeypatch):
     with pytest.raises(HTTPException) as exc:
         musicbrainz_refresh_accepted_match(JOB, object())
     assert exc.value.status_code == 403
+
+def test_disc_two_is_the_only_compatible_candidate(evidence):
+    media = [{"position": 1, "format": "CD", "track_count": 10},
+             {"position": 2, "format": "CD", "track_count": 12,
+              "tracks": [{"length_ms": 1000}]}]
+    current = dict(mb_result(False), all_media=media, total_media=2)
+    result = match_refresh.refresh_accepted_match(JOB, lookup=lambda *args: current)
+    assert [m["position"] for m in result["media"] if m["compatible"]] == [2]
+    assert result["media"][1]["duration_differences"] == [
+        {"track": 1, "rip_ms": 319067, "musicbrainz_ms": 1000}]
+    assert "toc=" + TOC.replace(" ", "+") in result["musicbrainz_attach_url"]
+
+
+def test_missing_compatible_medium_explains_track_counts(evidence):
+    current = dict(mb_result(False), total_media=2, all_media=[
+        {"position": 1, "format": "CD", "track_count": 10},
+        {"position": 2, "format": "CD", "track_count": 11}])
+    result = match_refresh.refresh_accepted_match(JOB, lookup=lambda *args: current)
+    assert [item["track_count"] for item in result["media"]] == [10, 11]
+    assert result["musicbrainz_attach_url"] is None

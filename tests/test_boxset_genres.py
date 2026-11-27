@@ -77,7 +77,7 @@ def test_boxset_genre_api_auth_and_field_rejection(prepared, monkeypatch):
                        json={"release_id": RELEASE, "field": "UNSUPPORTED"},
                        headers={"X-OSCAR-RIP-TOKEN": "0123456789abcdef0123456789abcdef"}).status_code == 422
     html = client.get("/").text
-    assert "Preview coordinated multidisc genres (read-only)" in html
+    assert "Preview coordinated multidisc metadata update (read-only)" in html
 
 
 def test_real_flac_boxset_genre_apply_preserves_evidence_audio_and_history(prepared, monkeypatch, tmp_path):

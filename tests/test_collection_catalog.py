@@ -406,6 +406,38 @@ def test_catalogless_published_album_imports_and_is_idempotent(archive):
     assert path.read_bytes() == previous
 
 
+
+def test_import_adds_undated_edition_beside_existing_dated_edition(archive):
+    root, _, _ = archive
+    artist = root / "Jean Michel Jarre"
+    editions = {
+        "487376 2": ("[487376 2] Équinoxe (1997) [0cf0d887]",
+                     "0cf0d887-0000-4000-8000-000000000000", "1997"),
+        "800 025-2": ("[800 025-2] Équinoxe [e410a90a]",
+                      "e410a90a-d96c-3ac1-a65c-ac947016ffb1", ""),
+    }
+    snapshots = {}
+    for directory, release_id, _ in editions.values():
+        album = artist / directory
+        album.mkdir(parents=True)
+        manifest = album / "manifest.json"
+        manifest.write_text(json.dumps({"status": "published_verified", "release_id": release_id,
+            "files": [{"track": i, "filename": f"{i:02}.flac"} for i in range(1, 9)]}),
+            encoding="utf-8")
+        snapshots[manifest] = manifest.read_bytes()
+    dated = artist / editions["487376 2"][0]
+    assert catalog.import_published(only_path=dated)["indexed"] is True
+
+    catalog.import_published()
+    result = catalog.list_items(search="Équinoxe")
+    assert result["total"] == 2
+    assert {row["catalog_number"]: (row["musicbrainz_release_id"], row["year"])
+            for row in result["items"]} == {key: data[1:] for key, data in editions.items()}
+    assert catalog.import_published()["imported"] == 0
+    for manifest, previous in snapshots.items():
+        assert manifest.read_bytes() == previous
+
+
 def test_skipped_manifest_must_not_be_reported_as_indexed(archive):
     root, _, _ = archive
     album = root / "Carmen Gomes Inc" / "Desire (2010) [fa89edc1]"

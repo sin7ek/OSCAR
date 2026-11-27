@@ -25,10 +25,16 @@ def _after_rip(job):
         verification.start(job["id"])
 
 
+def start_tracked_rip(stable_id, *, insertion_count=None):
+    """Reserve and start a Go! rip through either supported entry point."""
+    options = {"insertion_count": insertion_count} if insertion_count is not None else {}
+    return ripping.start(stable_id, on_created=workflow_ledger.register_created,
+                         on_completed=_after_rip, **options)
+
+
 def start(stable_id):
     """Start existing verified-offset rip only after durable workflow registration."""
-    job = ripping.start(stable_id, on_created=workflow_ledger.register_created,
-                        on_completed=_after_rip)
+    job = start_tracked_rip(stable_id)
     return {"job": job, "workflow": workflow_ledger.list_jobs(),
             "notice": ("Go phase 1 starts a rip, records the mode and automatically "
                        "starts post-rip verification. Subsequent verified steps follow the saved "
@@ -99,23 +105,25 @@ def _metadata_handoff(job_id, workflow, *, preview=None, copy_start=None,
             if preview is None and workflow["identification_mode"] == "semi_automatic":
                 plan = reader(job_id, release_id, operator_accepted=(
                     workflow.get("accepted_release_id") == release_id
-                    and workflow.get("release_match_status") == "INFERRED_OPERATOR_ACCEPTED"))
+                    and workflow.get("release_match_status") == "INFERRED_OPERATOR_ACCEPTED"),
+                    matrix_runout=workflow.get("matrix_runout"))
             else:
                 plan = reader(job_id, release_id)
         except (MetadataError, musicbrainz.MusicBrainzError, OSError, ValueError) as exc:
             return {"workflow": workflow, "action": "metadata_review_required",
                     "release_id": release_id,
-                    "message": "Metadata preview requires exact Disc ID or a uniquely matched operator-accepted single CD: " + str(exc)[:200]}
+                    "message": "Tagging paused. Open this job in Review for the next step. " + str(exc)[:200]}
         if plan.get("job_id") != job_id or plan.get("release_id") != release_id or not plan.get("fingerprint"):
             raise GoError("Metadata preview differs from snapshotted release identity")
         workflow = workflow_ledger.reserve_metadata_copy(
             job_id, release_id, plan["fingerprint"])
         starter = copy_start or metadata_staging.start_copy
         try:
+            options = {"matrix_runout": workflow["matrix_runout"]} if workflow.get("matrix_runout") else {}
             starter(job_id, release_id, workflow["metadata_fingerprint"],
                     "COPY_TAGGED_TO_STAGING",
                     reserved_copy_id=workflow["metadata_copy_id"],
-                    identification_status=workflow["release_match_status"])
+                    identification_status=workflow["release_match_status"], **options)
         except (MetadataError, OSError, ValueError) as exc:
             workflow = workflow_ledger.complete_metadata_copy(
                 job_id, workflow["metadata_copy_id"], checked=False,
@@ -184,7 +192,7 @@ def _go_publish_source(job_id):
     return state, release_id, copy_id
 
 
-def archive_preview(job_id, *, prepare=None, review=None):
+def archive_preview(job_id, *, include_cover=False, include_data=True, prepare=None, review=None):
     """Read-only Go publication preview with actual classical metadata/CUE."""
     from oscar import archive_publish, archive_review
     state, release_id, copy_id = _go_publish_source(job_id)
@@ -193,7 +201,7 @@ def archive_preview(job_id, *, prepare=None, review=None):
     inspected = reviewer(job_id, copy_id, "original_tags", profile="auto", artwork=False)
     if inspected.get("release_id") != release_id:
         raise GoError("Archive review changed the accepted MusicBrainz release")
-    plan = planner(job_id, copy_id, "original_tags", "auto", include_cover=False)
+    plan = planner(job_id, copy_id, "original_tags", "auto", include_cover=include_cover, include_data=include_data)
     if plan.get("release_id") != release_id or plan.get("copy_id") != copy_id:
         raise GoError("Archive plan differs from approved copy")
     return {"workflow": state, "action": "archive_preview_ready",
@@ -201,14 +209,16 @@ def archive_preview(job_id, *, prepare=None, review=None):
             "release_match_status": state["release_match_status"],
             "archive_review": inspected, "publication_plan": plan,
             "sources_preview": archive_publish.render_sources(plan, state["release_match_status"]),
-            "can_publish": not plan.get("output_exists", True),
+            "can_publish": (not plan.get("output_exists", True) or bool(plan.get("data_supplement"))) and
+            plan.get("provenance", {}).get("cd_extra_data", {}).get("status") != "unavailable",
             "requires_operator_confirmation": True,
             "message": "Inspect actual classical Work/recording credits, CUE, file names and warnings. "
                        "An inferred release is never physically verified by this preview."}
 
 
 def archive_publish_start(job_id, fingerprint, confirmation, *,
-                          acknowledge_observations=False, start=None,
+                          acknowledge_observations=False, include_cover=False, approve_cover=False,
+                          include_data=True, start=None,
                           prepare=None):
     """Explicit operator archive handoff with one durable reservation."""
     from oscar import archive_publish
@@ -216,15 +226,19 @@ def archive_publish_start(job_id, fingerprint, confirmation, *,
         raise GoError("Explicit final archive publication confirmation required")
     state, release_id, copy_id = _go_publish_source(job_id)
     planner = prepare or archive_publish.prepare
-    plan = planner(job_id, copy_id, "original_tags", "auto", include_cover=False)
+    plan = planner(job_id, copy_id, "original_tags", "auto", include_cover=include_cover, include_data=include_data)
     if plan.get("release_id") != release_id or plan.get("copy_id") != copy_id:
         raise GoError("Archive plan differs from persistent release/copy identity")
     if plan.get("fingerprint") != fingerprint:
         raise GoError("Archive plan changed; inspect a new preview")
-    if plan.get("output_exists"):
-        raise GoError("Archive destination exists; refusing overwrite")
-    if plan.get("metadata_observations") and not acknowledge_observations:
+    if plan.get("output_exists") and not plan.get("data_supplement"):
+        raise GoError(plan.get("destination_block_reason") or "Archive destination exists; refusing overwrite")
+    if plan.get("provenance", {}).get("cd_extra_data", {}).get("status") == "unavailable":
+        raise GoError("CD-Extra data unavailable; capture it or explicitly exclude the data session")
+    if plan.get("metadata_observations") and not acknowledge_observations and not plan.get("data_supplement"):
         raise GoError("Explicit acknowledgement of metadata observations required")
+    if include_cover and not approve_cover and not plan.get("data_supplement"):
+        raise GoError("Confirm the selected front cover before publishing")
     reserved = workflow_ledger.reserve_archive_publish(
         job_id, copy_id, release_id, fingerprint,
         plan["relative_directory"], automatic=False)
@@ -233,7 +247,8 @@ def archive_publish_start(job_id, fingerprint, confirmation, *,
         result = publisher(
             job_id, copy_id, "original_tags", "auto", fingerprint, confirmation,
             acknowledge_observations=acknowledge_observations,
-            include_cover=False, approve_cover=False,
+            include_cover=include_cover, approve_cover=approve_cover,
+            include_data=include_data,
             release_match_status=state["release_match_status"],
             reserved_publish_id=reserved["archive_publish_id"])
         if result.get("publish_id") != reserved["archive_publish_id"]:
@@ -253,7 +268,7 @@ def archive_publish_start(job_id, fingerprint, confirmation, *,
 
 def _read_published_archive(job_id, state):
     """Fail closed on restart unless exact reserved manifest and file hashes agree."""
-    from oscar import archive_publish
+    from oscar import archive_publish, cd_extra
     root = archive_publish.archive_root()
     relative = Path(state["archive_relative_directory"])
     if (relative.is_absolute() or not relative.parts or
@@ -271,15 +286,17 @@ def _read_published_archive(job_id, state):
         return None
     try:
         data = json.loads(manifest.read_text(encoding="utf-8"))
+        if not isinstance(data, dict) or data.get("status") != "published_verified":
+            return None
+        receipt = cd_extra.supplement(folder, data)
     except (OSError, ValueError):
         return None
-    if not isinstance(data, dict) or not (
-            data.get("status") == "published_verified"
-            and data.get("publish_id") == state["archive_publish_id"]
-            and data.get("job_id") == job_id
-            and data.get("copy_id") == state["metadata_copy_id"]
-            and data.get("release_id") == state["archive_release_id"]
-            and data.get("archive_plan_fingerprint") == state["archive_fingerprint"]):
+    identity = receipt if receipt and receipt.get("publish_id") == state["archive_publish_id"] else data
+    if not (identity.get("publish_id") == state["archive_publish_id"]
+            and identity.get("job_id") == job_id
+            and identity.get("copy_id") == state["metadata_copy_id"]
+            and identity.get("release_id") == state["archive_release_id"]
+            and identity.get("archive_plan_fingerprint") == state["archive_fingerprint"]):
         return None
     entries = data.get("files")
     if not isinstance(entries, list) or not entries or len(entries) > 250:
@@ -305,6 +322,10 @@ def _read_published_archive(job_id, state):
             return None
         if h.hexdigest() != sha:
             return None
+    try:
+        cd_extra.check_archive(folder, data)
+    except (OSError, ValueError, RuntimeError, KeyError):
+        return None
     return data
 
 
@@ -357,7 +378,7 @@ def reconcile_archive(job_id, *, publish_status=None, manifest_reader=None):
             reason="publisher_result_verified" if progress else "manifest_reconciled")
         return {"workflow": finished, "action": "archive_published",
                 "publish_id": publish_id,
-                "message": "Exact publication manifest and FLAC hashes verified. Catalog: " +
+                "message": "Publication evidence and archived file hashes verified. Catalog: " +
                            catalog_status + ". Original rip preserved."}
     finished = workflow_ledger.complete_archive_publish(
         job_id, publish_id, published=False, reason="publisher_failed_or_interrupted")
@@ -393,7 +414,8 @@ def _auto_publish_best_guess(job_id):
     if (plan.get("release_id") != release_id or plan.get("copy_id") != copy_id
             or plan.get("job_id") != job_id or not plan.get("fingerprint")
             or not plan.get("relative_directory") or plan.get("output_exists")
-            or plan.get("metadata_observations")):
+            or plan.get("metadata_observations")
+            or plan.get("provenance", {}).get("cd_extra_data", {}).get("status") == "unavailable"):
         return {"workflow": state, "action": "archive_review_required",
                 "release_id": release_id, "copy_id": copy_id,
                 "message": "Archive preview is ambiguous, conflicted or already exists. "
@@ -441,6 +463,7 @@ def advance(job_id, *, lookup=None, verify_start=None,
                 "message":"Interrupted extraction is preserved; no automatic rerip."}
     workflow = workflow_ledger.refresh(job_id)
     phase = workflow["phase"]
+    workflow["working_title"] = rip.get("working_title", "")
     if phase == "RIP_IN_PROGRESS":
         return {"workflow":workflow, "action":"ripping", "message":"Ripping in progress."}
     if phase == "RIP_FAILED":
@@ -502,6 +525,11 @@ def advance(job_id, *, lookup=None, verify_start=None,
     if not ranked:
         return {"workflow":workflow,"action":"missing_release",
                 "message":"No MusicBrainz release. Preserve verified staging for review."}
+    from oscar import edition_provenance
+    try:
+        edition_provenance.save(job_id, disc_id, "disc_lookup", ranked)
+    except (ripping.RipError, OSError):
+        pass  # Discovery must still complete if staging evidence cannot be written.
     options = [{"release_id":x["id"],"title":x.get("title"),"date":x.get("date"),
                 "labels":x.get("labels"),"score":_candidate_score(x)} for x in ranked]
     if workflow["identification_mode"] == "secure":

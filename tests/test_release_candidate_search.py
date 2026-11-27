@@ -83,3 +83,30 @@ def test_release_search_panel_has_both_routes():
     assert 'id="catalog-search-button"' in html
     assert 'id="title-search-button"' in html
     assert "No physical edition or Disc ID has been verified." in html
+
+
+def test_matrix_search_returns_release_annotations_without_claiming_a_match(monkeypatch):
+    from oscar import mb_client
+
+    def fetch(request, **kwargs):
+        url = urllib.parse.urlsplit(request.full_url)
+        assert url.path == "/ws/2/annotation/"
+        assert urllib.parse.parse_qs(url.query)["query"] == [
+            'type:release AND text:"936245901-2.2 WME"']
+        return {"annotations": [
+            {"type": "release", "entity": RELEASE, "name": "Jagged Little Pill",
+             "text": "Matrix: 936245901-2.2 WME"},
+            {"type": "release-group", "entity": RELEASE, "name": "Ignored"},
+        ]}
+
+    monkeypatch.setattr(mb_client, "fetch_json", fetch)
+    monkeypatch.setenv("OSCAR_ENABLE_MUSICBRAINZ", "1")
+    response = TestClient(app).get("/api/release-search",
+                                   params={"matrix_runout": "936245901-2.2 WME"})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["query_kind"] == "matrix_runout"
+    assert [item["id"] for item in data["releases"]] == [RELEASE]
+    assert data["releases"][0]["annotation"] == "Matrix: 936245901-2.2 WME"
+    assert data["requires_review"]
+    assert not data["physical_edition_approved"]

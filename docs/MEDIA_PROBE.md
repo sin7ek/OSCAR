@@ -6,8 +6,8 @@ This is an **opt-in, read-only hardware preview**, not a ripper.
 The GUI offers **Check inserted discs**, calling `GET /api/media`:
 - Requires `OSCAR_ENABLE_MEDIA_PROBE=1` **and** an enabled, identified drive in saved GUI settings.
 - Uses `open("/dev/srN", O_RDONLY | O_NONBLOCK | O_CLOEXEC)` followed by Linux `CDROM_DRIVE_STATUS` and, where a disc is present, `CDROM_DISC_STATUS` ioctls.
-- Reports `disc_present`, `no_disc`, `tray_open`, `not_ready`, permission errors and (if supported) `audio`/`data`/`mixed`.
-- Does **not** read a TOC, read samples, rip, eject, mount, write files or delete anything.
+- Reports `disc_present`, `no_disc`, `tray_open`, `not_ready`, permission errors and (if supported) `audio`/`data`/`mixed`. Reads the individual TOC track control flags when possible, so CD-Extra can be identified as mixed audio/data even when the drive reports data. Shows audio and data track counts and offers audio extraction for mixed discs.
+- Does **not** read audio samples, rip, eject, mount, write files or delete anything.
 - A disc being detected does **not** prove that it is an audio CD that can be ripped reliably.
 
 See the [Linux CD-ROM userspace API](https://docs.kernel.org/userspace-api/ioctl/cdrom.html).

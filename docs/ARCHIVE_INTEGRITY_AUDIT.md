@@ -31,3 +31,5 @@ Safety:
 Existing published directories are never migrated or overwritten. The auditor includes the already-published Anastacia release, but it has no embedded extraction evidence because it predates PR #51; this is a warning, not an excuse to change old archives.
 
 Review `docs/ARCHITECTURE.md` and `docs/PROJECT_STATUS.md` for planned independent verification, operator workflows and integration.
+
+The archive-wide audit reports audio held as loose playable files under `Verification`, `FailedAttempts` or `ExtractionEvidence` as `PLAYABLE_EVIDENCE` warnings. The audit leaves existing archives untouched.

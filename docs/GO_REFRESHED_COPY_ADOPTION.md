@@ -1,6 +1,6 @@
 # Select refreshed metadata copy before first Go publication
 
-**Status:** implemented in PR #126; CI and Unraid acceptance are separate gates. No automatic archival writes.
+**Status:** merged in [#126](https://github.com/sin7ek/OSCAR/pull/126) after GitHub Tests and Docker build passed. Live adoption of a refreshed copy on Tower remains open. The adoption action writes no archive files.
 
 ## Problem and live test case
 
@@ -11,7 +11,7 @@ An operator with a verified, accepted Semi Automatic staging CD can improve the 
 - **Disc 03:** `e4ca0a116f744e0799d2dbf04161f6f1` (3 tracks, Symphony No. 3 I–III).
 - **Disc 04:** `8665644102f241c69d981abb640ef8f1` (5 tracks, Symphony No. 3 IV–VI, Symphony No. 6 I–II).
 
-**All three are not yet published.** The user is ripping three additional CDs. Do not assume their IDs or disc positions until the operator provides them.
+**Original staging fixtures.** Tower later reported Collection publications for discs 02 and 03. Use a still-unpublished eligible job to test adoption before a first publication. The user is ripping three additional CDs. Do not assume their IDs or disc positions until the operator provides them.
 
 ## New flow
 

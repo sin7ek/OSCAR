@@ -25,7 +25,7 @@ def test_bulk_scan_processes_every_indexed_album_and_survives_individual_failure
     monkeypatch.setattr(bulk, "_leaves", lambda: paths)
     monkeypatch.setattr(bulk.scanner.musicbrainz, "lookup_enabled", lambda: True)
     calls = []
-    def scan(mode, path):
+    def scan(mode, path, *, lookup):
         calls.append((mode, path))
         if path == paths[1]:
             raise bulk.scanner.ScanError("MusicBrainz unavailable for this album")
@@ -52,7 +52,7 @@ def test_bulk_rejects_concurrent_jobs(monkeypatch):
     finish = threading.Event()
     monkeypatch.setattr(bulk, "_leaves", lambda: ["/archive/test"])
     monkeypatch.setattr(bulk.scanner.musicbrainz, "lookup_enabled", lambda: True)
-    def blocking(mode, path):
+    def blocking(mode, path, *, lookup):
         started.set()
         finish.wait(timeout=5)
         return {"detected": 0, "suppressed": 0}

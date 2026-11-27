@@ -25,11 +25,20 @@ _TRAY_BUSY = set()
 _STOP_REQUESTED = set()
 _PROCESSES = {}
 _JOBS = {}
+_START_COUNTS = {}
 _DISC = re.compile(r"^[A-Za-z0-9._-]{28}$")
 
 
 class RipError(RuntimeError):
     pass
+
+
+def insertion_status(stable_id):
+    """Read the in-process reservation count, drive availability and capacity."""
+    with _LOCK:
+        return (_START_COUNTS.get(stable_id, 0),
+                stable_id not in _ACTIVE and stable_id not in _TRAY_BUSY,
+                len(_ACTIVE) < max_concurrent_rips())
 
 
 def max_concurrent_rips():
@@ -141,12 +150,15 @@ def dashboard():
             [j for j in jobs if j["stable_id"] == stable_id],
             key=lambda j: j.get("created_at", 0), reverse=True)
         latest = relevant[0] if relevant else None
-        if latest and latest.get("status") in {"queued", "running"}:
-            latest["progress"] = _progress(latest)
+        if latest:
+            latest = _with_working_title(latest)
+            if latest.get("status") in {"queued", "running"}:
+                latest["progress"] = _progress(latest)
         drives.append({
             "stable_id": stable_id, "label": drive.label,
             "device": present.get("device"), "present": bool(present),
             "offset_set": drive.offset_samples is not None,
+            "auto_rip_on_insert": drive.auto_rip_on_insert,
             "status": "ripping" if stable_id in active else
                       "drive_control" if stable_id in tray_busy else
                       "ready" if present and drive.offset_samples is not None else "not_ready",
@@ -288,7 +300,8 @@ def _snapshot(job):
     return {key: value for key, value in job.items()
             if key in ("id", "stable_id", "disc_id", "status", "created_at",
                        "started_at", "finished_at", "returncode", "flac_count",
-                       "warning", "error", "files_sha256", "selected_tracks")}
+                       "warning", "error", "files_sha256", "selected_tracks", "ctdb_automatic",
+                       "cd_extra_data", "cd_extra_data_error", "start_trigger")}
 
 
 def _run(job, device, offset, workdir, runner, on_completed=None):
@@ -342,12 +355,26 @@ def _run(job, device, offset, workdir, runner, on_completed=None):
             raise RipError("No FLAC output was found; keep logs for inspection")
         job["flac_count"] = len(hashes)
         job["files_sha256"] = hashes
+        if not job.get("selected_tracks"):
+            job["ctdb_automatic"] = True
+            from oscar import cd_extra
+            try:
+                record = cd_extra.capture(workdir, device,
+                                          cancelled=lambda: job["id"] in _STOP_REQUESTED)
+                if record:
+                    job["cd_extra_data"] = record
+            except (OSError, ValueError, RuntimeError, KeyError) as exc:
+                job["cd_extra_data_error"] = str(exc)[:250]
+                if job["id"] in _STOP_REQUESTED:
+                    raise RipError("Rip stopped by operator")
         job["status"] = "partial_diagnostic" if job.get("selected_tracks") else "needs_verification"
         job["warning"] = (
             "Selected-track diagnostic ONLY, not eligible for full-CD verification or Go publication."
             if job.get("selected_tracks") else
             "Files have SHA-256 hashes, NOT independent audio verification. "
-            "Review cyanrip's log and AccurateRip results manually; CTDB not integrated.")
+            "After extraction OSCAR runs CTDB separately from cyanrip’s AccurateRip results.")
+        if job.get("cd_extra_data_error"):
+            job["warning"] += " CD-Extra data capture incomplete: " + job["cd_extra_data_error"]
     except subprocess.TimeoutExpired:
         stopped = job["id"] in _STOP_REQUESTED
         job["status"] = "interrupted" if stopped else "failed"
@@ -362,18 +389,34 @@ def _run(job, device, offset, workdir, runner, on_completed=None):
         job["finished_at"] = time.time()
         try:
             _atomic_json(workdir / "state.json", _snapshot(job))
-            if on_completed is not None:
-                try:
-                    on_completed(_snapshot(job))
-                except Exception:
-                    # A post-rip callback must never change a successful
-                    # extraction into an apparent rip failure or alter audio.
-                    pass
+            if job["status"] in {"needs_verification", "partial_diagnostic"}:
+                from oscar import rip_working_title
+                rip_working_title.display(job["id"], job.get("disc_id"), schedule=True)
+            # This small metrics ledger persists independently of staging cleanup.
+            # A database outage must NEVER turn a successful extraction into failure.
+            try:
+                from oscar.drivefit_history import record_rip
+                plan_file = workdir / "plan.json"
+                plan_data = json.loads(plan_file.read_text(encoding="utf-8"))
+                record_rip(_snapshot(job), plan_data.get("track_count"), plan=plan_data)
+            except Exception:
+                # Diagnostics must never affect ripping success or preserve-state writes.
+                pass
         finally:
             with _LOCK:
                 _STOP_REQUESTED.discard(job["id"])
                 _PROCESSES.pop(job["id"], None)
                 _ACTIVE.discard(job["stable_id"])
+
+    if job.get("ctdb_automatic"):
+        from oscar import ctdb_verification
+        ctdb_verification.automatic(job["id"], workdir)
+    if on_completed is not None:
+        try:
+            on_completed(_snapshot(job))
+        except Exception:
+            # Callbacks must never alter the extraction verdict or staged audio.
+            pass
 
 
 def plan(stable_id, selected_tracks=None):
@@ -401,17 +444,32 @@ def plan(stable_id, selected_tracks=None):
 
 
 def start(stable_id, *, runner=subprocess.run, on_created=None, on_completed=None,
-          selected_tracks=None):
+          selected_tracks=None, expected_disc_id=None, insertion_count=None):
     if selected_tracks is not None and (on_created is not None or on_completed is not None):
         raise RipError("Selected-track diagnostics cannot enter a Go workflow")
     information = plan(stable_id, selected_tracks=selected_tracks)
+    if expected_disc_id is not None and information["disc_id"] != expected_disc_id:
+        raise RipError("Inserted disc does not match the saved Disc ID for this diagnostic")
     root = staging_root()
     with _LOCK:
+        if insertion_count is not None:
+            from oscar.settings import read_settings
+
+            if selected_tracks is not None or on_created is None or on_completed is None:
+                raise RipError("Insertion starts require a full tracked Go! rip")
+            if _START_COUNTS.get(stable_id, 0) != insertion_count:
+                raise RipError("A rip already started after this insertion was detected")
+            if not any(drive.stable_id == stable_id and drive.enabled
+                       and drive.auto_rip_on_insert
+                       and drive.offset_samples == information["offset_samples"]
+                       for drive in read_settings().drives):
+                raise RipError("Automatic start was disabled or the drive settings changed")
         if stable_id in _ACTIVE or stable_id in _TRAY_BUSY:
             raise RipError("A rip or tray action is already running on this drive")
         if len(_ACTIVE) >= max_concurrent_rips():
             raise RipError("All concurrent rip slots are in use; finish a rip before starting another")
         _ACTIVE.add(stable_id)
+        _START_COUNTS[stable_id] = _START_COUNTS.get(stable_id, 0) + 1
     try:
         job_id = uuid.uuid4().hex
         directory = root / ("oscar-" + job_id)
@@ -420,6 +478,8 @@ def start(stable_id, *, runner=subprocess.run, on_created=None, on_completed=Non
                "disc_id": information["disc_id"], "status": "queued",
                "selected_tracks": information["selected_tracks"],
                "created_at": time.time()}
+        if insertion_count is not None:
+            job["start_trigger"] = information["start_trigger"] = "disc_insertion"
         _atomic_json(directory / "plan.json", information)
         # Record durable workflow state before any extraction worker starts.
         # A callback failure prevents cyanrip from starting; staging remains
@@ -444,7 +504,7 @@ def status(job_id):
         raise RipError("Invalid job ID")
     job = _JOBS.get(job_id)
     if job is not None:
-        return _snapshot(job)
+        return _with_working_title(_snapshot(job))
     root = staging_root()
     record = root / ("oscar-" + job_id) / "state.json"
     if not record.is_file() or record.is_symlink():
@@ -456,4 +516,13 @@ def status(job_id):
     if data.get("status") in {"queued", "running"}:
         data["status"] = "interrupted"
         data["warning"] = "The service restarted during extraction; inspect partial files manually"
-    return _snapshot(data)
+    return _with_working_title(_snapshot(data))
+
+
+def _with_working_title(job):
+    from oscar import rip_working_title
+    job["working_title"] = rip_working_title.display(
+        job["id"], job.get("disc_id"), schedule=job.get("status") in {
+            "needs_verification", "partial_diagnostic",
+        })
+    return job
