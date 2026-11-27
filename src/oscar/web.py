@@ -143,6 +143,19 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 <button type="button" id="collection-xlsx">Export Excel-compatible (.xlsx)</button>
 <button type="button" id="collection-csv">Export CSV</button>
 <div id="collection-result" aria-live="polite"></div>
+<h3>Verify an existing FLAC album</h3>
+<p>Check a folder in your external music library. OSCAR tests the FLACs and queries CTDB using a CD layout inferred from track lengths.</p>
+<button type="button" id="external-verify-browse">Browse music library</button>
+<button type="button" id="external-verify-latest">Show latest check</button>
+<div id="external-verify-picker" hidden>
+<p id="external-verify-folder" aria-live="polite"></p>
+<button type="button" id="external-verify-parent">Parent folder</button>
+<label for="external-verify-child">Subfolder</label>
+<select id="external-verify-child"></select>
+<button type="button" id="external-verify-open">Open folder</button>
+<button type="button" id="external-verify-start">Verify this album against CTDB</button>
+</div>
+<div id="external-verify-result" aria-live="polite"></div>
 <h3>Archive metadata maintenance (staging-independent)</h3>
 <p>Scan the indexed published archive without staging files. Discogs CD matches can suggest a missing genre when MusicBrainz has none. Each album is independently verified; errors are reported without interrupting the remaining albums. Accepted proposals remain pending migration, not applied to FLACs.</p>
 <details class="oscar-advanced"><summary>Advanced · scan only one archive album</summary>
@@ -2836,6 +2849,123 @@ document.getElementById('archive-scan-history').onclick=async()=>{
   }
  }catch(error){box.textContent='Metadata history: '+error.message}
 };
+
+const externalVerifier={
+ route:'/api/collection/external-verification',
+ folder:'',
+ headers:null,
+ running:false,
+ start:document.getElementById('external-verify-start'),
+ latest:document.getElementById('external-verify-latest'),
+ out:document.getElementById('external-verify-result')
+};
+async function externalVerifierRequest(path,options={}){
+ const response=await fetch(externalVerifier.route+path,{headers:externalVerifier.headers,...options});
+ const data=await response.json();
+ if(!response.ok)throw new Error(typeof data.detail==='string'?data.detail:'External verification request failed');
+ return data;
+}
+function updateExternalVerifierButtons(){
+ externalVerifier.start.disabled=externalVerifier.running||!externalVerifier.folder;
+ externalVerifier.latest.disabled=externalVerifier.running;
+}
+async function openExternalFolder(folder){
+ const child=document.getElementById('external-verify-child');
+ const picker=document.getElementById('external-verify-picker');
+ const back=document.getElementById('external-verify-parent');
+ const open=document.getElementById('external-verify-open');
+ back.disabled=true;
+ open.disabled=true;
+ externalVerifier.start.disabled=true;
+ try{
+  const data=await externalVerifierRequest('/folders?'+new URLSearchParams({folder}));
+  externalVerifier.folder=data.folder;
+  document.getElementById('external-verify-folder').textContent=data.folder||'Music library';
+  child.replaceChildren();
+  if(!data.folders.length)child.append(new Option('No subfolders',''));
+  for(const name of data.folders)child.append(new Option(name,name));
+  picker.hidden=false;
+ }catch(error){
+  externalVerifier.out.textContent='Could not open folder. '+error.message;
+ }finally{
+  back.disabled=!externalVerifier.folder;
+  open.disabled=!child.value;
+  updateExternalVerifierButtons();
+ }
+}
+function renderExternalVerification(job){
+ const out=externalVerifier.out;
+ out.replaceChildren();
+ const line=document.createElement('p');
+ out.append(line);
+ if(!job.status){line.textContent='No external album check has run since OSCAR started.';return}
+ if(job.status==='running'){line.textContent='Checking '+job.folder+'…';return}
+ if(job.status==='failed'){line.textContent=job.folder+' · '+job.error;return}
+ const result=job.result;
+ const labels={
+  database_matched_candidate_layout:'CTDB matched on all discs',
+  integrity_passed:'FLAC integrity passed',
+  integrity_failed:'FLAC integrity failed',
+  integrity_unavailable:'FLAC integrity check unavailable'
+ };
+ line.textContent=job.folder+' · '+labels[result.status];
+ const ctdbLabels={
+  matched:'Matched',not_found:'Layout not found',no_audio_match:'Audio differs',
+  unsupported:'Unsupported layout',unavailable:'Unavailable',lookup_failed:'Lookup failed',
+  not_performed:'Not checked'
+ };
+ const discs=document.createElement('ul');
+ out.append(discs);
+ for(const disc of result.discs){
+  const row=document.createElement('li');
+  const ctdb=disc.ctdb;
+  const confidence=Number.isInteger(ctdb.confidence)?' ('+ctdb.confidence+'/'+ctdb.total+' confidence)':'';
+  row.textContent='Disc '+disc.disc+' · '+disc.passed+'/'+disc.tracks+' FLACs passed · CTDB '+ctdbLabels[ctdb.status]+confidence+
+   (ctdb.message?' · '+ctdb.message:'')+(disc.track_total_declared?'':' · Track total inferred');
+  for(const [filename,status] of Object.entries(disc.issues)){
+   const issue=document.createElement('div');
+   issue.textContent=filename+' · '+status;row.append(issue);
+  }
+  discs.append(row);
+ }
+ const note=document.createElement('p');
+ note.textContent=(result.assumed_single_disc?'Single disc assumed. ':!result.disc_total_declared?'Disc total inferred. ':'')+
+  'Source FLAC hashes were checked before and after. CTDB results apply to the inferred CD layout; AccurateRip and the original CUE were not checked.';
+ out.append(note);
+}
+async function showExternalVerification(start){
+ const tool=externalVerifier;
+ if(tool.running)return;
+ tool.headers=tool.headers||requestAuthHeaders('Verify existing FLAC albums');if(!tool.headers)return;
+ tool.running=true;updateExternalVerifierButtons();
+ try{
+  let job=start?await externalVerifierRequest('',{
+   method:'POST',headers:{'Content-Type':'application/json',...tool.headers},
+   body:JSON.stringify({folder:tool.folder})
+  }):await externalVerifierRequest('');
+  renderExternalVerification(job);
+  while(job.status==='running'){
+   const id=job.id;
+   await new Promise(resolve=>window.setTimeout(resolve,1500));
+   job=await externalVerifierRequest('');
+   if(job.id!==id)throw new Error('A newer check replaced this result. Use Show latest check.');
+   renderExternalVerification(job);
+  }
+ }catch(error){
+  tool.out.textContent=error.message+' Use Show latest check to see a running check.';
+ }finally{tool.running=false;updateExternalVerifierButtons()}
+}
+document.getElementById('external-verify-browse').onclick=()=>{
+ externalVerifier.headers=externalVerifier.headers||requestAuthHeaders('Browse external music library');
+ if(externalVerifier.headers)openExternalFolder('');
+};
+document.getElementById('external-verify-parent').onclick=()=>openExternalFolder(externalVerifier.folder.split('/').slice(0,-1).join('/'));
+document.getElementById('external-verify-open').onclick=()=>{
+ const child=document.getElementById('external-verify-child').value;
+ if(child)openExternalFolder([externalVerifier.folder,child].filter(Boolean).join('/'));
+};
+externalVerifier.start.onclick=()=>showExternalVerification(true);
+externalVerifier.latest.onclick=()=>showExternalVerification(false);
 
 async function fetchLocalCollection(){
  const out=document.getElementById('collection-result');

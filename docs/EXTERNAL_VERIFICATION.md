@@ -1,6 +1,14 @@
 # External album verification (experimental)
 
-Use this read-only CLI to check existing split-track FLACs, for example an EAC rip. It reports FLAC integrity and attempts CTDB verification per disc. It does not create a rip job, submit to CTDB, write tags, update Collection, modify SOURCES.txt, or publish an album. See [issue #183](https://github.com/sin7ek/OSCAR/issues/183).
+Use this read-only tool to check existing split-track FLACs, for example an EAC rip. It reports FLAC integrity and attempts CTDB verification per disc. It does not create a rip job, submit to CTDB, write tags, update Collection, modify SOURCES.txt, or publish an album. See [issue #183](https://github.com/sin7ek/OSCAR/issues/183).
+
+## Web UI
+
+Set `OSCAR_EXTERNAL_LIBRARY_ROOT: /external-music` in the OSCAR service environment and add the bind mount `/mnt/user/music/Archive:/external-music:ro` to that service's volumes. Substitute the host directory if your external music lives elsewhere. Use a dedicated read-only bind mount even if the same host data is accessible to another service.
+
+In **Collection → Verify an existing FLAC album**, select **Browse music library**, open the album folder and select **Verify this album against CTDB**. This also works when ripping is disabled. The usual OSCAR token or trusted local access is required. The folder browser stays inside the configured mount, lists visible directories and does not follow symlinks.
+
+The check runs in the background and shows FLAC results and CTDB confidence per disc. **Show latest check** retrieves the most recent result until another album is checked or OSCAR restarts. The web UI does not save results or files in the source album.
 
 ## Run on Unraid
 
