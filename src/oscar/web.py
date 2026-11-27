@@ -143,12 +143,13 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 <button type="button" id="collection-xlsx">Export Excel-compatible (.xlsx)</button>
 <button type="button" id="collection-csv">Export CSV</button>
 <div id="collection-result" aria-live="polite"></div>
+<h3>Saved external rips</h3>
+<button type="button" id="external-verify-saved">Refresh saved external rips</button>
+<div id="external-verify-saved-list" aria-live="polite">Save a verification to add an external album here.</div>
 <h3>Verify an existing FLAC album</h3>
 <p>Check a folder in your external music library. OSCAR tests the FLACs and queries CTDB using a CD layout inferred from track lengths.</p>
 <button type="button" id="external-verify-browse">Browse music library</button>
 <button type="button" id="external-verify-latest">Show latest check</button>
-<button type="button" id="external-verify-saved">Saved external rips</button>
-<div id="external-verify-saved-list" aria-live="polite"></div>
 <div id="external-verify-picker" hidden>
 <p>Open one album folder, including its disc subfolders if it has multiple discs.</p>
 <p id="external-verify-folder" aria-live="polite"></p>
@@ -769,6 +770,7 @@ function showOscarTab(name){
  }
  if(name==='go')refreshGoCards(false);
  if(name==='review')refreshReviewQueue(false);
+ if(name==='collection')queueMicrotask(()=>showSavedExternalVerifications(false));
  if(name==='diagnostics')refreshDriveFit();
 }
 oscarNav.addEventListener('keydown',event=>{
@@ -791,6 +793,7 @@ showOscarTab(location.hash.slice(1));
 let trustedLocalUI=false;
 fetch('/api/ui/access').then(r=>r.ok?r.json():{}).then(data=>{
  trustedLocalUI=!!data.trusted_local_ui;
+ if(trustedLocalUI&&!oscarPanelsByName.get('collection').hidden)showSavedExternalVerifications(false);
 }).catch(()=>{trustedLocalUI=false});
 function requestAuthHeaders(description){
  if(trustedLocalUI)return {'X-OSCAR-UI-ACTION':'confirmed'};
@@ -2968,12 +2971,17 @@ function renderExternalVerification(job){
   }
  };
 }
-async function showSavedExternalVerifications(){
+let savedExternalRequest=0;
+async function showSavedExternalVerifications(interactive=true, headers=null){
  const tool=externalVerifier;
- tool.headers=tool.headers||requestAuthHeaders('View saved external rips');if(!tool.headers)return;
+ tool.headers=headers||tool.headers||(interactive?requestAuthHeaders('View saved external rips'):
+  trustedLocalUI?{'X-OSCAR-UI-ACTION':'confirmed'}:null);
+ if(!tool.headers)return;
+ const request=++savedExternalRequest;
  const list=document.getElementById('external-verify-saved-list');
  try{
   const {albums}=await externalVerifierRequest('/reports');
+  if(request!==savedExternalRequest)return;
   list.replaceChildren();
   if(!albums.length){list.textContent='No external verifications have been saved.';return}
   const rows=document.createElement('ul');
@@ -2985,12 +2993,15 @@ async function showSavedExternalVerifications(){
     try{
      const job=await externalVerifierRequest('/reports?'+new URLSearchParams({folder:album.folder}));
      renderExternalVerification(job);
+     tool.out.scrollIntoView({block:'nearest'});
     }catch(error){tool.out.textContent='Could not open the saved verification. '+error.message}
    };
    row.append(button,' '+externalResultLabels[album.result]);rows.append(row);
   }
   list.append(rows);
- }catch(error){list.textContent='Could not list saved external rips. '+error.message}
+ }catch(error){
+  if(request===savedExternalRequest)list.textContent='Could not list saved external rips. '+error.message;
+ }
 }
 async function showExternalVerification(start){
  const tool=externalVerifier;
@@ -3025,11 +3036,12 @@ document.getElementById('external-verify-child').onchange=event=>{
 };
 externalVerifier.start.onclick=()=>showExternalVerification(true);
 externalVerifier.latest.onclick=()=>showExternalVerification(false);
-document.getElementById('external-verify-saved').onclick=showSavedExternalVerifications;
+document.getElementById('external-verify-saved').onclick=()=>showSavedExternalVerifications();
 
 async function fetchLocalCollection(){
  const out=document.getElementById('collection-result');
  const headers=requestAuthHeaders('Read local OSCAR collection');if(!headers)return;
+ const savedExternal=showSavedExternalVerifications(false,headers);
  out.textContent='Loading local archive collection…';
  try{
   const query=new URLSearchParams({
@@ -3074,6 +3086,7 @@ async function fetchLocalCollection(){
   }
   out.append(table);
  }catch(error){out.textContent='Collection unavailable: '+error.message}
+ await savedExternal;
 }
 document.getElementById('collection-enrich-labels').onclick=async()=>{
  const out=document.getElementById('collection-result');

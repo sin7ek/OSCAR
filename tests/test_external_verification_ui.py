@@ -49,6 +49,7 @@ def test_browse_is_authenticated_and_stays_inside_library(setup, monkeypatch):
     response = client.get(ROUTE + "/folders", headers=AUTH)
     assert response.status_code == 409
     assert "OSCAR_EXTERNAL_LIBRARY_ROOT" in response.json()["detail"]
+    assert client.get(ROUTE + "/reports", headers=AUTH).json() == {"albums": []}
 
 
 def _wait_for_result(client):
@@ -124,6 +125,8 @@ def test_collection_has_external_verification_controls(setup):
     assert "Verify an existing FLAC album" in html
     assert "Verify this album against CTDB" in html
     assert "Show latest check" in html
+    assert html.index('id="collection-result"') < html.index("<h3>Saved external rips</h3>")
+    assert html.index('id="external-verify-saved-list"') < html.index("<h3>Verify an existing FLAC album</h3>")
 
 
 def test_saved_verification_survives_worker_reset_and_detects_changed_hashes(setup, monkeypatch):
