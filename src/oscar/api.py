@@ -1447,6 +1447,40 @@ def external_verification_status(request: Request, x_oscar_rip_token: str | None
     return external_verification_ui.status()
 
 
+class SaveExternalVerificationRequest(BaseModel):
+    job_id: str = Field(pattern=r"^[a-f0-9]{32}$")
+
+
+@app.get("/api/collection/external-verification/reports")
+def saved_external_verifications(request: Request, folder: str = "",
+                                 x_oscar_rip_token: str | None = Header(default=None)):
+    from sqlite3 import Error as DatabaseError
+    from oscar import external_verification_ui
+    from oscar.collection_catalog import CatalogError
+    _rip_auth(x_oscar_rip_token, request, require_ripping=False)
+    try:
+        if len(folder) > 1500:
+            raise ValueError("The folder path is too long")
+        if folder:
+            return external_verification_ui.saved(folder)
+        return {"albums": external_verification_ui.saved_albums()}
+    except (CatalogError, ValueError, OSError, DatabaseError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/collection/external-verification/reports")
+def save_external_verification(body: SaveExternalVerificationRequest, request: Request,
+                               x_oscar_rip_token: str | None = Header(default=None)):
+    from sqlite3 import Error as DatabaseError
+    from oscar import external_verification_ui
+    from oscar.collection_catalog import CatalogError
+    _rip_auth(x_oscar_rip_token, request, require_ripping=False)
+    try:
+        return external_verification_ui.save(body.job_id)
+    except (CatalogError, ValueError, OSError, DatabaseError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
 # Local collection inventory is separate from Discogs and never writes to /archive.
 @app.get("/api/collection")
 def collection_list(request: Request, search: str = "", sort_by: str = "artist",
