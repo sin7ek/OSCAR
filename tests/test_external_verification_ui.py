@@ -1,3 +1,5 @@
+import json
+import sqlite3
 import threading
 import time
 
@@ -21,6 +23,7 @@ def setup(tmp_path, monkeypatch):
     (root / ".hidden").mkdir()
     (root / "linked").symlink_to(album)
     monkeypatch.setenv("OSCAR_EXTERNAL_LIBRARY_ROOT", str(root))
+    monkeypatch.setenv("OSCAR_CATALOG_DB", str(tmp_path / "catalog.sqlite3"))
     monkeypatch.setenv("OSCAR_ENABLE_RIPPING", "0")
     monkeypatch.setenv("OSCAR_RIP_TOKEN", TOKEN)
     monkeypatch.delenv("OSCAR_TRUSTED_LOCAL_UI", raising=False)
@@ -68,6 +71,7 @@ def test_background_check_returns_per_disc_summary(setup, monkeypatch):
         assert finish.wait(3)
         return {
             "source_type": "external", "status": "database_matched_candidate_layout",
+            "checked_at": "2026-11-27T20:00:00+00:00",
             "disc_total_declared": True, "assumed_single_disc": False,
             "discs": [{
                 "disc": 1, "integrity": "passed", "file_integrity": {"01.flac": "passed"},
@@ -120,3 +124,53 @@ def test_collection_has_external_verification_controls(setup):
     assert "Verify an existing FLAC album" in html
     assert "Verify this album against CTDB" in html
     assert "Show latest check" in html
+
+
+def test_saved_verification_survives_worker_reset_and_detects_changed_hashes(setup, monkeypatch):
+    client, album = setup
+    folder = "Label/Album [123]"
+    hashes = {"01.flac": "a" * 64}
+
+    def verify(path):
+        assert path == album
+        return {
+            "source_type": "external", "status": "database_matched_candidate_layout",
+            "checked_at": "2026-11-27T20:00:00+00:00",
+            "disc_total_declared": True, "assumed_single_disc": False,
+            "discs": [{
+                "disc": 1, "integrity": "passed", "file_integrity": {"01.flac": "passed"},
+                "files_sha256": dict(hashes), "track_total_declared": True,
+                "ctdb": {"status": "matched", "confidence": 6, "total": 6},
+            }],
+        }
+
+    monkeypatch.setattr(web.external_verification, "verify", verify)
+    reports = ROUTE + "/reports"
+    assert client.get(reports).status_code == 403
+    assert client.post(reports, json={"job_id": "a" * 32}).status_code == 403
+    assert client.get(reports, headers=AUTH).json() == {"albums": []}
+    assert client.get(reports, headers=AUTH, params={"folder": "../outside"}).status_code == 409
+
+    first = client.post(ROUTE, json={"folder": folder}, headers=AUTH).json()
+    assert _wait_for_result(client)["status"] == "completed"
+    assert client.post(reports, json={"job_id": "a" * 32}, headers=AUTH).status_code == 409
+    saved = client.post(reports, json={"job_id": first["id"]}, headers=AUTH).json()
+    assert saved["saved"]
+    assert saved["result"]["discs"][0]["ctdb"]["confidence"] == 6
+    with sqlite3.connect(web.collection_catalog.database_path()) as db:
+        report = json.loads(db.execute("SELECT report_json FROM external_verification_reports").fetchone()[0])
+        assert report["discs"][0]["files_sha256"] == hashes
+
+    monkeypatch.setattr(web, "_JOB", {})
+    assert client.get(ROUTE, headers=AUTH).json() == {}
+    assert client.get(reports, headers=AUTH, params={"folder": folder}).json() == saved
+    assert client.get(reports, headers=AUTH).json()["albums"] == [{
+        "folder": folder, "checked_at": saved["checked_at"], "result": saved["result"]["status"],
+    }]
+    assert not list(album.iterdir())
+    client.post(ROUTE, json={"folder": folder}, headers=AUTH)
+    assert _wait_for_result(client)["saved_hashes_changed"] is False
+    hashes["01.flac"] = "b" * 64
+    client.post(ROUTE, json={"folder": folder}, headers=AUTH)
+    assert _wait_for_result(client)["saved_hashes_changed"] is True
+    assert client.get(reports, headers=AUTH, params={"folder": folder}).json() == saved

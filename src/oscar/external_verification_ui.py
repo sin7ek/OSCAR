@@ -1,5 +1,8 @@
 """Read-only library browsing and one background external verification at a time."""
+import json
 import logging
+import sqlite3
+from contextlib import closing
 import os
 import threading
 import uuid
@@ -7,21 +10,34 @@ from pathlib import Path
 
 from mutagen import MutagenError
 
-from oscar import external_verification
+from oscar import collection_catalog, external_verification
 
 _LOG = logging.getLogger(__name__)
 _LOCK = threading.Lock()
 _JOB = {}
+_REPORT_SCHEMA = """
+CREATE TABLE IF NOT EXISTS external_verification_reports (
+    root TEXT NOT NULL,
+    folder TEXT NOT NULL,
+    checked_at TEXT NOT NULL,
+    report_json TEXT NOT NULL,
+    PRIMARY KEY (root, folder)
+)
+"""
 
 
-def _folder(relative):
+def _library_root():
     raw_root = os.getenv("OSCAR_EXTERNAL_LIBRARY_ROOT", "").strip()
     if not raw_root:
         raise ValueError("Set OSCAR_EXTERNAL_LIBRARY_ROOT to a read-only music library mount")
     root = Path(raw_root)
     if not root.is_absolute() or root == Path("/") or root.resolve() != root or not root.is_dir():
         raise ValueError("The configured external library root is unavailable or unsafe")
-    folder = root
+    return root
+
+
+def _folder(relative, root=None):
+    folder = root if root is not None else _library_root()
     if relative:
         for part in relative.split("/"):
             if not part or part.startswith(".") or "\0" in part:
@@ -64,10 +80,111 @@ def _summary(report):
     }
 
 
-def _run(relative):
+def _connect():
+    path = collection_catalog.database_path()
+    if path.parent.is_symlink() or not path.parent.is_dir():
+        raise collection_catalog.CatalogError("Persistent database directory must exist and not be a symlink")
+    return sqlite3.connect(path, timeout=10)
+
+
+def _read_report(db, root, relative):
+    row = db.execute(
+        "SELECT report_json FROM external_verification_reports WHERE root=? AND folder=?",
+        (str(root), relative),
+    ).fetchone()
+    return json.loads(row[0]) if row else None
+
+
+def _saved_report(root, relative):
+    if not collection_catalog.database_path().is_file():
+        return None
+    with closing(_connect()) as db:
+        exists = db.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='external_verification_reports'"
+        ).fetchone()
+        return _read_report(db, root, relative) if exists else None
+
+
+def _hashes(report):
+    return {path: sha for disc in report["discs"] for path, sha in disc["files_sha256"].items()}
+
+
+def _saved_summary(relative, report):
+    return {
+        "folder": relative,
+        "status": "completed",
+        "saved": True,
+        "checked_at": report["checked_at"],
+        "result": _summary(report),
+    }
+
+
+def saved(relative):
+    if not relative:
+        raise ValueError("Open an album folder before viewing saved verification")
+    root = _library_root()
+    _folder(relative, root)
+    report = _saved_report(root, relative)
+    return _saved_summary(relative, report) if report else {}
+
+
+def saved_albums():
+    root = _library_root()
+    if not collection_catalog.database_path().is_file():
+        return []
+    with closing(_connect()) as db:
+        exists = db.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='external_verification_reports'"
+        ).fetchone()
+        if not exists:
+            return []
+        records = db.execute(
+            """SELECT folder, checked_at, json_extract(report_json, '$.status')
+               FROM external_verification_reports WHERE root=?
+               ORDER BY checked_at DESC, folder""",
+            (str(root),),
+        )
+        return [{"folder": folder, "checked_at": checked_at, "result": result}
+                for folder, checked_at, result in records]
+
+
+def save(job_id):
+    root = _library_root()
+    with _LOCK:
+        if (_JOB.get("id") != job_id or _JOB.get("status") != "completed"
+                or _JOB.get("_root") != root):
+            raise ValueError("This verification is no longer available to save. Rerun the check.")
+        relative, report = _JOB["folder"], _JOB["_report"]
+    _folder(relative, root)
+    with closing(_connect()) as db, db:
+        db.execute(_REPORT_SCHEMA)
+        db.execute(
+            """
+            INSERT INTO external_verification_reports(root, folder, checked_at, report_json)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(root, folder) DO UPDATE SET
+                checked_at=excluded.checked_at, report_json=excluded.report_json
+            WHERE excluded.checked_at >= external_verification_reports.checked_at
+            """,
+            (str(root), relative, report["checked_at"], json.dumps(report)),
+        )
+        return _saved_summary(relative, _read_report(db, root, relative))
+
+
+def _run(root, relative):
     try:
-        result = _summary(external_verification.verify(_folder(relative)))
-        outcome = {"status": "completed", "result": result}
+        report = external_verification.verify(_folder(relative, root))
+        outcome = {
+            "status": "completed", "result": _summary(report), "_report": report,
+            "checked_at": report["checked_at"],
+        }
+        try:
+            previous = _saved_report(root, relative)
+        except (sqlite3.Error, collection_catalog.CatalogError, OSError, ValueError):
+            _LOG.warning("Could not read the saved external verification", exc_info=True)
+        else:
+            if previous:
+                outcome["saved_hashes_changed"] = _hashes(previous) != _hashes(report)
     except (ValueError, OSError, MutagenError) as error:
         outcome = {"status": "failed", "error": str(error)[:400]}
     except Exception:
@@ -80,15 +197,16 @@ def _run(relative):
 def start(relative):
     if not relative:
         raise ValueError("Open an album folder before starting verification")
-    _folder(relative)
+    root = _library_root()
+    _folder(relative, root)
     with _LOCK:
         if _JOB.get("status") == "running":
             raise ValueError("An external album verification is already running")
         job = {"id": uuid.uuid4().hex, "folder": relative, "status": "running"}
         _JOB.clear()
-        _JOB.update(job)
+        _JOB.update(job, _root=root)
         try:
-            threading.Thread(target=_run, args=(relative,), name="oscar-external-verification",
+            threading.Thread(target=_run, args=(root, relative), name="oscar-external-verification",
                              daemon=True).start()
         except RuntimeError:
             _JOB.clear()
@@ -98,4 +216,4 @@ def start(relative):
 
 def status():
     with _LOCK:
-        return dict(_JOB)
+        return {key: value for key, value in _JOB.items() if not key.startswith("_")}
