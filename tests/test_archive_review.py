@@ -1086,3 +1086,23 @@ def test_cover_lookup_prefers_exact_musicbrainz_then_linked_discogs(tmp_path, mo
     ]
     assert cover_art.select(discogs, RELEASE, "auto")[0] == info
     assert len(calls) == 4
+
+
+def test_publication_blocks_loose_audio_from_evidence(publishable, monkeypatch):
+    from oscar import archive_publish
+
+    _, _, archive, _ = publishable
+    plan = archive_publish.prepare(JOB, COPY, "original_tags", profile="standard")
+    copy_evidence = archive_publish._copy_source_evidence
+
+    def copy_with_loose_audio(job_id, entries, temp):
+        copied = copy_evidence(job_id, entries, temp)
+        folder = temp / "ExtractionEvidence" / "FailedAttempts"
+        folder.mkdir()
+        (folder / "old.flac").write_bytes(b"failed attempt")
+        return copied
+
+    monkeypatch.setattr(archive_publish, "_copy_source_evidence", copy_with_loose_audio)
+    with pytest.raises(archive_publish.PublishError, match=r"FailedAttempts/old\.flac"):
+        archive_publish._do_publish(plan, "b" * 32, allow_metadata_observations=True)
+    assert not (archive / plan["relative_directory"]).exists()

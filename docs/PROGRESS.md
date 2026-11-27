@@ -40,6 +40,8 @@ xychart-beta
 
 - Settings lists AccurateRip offset candidates with estimated confirmations, submissions and agreement. Conflicts require an operator selection. Check the GH24NS95 candidates and settings save on Tower. [Drive offset setup](DRIVE_OFFSET.md)
 
+- New archive publications and revisions check playable files against their declared track inventory. Tower acceptance remains open.
+
 ## How to update this living dashboard
 
 1. **At every meaningful feature PR:** review impacted percentages, the supporting evidence and remaining gaps alongside [PROJECT_STATUS.md](PROJECT_STATUS.md). A PR should link both documents when it changes a roadmap domain.

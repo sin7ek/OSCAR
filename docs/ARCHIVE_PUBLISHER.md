@@ -2,6 +2,8 @@
 
 **Status:** Explicitly approved archive publication was observed on Tower for Anastacia, Boulez and Carmen Gomes. The publisher is opt-in and preserves original rip evidence. [#138](https://github.com/sin7ek/OSCAR/pull/138) shipped structured source provenance with green PR Tests and Docker build. The new Go! SOURCES preview and publication of a recovered disc still need separate Tower acceptance. See [project status](PROJECT_STATUS.md).
 
+New archive candidates must contain only the playable tracks declared in their manifest. OSCAR checks all subdirectories, including evidence. Metadata revisions and CD-Extra additions check the candidate before promotion.
+
 ## How it works
 
 1. Source rip must have a saved `checks_passed` verification report. Metadata must have been copied to a completed **Original MusicBrainz tagged copy** or **Classical v2 tagged copy**, and the operator must have reviewed the physical edition.
