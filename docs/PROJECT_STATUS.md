@@ -1,8 +1,12 @@
 # OSCAR — project work document
 
-## Current status — 2026-11-25
+## Current status — 2026-11-27
 
 See the [dashboard](PROGRESS.md) for area-by-area maturity and the [developer handoff](DEVELOPER_HANDOFF.md) for starting the next session.
+
+### External FLAC verification
+
+[#184](https://github.com/sin7ek/OSCAR/pull/184) adds the experimental read-only CLI. It validates numbered FLACs, checks the hashes again after decoding and CTDB lookup, and reports CTDB against the inferred split-track TOC. The focused tests use real generated FLACs and controlled CTDB responses. Tower acceptance requires a known CTDB-matched external rip using the [read-only command](EXTERNAL_VERIFICATION.md#run-on-unraid).
 
 ### Deployment and cleanup evidence
 

@@ -1,6 +1,6 @@
 # OSCAR — Developer handoff
 
-Reconciled 2026-11-25 through [#172](https://github.com/sin7ek/OSCAR/pull/172). The [dashboard](PROGRESS.md) shows progress by area. The [work document](PROJECT_STATUS.md) holds deployment records, exact Tower fixtures, decisions and milestone history.
+Updated 2026-11-27 for [#184](https://github.com/sin7ek/OSCAR/pull/184). The [dashboard](PROGRESS.md) shows progress by area. The [work document](PROJECT_STATUS.md) holds deployment records, exact Tower fixtures, decisions and milestone history.
 
 ## Starting a session
 
@@ -28,6 +28,8 @@ Collection can propose an explicitly approved `GENRE=Classical` write from a ver
 **Playable evidence:** New archive and revision candidates reject loose playable evidence before promotion. The read-only archive audit reports loose audio under reserved evidence folders. Check a clean publication and a disposable failed-attempt fixture on Tower.
 
 **Track Recovery evidence:** New Track Recovery jobs show the selected and excluded extraction attempts in Proposed SOURCES.txt and the archive. Older recovery jobs retain their saved history. Tower should exercise a fresh recovery and compare the preview with the published report.
+
+**External FLAC verification:** The experimental CLI checks existing split-track FLACs and queries CTDB using an inferred CD layout. Tower acceptance remains open. Use a previously CTDB-matched EAC rip with a read-only mount and check the per-disc result. See [External verification](EXTERNAL_VERIFICATION.md).
 
 ## Next on Tower
 
