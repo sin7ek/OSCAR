@@ -1412,6 +1412,41 @@ def archive_metadata_history(request: Request,
     return decision_history()
 
 
+class ExternalVerificationRequest(BaseModel):
+    folder: str = Field(min_length=1, max_length=1500)
+
+
+@app.get("/api/collection/external-verification/folders")
+def external_verification_folders(request: Request, folder: str = "",
+                                  x_oscar_rip_token: str | None = Header(default=None)):
+    from oscar import external_verification_ui
+    _rip_auth(x_oscar_rip_token, request, require_ripping=False)
+    try:
+        if len(folder) > 1500:
+            raise ValueError("The folder path is too long")
+        return external_verification_ui.folders(folder)
+    except (ValueError, OSError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/collection/external-verification")
+def start_external_verification(body: ExternalVerificationRequest, request: Request,
+                                x_oscar_rip_token: str | None = Header(default=None)):
+    from oscar import external_verification_ui
+    _rip_auth(x_oscar_rip_token, request, require_ripping=False)
+    try:
+        return external_verification_ui.start(body.folder)
+    except (ValueError, OSError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.get("/api/collection/external-verification")
+def external_verification_status(request: Request, x_oscar_rip_token: str | None = Header(default=None)):
+    from oscar import external_verification_ui
+    _rip_auth(x_oscar_rip_token, request, require_ripping=False)
+    return external_verification_ui.status()
+
+
 # Local collection inventory is separate from Discogs and never writes to /archive.
 @app.get("/api/collection")
 def collection_list(request: Request, search: str = "", sort_by: str = "artist",
