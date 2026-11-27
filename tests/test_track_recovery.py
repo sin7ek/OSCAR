@@ -56,7 +56,9 @@ def layout(tmp_path, monkeypatch):
             (directory / name).write_bytes(data)
             hashes[name] = sha(data)
         plan = {"disc_id": DISC, "toc_string": "1 3 150 150 200 250 300",
-                "track_count": 3, "selected_tracks": selected}
+                "track_count": 3, "selected_tracks": selected,
+                "stable_id": "usb-LG" if selected else "ata-Optiarc",
+                "offset_samples": 6 if selected else 48}
         (directory / "plan.json").write_text(json.dumps(plan))
         (directory / "state.json").write_text(json.dumps({
             "id": job_id, "disc_id": DISC,
@@ -141,7 +143,17 @@ def test_full_recovery_copies_audio_verifies_independently_and_forces_manual_go(
     assert len(report["tracks"]) == 3
     assert all(t["checks_passed"] for t in report["tracks"])
     assert report["tracks"][1]["source_job_id"] == DIAG
-    assert provenance["tracks"][1]["source_job_id"] == DIAG
+    track = provenance["tracks"][1]
+    assert track["source_job_id"] == DIAG
+    assert track["selected_attempt"]["drive_id"] == "usb-LG"
+    assert track["selected_attempt"]["read_offset_samples"] == 6
+    assert track["selected_attempt"]["sha256"] == sha(b"CD rip b track 2")
+    assert track["excluded_attempt"]["job_id"] == ORIG
+    assert track["excluded_attempt"]["sha256"] == sha(b"CD rip a track 2")
+    assert track["excluded_attempt"]["drive_id"] == "ata-Optiarc"
+    assert track["excluded_attempt"]["read_offset_samples"] == 48
+    assert track["excluded_attempt"]["checks_passed"] is False
+    assert "excluded_attempt" not in provenance["tracks"][0]
     assert not any(p.is_symlink() for p in (dest / "audio").iterdir())
     assert (dest / "audio" / "02 - Unknown track.flac").read_bytes() == (
         layout / ("oscar-" + DIAG) / "audio" / "02 - Unknown track.flac").read_bytes()

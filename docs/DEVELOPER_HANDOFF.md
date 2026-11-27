@@ -27,6 +27,8 @@ Collection can propose an explicitly approved `GENRE=Classical` write from a ver
 
 **Playable evidence:** New archive and revision candidates reject loose playable evidence before promotion. The read-only archive audit reports loose audio under reserved evidence folders. Check a clean publication and a disposable failed-attempt fixture on Tower.
 
+**Track Recovery evidence:** New Track Recovery jobs show the selected and excluded extraction attempts in Proposed SOURCES.txt and the archive. Older recovery jobs retain their saved history. Tower should exercise a fresh recovery and compare the preview with the published report.
+
 ## Next on Tower
 
 | Priority | Test | Existing evidence |

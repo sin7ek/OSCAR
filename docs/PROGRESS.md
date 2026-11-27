@@ -42,6 +42,8 @@ xychart-beta
 
 - New archive publications and revisions check playable files against their declared track inventory. Tower acceptance remains open.
 
+- New Track Recovery jobs show the selected and excluded extraction attempts in Proposed SOURCES.txt and the archive. Older recovery jobs retain their saved history. Tower should exercise a fresh recovery and compare the preview with the published report.
+
 ## How to update this living dashboard
 
 1. **At every meaningful feature PR:** review impacted percentages, the supporting evidence and remaining gaps alongside [PROJECT_STATUS.md](PROJECT_STATUS.md). A PR should link both documents when it changes a roadmap domain.
