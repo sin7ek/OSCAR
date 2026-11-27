@@ -6,6 +6,10 @@ The next implementation adds `src/oscar/archive_revision_boxset.py` plus an auth
 
 ---
 
+## Retained revision maintenance in Cleanup
+
+**Cleanup → Scan storage → Verify retained revision** checks both generations and displays the outcome in the same row. Eligible single-disc revisions get a separate delete action when verified history cleanup is enabled. Shared history and protected ancestry stay visible for review. See [Cleanup](CLEANUP.md) for configuration and deletion conditions.
+
 ## Verified archive revision maintenance: Verify / Clean / Verify & Clean (2026-11-20, PR #107 merged, CI green, Unraid acceptance pending)
 
 An explicitly operator-triggered maintenance layer is being added to Collection's **Archive Metadata Migration** journal. Its safety boundaries are:
@@ -27,8 +31,8 @@ An opt-in, **staging-independent** Archive Metadata Migration v1 is now implemen
 
 1. Read the currently indexed published original archive, validate all FLAC SHA-256 hashes and their archived MusicBrainz release/Disc ID/recording identities, the published original CUE hash and ExtractionEvidence hashes. Do not load staging.
 2. Collect only decisions still at `accepted` for that exact original archive revision, and re-check each approved field against current exact MusicBrainz CD medium data before creating a stable review fingerprint.
-3. Preview source/target directory and every accepted metadata field. `CATALOGNUMBER` changes **must** update the album folder naming, e.g. `/archive/Carmen Gomes Inc/Desire (2010) [fa89edc1]` → `/archive/Carmen Gomes Inc/[CGi2010] Desire (2010) [fa89edc1]`.
-4. On explicit operator confirmation, duplicate the original entire album into an isolated temporary sibling directory. Modify **only approved FLAC Vorbis fields** (`CATALOGNUMBER`, `LABEL`, `BARCODE`, `TITLE`, `ARTIST` in v1), preserve audio STREAMINFO MD5, verify decoded audio with `flac -t`, read the actual tags back and recompute each whole-file SHA-256. Re-validate source CUE/extraction evidence and preserve every other original file.
+3. Preview source/target directory and every accepted metadata field. `CATALOGNUMBER` changes **must** update the album folder naming, e.g. `/archive/Carmen Gomes Inc/Desire (2010) [fa89edc1]` → `/archive/Carmen Gomes Inc/[CGi2010] Desire (2010) [fa89edc1]`. An approved `DATE` adds or replaces the folder year and updates the Collection year in the same revision. A year-only MusicBrainz date stays year-only in the tag. An approved `RELEASECOUNTRY` updates the country code on all tracks.
+4. On explicit operator confirmation, duplicate the original entire album into an isolated temporary sibling directory. Modify **only approved FLAC Vorbis fields** (`CATALOGNUMBER`, `LABEL`, `BARCODE`, `DATE`, `RELEASECOUNTRY`, `TITLE`, `ARTIST`, `GENRE`), preserve audio STREAMINFO MD5, verify decoded audio with `flac -t`, read the actual tags back and recompute each whole-file SHA-256. Re-validate source CUE/extraction evidence and preserve every other original file.
 5. Create a new `published_verified` manifest with a **new** publish ID, the new FLAC hashes, an explicit parent publish ID/parent manifest SHA-256 and list of approved proposal fingerprints. The original publication manifest is never edited.
 6. Under the existing exclusive cross-process archive publication lock, write a durable SQLite migration journal, move the original album **without changing its contents** into `/archive/.oscar-archive-versions/<old-publish-id>/<operation-id>`, and atomically promote the fully verified new album to the reviewed destination. Never overwrite a pre-existing destination.
 7. In a transactional SQLite update, rebind the existing Collection archive row to the new path, set reviewed catalog number, preserve nonblank manually curated Collection labels, mark only those exact approved proposals as `applied` and append immutable `applied` decision events. Subsequent Collection imports exclude `.oscar-archive-versions` and must not recreate retired historical paths. Retained original versions are never deleted.

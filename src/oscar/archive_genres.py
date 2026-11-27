@@ -59,3 +59,32 @@ def classify(raw_genres, *, profile=None):
         section = "Unclassified"
     values = [name for name in _PREFERRED if name in recognized][:8]
     return {"genres": "; ".join(values), "library_section": section}
+
+
+def normalize_genres(values):
+    """Curated independent Vorbis GENRE values, never combined with semicolons.
+
+    Reject unsupported/freetext styles rather than write them into FLAC.
+    The section parent Classical is explicitly included for Baroque/Romantic.
+    """
+    if not isinstance(values, list) or len(values) > 40:
+        raise ValueError("Invalid genre list")
+    result = classify(values)["genres"]
+    return result.split("; ") if result else []
+
+
+def musicbrainz_genres(payload):
+    """Normalize only official MusicBrainz genres with positive vote counts.
+
+    Never use unrestricted 'tags', artists or work-level tags as release genres.
+    """
+    if not isinstance(payload, dict):
+        return []
+    options = payload.get("genres") or []
+    if not isinstance(options, list):
+        return []
+    return normalize_genres([
+        item["name"] for item in options[:80]
+        if isinstance(item, dict) and isinstance(item.get("name"), str)
+        and type(item.get("count")) is int and item["count"] > 0
+    ][:40])

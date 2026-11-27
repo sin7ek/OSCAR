@@ -15,6 +15,12 @@ import sys
 
 _CUE_FILE = re.compile(r'^\s*FILE\s+"([^"\r\n]+)"\s+WAVE\s*$', re.I)
 _NUMBER = re.compile(r"^(\d{1,3})\s*[-.]\s*")
+_PLAYABLE_AUDIO_SUFFIXES = {
+    ".aac", ".aif", ".aiff", ".alac", ".ape", ".dff", ".dsf", ".flac", ".m4a",
+    ".m4b", ".mka", ".mp3", ".mp4", ".oga", ".ogg", ".opus", ".wav", ".wma", ".wv",
+}
+_EVIDENCE_FOLDERS = {"ExtractionEvidence", "FailedAttempts", "Verification"}
+
 
 
 def _sha256(path: Path) -> str:
@@ -180,6 +186,11 @@ def audit_release(folder: Path, *, timeout: int = 180) -> dict:
     elif provenance in {"PHYSICAL_CD_RIP", "HYBRID_REPAIRED_CD_RIP"}:
         _issue(warnings, "EVIDENCE_NOT_EMBEDDED", "Original extraction evidence is not embedded in this archive")
 
+    from oscar import cd_extra
+    try:
+        cd_extra.check_archive(folder, manifest)
+    except (OSError, ValueError, RuntimeError, KeyError) as exc:
+        _issue(errors, "CD_EXTRA_DATA_MISMATCH", str(exc))
     return {"release": str(folder), "source_type": provenance,
             "status": "FAIL" if errors else "PASS_WITH_WARNINGS" if warnings else "PASS",
             "active_flacs": len(audio), "errors": errors, "warnings": warnings,
@@ -194,25 +205,33 @@ def audit_archive(root: Path) -> dict:
     if not root.is_dir() or root.is_symlink():
         raise ValueError("Archive root must be a real directory")
     albums = []
-    for folder in root.rglob("*"):
-        if not folder.is_dir() or folder.is_symlink():
+    evidence_audio = []
+    for path in root.rglob("*"):
+        if path.is_symlink():
             continue
-        relative = folder.relative_to(root)
+        relative = path.relative_to(root)
         if any(part.startswith(".oscar-unpublished-") or part in
-               {"ExtractionEvidence", "FailedAttempts", "Verification"} for part in relative.parts):
+               {".oscar-archive-versions", "old-publications"} for part in relative.parts):
             continue
-        if any(folder.glob("*.flac")) or (folder / "manifest.json").exists():
-            albums.append(folder)
+        if _EVIDENCE_FOLDERS.intersection(relative.parts[:-1]):
+            if path.is_file() and path.suffix.lower() in _PLAYABLE_AUDIO_SUFFIXES:
+                evidence_audio.append(relative.as_posix())
+            continue
+        if (path.is_dir() and path.name not in _EVIDENCE_FOLDERS
+                and (any(path.glob("*.flac")) or (path / "manifest.json").exists())):
+            albums.append(path)
     releases = [audit_release(folder) for folder in sorted(albums)]
+    evidence_audio.sort()
     return {
         "archive_root": str(root),
         "releases_examined": len(releases),
+        "playable_evidence": evidence_audio,
         "active_flacs": sum(r["active_flacs"] for r in releases),
         "source_types": {source: sum(r["source_type"] == source for r in releases)
                          for source in ("PHYSICAL_CD_RIP", "DIGITAL_ACQUISITION",
                                         "HYBRID_REPAIRED_CD_RIP", "UNKNOWN")},
         "status": ("FAIL" if any(r["status"] == "FAIL" for r in releases)
-                   else "PASS_WITH_WARNINGS" if any(r["warnings"] for r in releases) else "PASS"),
+                   else "PASS_WITH_WARNINGS" if evidence_audio or any(r["warnings"] for r in releases) else "PASS"),
         "releases": releases,
     }
 
@@ -236,6 +255,8 @@ def main(argv=None) -> int:
                 print(f"  ERROR {issue['code']}: {issue['message']}")
             for issue in release["warnings"]:
                 print(f"  WARN  {issue['code']}: {issue['message']}")
+        for path in result["playable_evidence"]:
+            print(f"  WARN PLAYABLE_EVIDENCE: {path}")
         print("AccurateRip/CTDB: not independently checked by this auditor.")
     return 1 if result["status"] == "FAIL" else 0
 

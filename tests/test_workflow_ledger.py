@@ -61,6 +61,17 @@ def test_defer_resume_is_idempotent_and_persisted(saved):
     assert ledger.list_jobs()["jobs"][0]["phase"]=="RELEASE_REVIEW_PENDING"
 
 
+def test_hidden_workflow_remains_in_history_and_can_be_restored(saved):
+    ledger.register(JOB)
+    ledger.set_archived(JOB, True)
+    assert not ledger.list_jobs()["jobs"]
+    archived = ledger.list_jobs(include_archived=True)["jobs"][0]
+    assert archived["job_id"] == JOB and archived["archived_at"]
+    assert saved.is_dir()
+    ledger.set_archived(JOB, False)
+    assert ledger.list_jobs()["jobs"][0]["job_id"] == JOB
+
+
 def test_verification_pending_only_advances_on_actual_saved_evidence(saved,monkeypatch):
     monkeypatch.setattr(ledger.verification,"report",
                         lambda job_id: {"job_id":job_id,"status":"review_required"})
@@ -86,3 +97,28 @@ def test_workflow_tracking_ui_only_states_supported_capabilities():
     assert "Persistent workflow ledger" in html
     assert "Go! jobs are registered automatically; use this form only for manual recovery" in html
     assert "workflow-register" in html
+
+
+def test_list_jobs_exposes_read_only_candidate_hint_and_sort_timestamps(saved, monkeypatch):
+    ledger.register(JOB)
+    with ledger._db() as db:
+        db.execute("UPDATE workflow_jobs SET proposed_release_id=?, candidate_options=? WHERE job_id=?",
+                   ("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", json.dumps([{
+                       "release_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+                       "title": "The Symphonies", "date": "2010", "score": 100
+                   }]), JOB))
+    item = ledger.list_jobs()["jobs"][0]
+    assert item["candidate_title"] == "The Symphonies"
+    assert item["candidate_date"] == "2010"
+    assert item["match_status"] == "INFERRED_NOT_PHYSICALLY_VERIFIED"
+    assert item["created_at"] and item["updated_at"]
+    assert "candidate_options" not in item
+    assert not item["accepted_release_id"]
+
+
+def test_go_ui_has_filter_and_sort_controls():
+    html = TestClient(app).get("/").text
+    assert 'id="go-job-filter"' in html
+    assert 'id="go-job-sort"' in html
+    assert "renderTrackedGoJobs" in html
+    assert "possible MusicBrainz match (NOT edition verified)" in html

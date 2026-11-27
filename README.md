@@ -1,18 +1,11 @@
-## Current development snapshot — 20 November 2026
-
-- **Tested on Unraid:** three local published disc records; Anastacia *Freak of Nature* and *Boulez Conducts Stravinsky* CDs 4 and 6 (7 + 32 tracks) stored as `Disc 04`/`Disc 06` under the same six-CD boxset directory. The remaining four boxset discs are not represented as archived by these records.
-- **MusicBrainz Disc ID handoff:** OSCAR can prepare a TOC-based MusicBrainz attach link for an explicitly accepted Semi Automatic single-CD release (#75), and passes the accepted release as a search filter (#76). The user attached the physical 12-track Carmen Gomes *Desire* Disc ID `VxfLacbEsNFCv5Ua4bvIeBIQ3jQ-`. This does not automatically upgrade old job provenance or prove an exact physical pressing.
-- **Next priorities:** refresh current MusicBrainz Disc ID matching on previously accepted jobs; add deterministic, operator-reviewed MusicBrainz edit-note templates; then OAuth-based MusicBrainz **read-only collections** and multi-platform comparison with Discogs and OSCAR local inventory.
-- **Credential names reserved for future MusicBrainz OAuth:** `OSCAR_MUSICBRAINZ_ID` (client ID) and `OSCAR_MUSICBRAINZ_CS` (client secret), together with existing `OSCAR_DISCOGS_PAT`. MusicBrainz collection OAuth and outbound collection writes are **not yet implemented**. Keep secrets server-side; do not commit secrets or put them in reports.
-
-Full maturity and evidence: [development progress dashboard](docs/PROGRESS.md) and [project status](docs/PROJECT_STATUS.md).
-
----
+![OSCAR — Preserve every note.](src/oscar/assets/OSCAR-header.png)
 
 # OSCAR
 **Open Source CD Archiving & Ripping**
 
 *Preserve every note.*
+
+**Rip once. Archive forever. Export whenever.**
 
 Automated, archival-grade CD ripping with AccurateRip/CTDB verification, MusicBrainz metadata, FLAC, CUE sheets, and classical music support.
 
@@ -55,16 +48,21 @@ All **28 tracks** were extracted to FLAC without reported ripping errors. Cyanri
 This was OSCAR's **first successful complete real-world rip**, exactly five years after Oscar's death. It was not yet an automatically tagged or published archive, and OSCAR's independent verification engine is still being developed.
 
 ## Status
-**v0.1.0-alpha: read-only metadata scaffold plus an opt-in experimental cyanrip staging rip.** This prototype can extract a test CD only after explicit configuration and confirmation, into a newly created staging directory. No independently verified archive, publishing, or cleanup is implemented. AccurateRip/CTDB evidence must be proven on hardware before claims of verified operation.
+
+OSCAR is an experimental CD-ripping and archiving application. Go! can run a staged cyanrip extraction, verify FLAC integrity, compare release identifiers, guide metadata and artwork review, and publish an approved archive. Collection tracks published editions. Cleanup shows verified duplicate candidates and retained archive revisions.
+
+Tower has exercised physical rips, reviewed publication, archive revisions and CD-Extra audio verification. Raw CD-Extra data capture, the supplement workflow and the latest Cleanup feedback have separate acceptance checks.
 
 ## Development progress
 
-See the [living progress dashboard](docs/PROGRESS.md) for area-by-area percentage estimates, bar charts, supporting evidence, limitations and update rules. Percentages are qualitative assessments, not automatically calculated completion metrics. The [project status and handoff](docs/PROJECT_STATUS.md) remains the source of truth for verified tests and current next steps.
+- [Dashboard with status bars](docs/PROGRESS.md)
+- [Project work document and Tower evidence](docs/PROJECT_STATUS.md)
+- [Developer handoff](docs/DEVELOPER_HANDOFF.md)
 
 ## Goals
 - Detect audio CDs, record drive identity, read offset and table of contents (including pregaps and HTOA capability).
 - Rip lossless FLAC using a proven secure ripping engine (cyanrip is a candidate).
-- Verify audio using AccurateRip v1/v2, CTDB (tooling feasibility to be established on Linux), FLAC decoding, hashes and rip logs.
+- Record AccurateRip v1/v2 and independent CTDB outcomes alongside FLAC decoding, hashes and rip logs.
 - Identify the **specific physical release** using MusicBrainz disc IDs, barcode, label/catalog numbers and artwork.
 - Support classical works, movements, composers, conductors, orchestras, performers and multidisc boxsets.
 - Produce preserved original CUE information, usable FLAC CUE sheets, `SOURCES.txt` and structured `manifest.json`.
@@ -76,7 +74,7 @@ See the [living progress dashboard](docs/PROGRESS.md) for area-by-area percentag
 3. No AccurateRip/CTDB entry is **unverified**, not a mismatch.
 4. A database match does not prove a particular physical release.
 5. Do not publish ambiguous metadata or failed rips automatically.
-6. No destructive cleanup without confirmed archival integrity; cleanup is initially disabled.
+6. Verified Cleanup requires archive evidence. The explicit Danger Zone action can permanently remove selected staging, history or retired publication folders.
 7. Never automatically move or rewrite an existing Archive.
 
 ## Development
@@ -90,9 +88,9 @@ The `/health` endpoint reports **scaffold status only**; it does not detect disc
 
 For common community questions, see the **[Frequently Asked Questions (FAQ)](docs/FAQ.md)**.
 
-For a new development session, start with [Project status and handoff](docs/PROJECT_STATUS.md), then [Architecture](docs/ARCHITECTURE.md), [Metadata retry queue](docs/METADATA_QUEUE.md), [First experimental rip](docs/FIRST_RIP_STAGING.md), and [Milestone 01](docs/MILESTONE_01.md).
+For a new development session, start with the [developer handoff](docs/DEVELOPER_HANDOFF.md), then review the [architecture](docs/ARCHITECTURE.md) and the guides it links.
 
-For completed staging jobs, [Staging verification](docs/STAGING_VERIFICATION.md) explains how OSCAR checks FLAC decoding, SHA-256 and cyanrip's logged AccurateRip results without modifying the original rip or claiming independent CTDB verification.
+For completed staging jobs, [Staging verification](docs/STAGING_VERIFICATION.md) explains the FLAC, SHA-256 and AccurateRip checks, along with independent CTDB lookup for eligible rips.
 
 After a report passes, [Reviewed metadata and tagged staging copies](docs/METADATA_STAGING.md) describes selecting the exact MusicBrainz release, previewing classical relationships, and making separately tagged FLAC copies without changing the original rip or publishing an archive.
 

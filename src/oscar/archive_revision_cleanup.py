@@ -51,6 +51,10 @@ def cleanup_status(operation_id):
     return dict(row) if row else None
 
 
+def enabled():
+    return os.environ.get("OSCAR_ENABLE_ARCHIVE_HISTORY_CLEANUP") == "1"
+
+
 def clean(operation_id, verification_fingerprint, confirmation,
           *, external_backup_confirmed=False):
     """Remove only the one retained original identified in completed journal.
@@ -58,7 +62,7 @@ def clean(operation_id, verification_fingerprint, confirmation,
     The entire independent Verify runs AGAIN, under the publisher's exclusive
     filesystem lock. A stale verification receipt cannot permit deletion.
     """
-    if os.environ.get("OSCAR_ENABLE_ARCHIVE_HISTORY_CLEANUP") != "1":
+    if not enabled():
         raise ArchiveCleanupError(
             "Permanent history deletion is disabled. Explicitly enable "
             "OSCAR_ENABLE_ARCHIVE_HISTORY_CLEANUP=1 after external backups."
@@ -98,10 +102,35 @@ def clean(operation_id, verification_fingerprint, confirmation,
                 raise ArchiveCleanupError(
                     "Archive revision incomplete or another interrupted operation needs reconciliation"
                 )
-            expected = root / ".oscar-archive-versions" / row["source_publish_id"] / operation_id
-            backup = Path(row["backup_path"])
-            if (backup != expected or not backup.is_relative_to(root)
-                    or not backup.is_dir() or backup.is_symlink()
+            # A superseded revision's published output is retained as the
+            # original of its successor. Never delete its history through
+            # an old verification receipt or a manually crafted API request.
+            with _db() as db:
+                successor = db.execute(
+                    "SELECT 1 FROM archive_revision_operations "
+                    "WHERE source_publish_id=? AND source_path=? LIMIT 1",
+                    (row["new_publish_id"], row["dest_path"]),
+                ).fetchone()
+            if successor:
+                raise ArchiveCleanupError(
+                    "Historical revision is part of a later archive chain; "
+                    "cleanup is prohibited"
+                )
+            with _db() as db:
+                predecessor = db.execute(
+                    "SELECT 1 FROM archive_revision_operations "
+                    "WHERE new_publish_id=? AND dest_path=? AND status='completed' LIMIT 1",
+                    (row["source_publish_id"], row["source_path"]),
+                ).fetchone()
+            if predecessor:
+                raise ArchiveCleanupError(
+                    "This retained original is a previous revision's output; "
+                    "cleanup would break archived ancestry and is prohibited"
+                )
+            from oscar import archive_history
+            backup = archive_history.retained(root, row["source_publish_id"], operation_id,
+                                              recorded=row["backup_path"])
+            if (not backup.is_dir() or backup.is_symlink()
                     or backup.resolve(strict=True) != backup
                     or backup.parent.is_symlink()
                     or backup.parent.parent.is_symlink()):

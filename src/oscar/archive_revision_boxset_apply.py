@@ -58,50 +58,47 @@ def _enabled():
         )
 
 
+def journal_changes(entry):
+    """Read both current group change lists and pre-existing single-field journals."""
+    if "changes" in entry:
+        return entry["changes"]
+    return [{"field": entry.get("field", "LABEL"), "fingerprint": entry["fingerprint"],
+             "before": entry["before"], "after": entry["after"]}]
+
+
 def _entries(review, operation_id):
     root = catalog.archive_root()
     entries = []
     for disc in review["disc_reviews"]:
-        if disc["label_status"] == "already_correct":
-            # This CD still contributes its exact physical identity and hashes
-            # to the plan fingerprint, but its already-correct archive generation
-            # must not be copied/retagged or versioned unnecessarily.
+        changes = [{"field": name, "fingerprint": values["fingerprint"],
+                    "before": values["before"], "after": values["after"],
+                    **({"source_url": values["source_url"]} if values.get("source_url") else {})}
+                   for name, values in disc["metadata"].items() if values["fingerprint"]]
+        if not changes:
             continue
-        if disc["label_status"] != "approved_for_review" or not disc["accepted_fingerprint"]:
-            raise BoxsetApplyError(
-                "Every present disc must be already correct or explicitly approved"
-            )
         source = Path(disc["archive_path"])
         if source.is_symlink() or not source.is_dir():
             raise BoxsetApplyError("Unsafe original disc directory")
         with _db() as db:
             proposals = db.execute(
-                "SELECT fingerprint,field,scope,track,before_json,after_json "
-                "FROM metadata_proposals WHERE archive_path=? AND status='accepted'",
+                "SELECT fingerprint FROM metadata_proposals WHERE archive_path=? AND status='accepted'",
                 (str(source),),
             ).fetchall()
-        if len(proposals) != 1 or proposals[0]["fingerprint"] != disc["accepted_fingerprint"]:
+        if {row["fingerprint"] for row in proposals} != {c["fingerprint"] for c in changes}:
             raise BoxsetApplyError("Unreviewed or extra metadata proposals on a disc")
-        proposal = proposals[0]
-        if proposal["field"] != "LABEL" or proposal["scope"] != "release" or proposal["track"] != 0:
-            raise BoxsetApplyError("Group v1 supports approved release LABEL only")
         manifest = json.loads((source / "manifest.json").read_text(encoding="utf-8"))
         if manifest.get("publish_id") != disc["publication_id"]:
             raise BoxsetApplyError("Original publication changed")
-        hidden = root / ".oscar-archive-versions" / disc["publication_id"] / (
-            operation_id + "-disc-" + str(disc["disc"]).zfill(2)
-        )
-        temp = source.parent / (
-            ".oscar-unpublished-boxset-" + operation_id + "-" + str(disc["disc"]).zfill(2)
-        )
+        suffix = str(disc["disc"]).zfill(2)
+        from oscar import archive_history
+        hidden = archive_history.retained(root, disc["publication_id"], operation_id + "-disc-" + suffix)
+        temp = source.parent / (".oscar-unpublished-boxset-" + operation_id + "-" + suffix)
         entries.append({
-            "disc": disc["disc"], "source": str(source), "backup": str(hidden),
+            "disc": disc["disc"], "changes": changes,
+            "source": str(source), "backup": str(hidden),
             "temp": str(temp), "old_publish_id": disc["publication_id"],
             "old_manifest_sha256": disc["manifest_sha256"],
             "new_publish_id": "",
-            "fingerprint": disc["accepted_fingerprint"],
-            "before": json.loads(proposal["before_json"]),
-            "after": json.loads(proposal["after_json"]),
         })
     if not entries:
         raise BoxsetApplyError("No approved disc needs migration")
@@ -139,8 +136,11 @@ def _validate_leaf(path, entry, *, new):
         if new:
             from mutagen.flac import FLAC
             actual = FLAC(str(audio))
-            if scanner._canonical(actual.get("LABEL") or []) != scanner._canonical(entry["after"]):
-                raise BoxsetApplyError("New FLAC LABEL does not match approved values")
+            for change in journal_changes(entry):
+                field = change["field"]
+                if (field not in boxset.FIELDS
+                        or scanner._canonical(actual.get(field) or []) != scanner._canonical(change["after"])):
+                    raise BoxsetApplyError("New FLAC " + field + " does not match approved values")
             import subprocess
             result = subprocess.run(["flac", "-t", "--silent", str(audio)],
                                     capture_output=True, timeout=180, check=False)
@@ -154,7 +154,10 @@ def _advance(entries):
     for entry in entries:
         source, backup, temp = (Path(entry[k]) for k in ("source", "backup", "temp"))
         root = catalog.archive_root()
-        history = root / ".oscar-archive-versions"
+        from oscar import archive_history
+        history = archive_history.root(root)
+        if backup.resolve() != backup or backup.parent.parent not in {history, root / archive_history.LEGACY}:
+            raise BoxsetApplyError("Unsafe retained-history path")
         if history.is_symlink() or (history.exists() and not history.is_dir()):
             raise BoxsetApplyError("Unsafe retained-history parent")
         if backup.parent.is_symlink() or (
@@ -163,6 +166,12 @@ def _advance(entries):
             raise BoxsetApplyError("Unsafe retained-history publication directory")
         if source.is_symlink() or backup.is_symlink() or temp.is_symlink():
             raise BoxsetApplyError("Unsafe symbolic link in group publication")
+        if temp.is_dir():
+            candidate = _validate_leaf(temp, entry, new=True)
+            try:
+                archive_publish._assert_playable_inventory(temp, candidate["files"])
+            except archive_publish.PublishError as exc:
+                raise BoxsetApplyError(str(exc)) from exc
         if backup.exists():
             _validate_leaf(backup, entry, new=False)
         if source.exists():
@@ -178,17 +187,15 @@ def _advance(entries):
             _validate_leaf(source, entry, new=False)
             if not temp.is_dir():
                 raise BoxsetApplyError("Expected verified candidate is missing during recovery")
-            _validate_leaf(temp, entry, new=True)
             backup.parent.mkdir(parents=True, exist_ok=True)
             if backup.exists() or backup.is_symlink():
                 raise BoxsetApplyError("Original history destination collision")
-            archive_publish._rename_noreplace(source, backup)
+            archive_history.move(root, source, backup)
         else:
             if not backup.exists():
                 raise BoxsetApplyError("Disc missing without a retained original")
         if not temp.is_dir():
             raise BoxsetApplyError("Expected verified candidate is missing during recovery")
-        _validate_leaf(temp, entry, new=True)
         archive_publish._rename_noreplace(temp, source)
         _validate_leaf(source, entry, new=True)
 
@@ -259,36 +266,61 @@ def _finalize(operation_id, entries):
         if operation is None or operation["status"] != "prepared":
             raise BoxsetApplyError("Group operation no longer awaiting finalization")
         for entry in entries:
-            item = db.execute(
-                "SELECT status,archive_path FROM metadata_proposals WHERE fingerprint=?",
-                (entry["fingerprint"],),
-            ).fetchone()
-            if item is None or item["status"] != "accepted" or item["archive_path"] != entry["source"]:
-                raise BoxsetApplyError("Group approval changed before database commit")
-            row = db.execute(
-                "SELECT label,label_provenance FROM archive_items WHERE archive_path=?",
-                (entry["source"],),
-            ).fetchone()
-            if row is None:
-                raise BoxsetApplyError("Disc disappeared from Collection")
-            permitted = ("", "archive_manifest_label_info", "archived_flac_label_tag",
-                         "musicbrainz_exact_release_catalog_match",
-                         "archive_revision_approved_labels")
-            if row["label"] and row["label_provenance"] not in permitted:
-                raise BoxsetApplyError("Manual Collection label cannot be overwritten")
-            db.execute(
-                "UPDATE archive_items SET label=?,label_provenance=? WHERE archive_path=?",
-                ("; ".join(entry["after"]), "archive_revision_approved_labels", entry["source"]),
-            )
-            db.execute(
-                "UPDATE metadata_proposals SET status='applied',decided_at=? WHERE fingerprint=?",
-                (single._now(), entry["fingerprint"]),
-            )
-            db.execute(
-                "INSERT INTO metadata_decision_events "
-                "(fingerprint,decision,happened_at,archive_revision) VALUES (?,?,?,?)",
-                (entry["fingerprint"], "applied", single._now(), entry["old_manifest_sha256"]),
-            )
+            for change in journal_changes(entry):
+                item = db.execute(
+                    "SELECT status,archive_path FROM metadata_proposals WHERE fingerprint=?",
+                    (change["fingerprint"],),
+                ).fetchone()
+                if item is None or item["status"] != "accepted" or item["archive_path"] != entry["source"]:
+                    raise BoxsetApplyError("Group approval changed before database commit")
+                row = db.execute(
+                    "SELECT label,label_provenance,genres,library_section "
+                    "FROM archive_items WHERE archive_path=?", (entry["source"],)
+                ).fetchone()
+                if row is None:
+                    raise BoxsetApplyError("Disc disappeared from Collection")
+                field = change["field"]
+                if field == "LABEL":
+                    permitted = ("", "archive_manifest_label_info", "archived_flac_label_tag",
+                                 "musicbrainz_exact_release_catalog_match",
+                                 "archive_revision_approved_labels")
+                    if row["label"] and row["label_provenance"] not in permitted:
+                        raise BoxsetApplyError("Manual Collection label cannot be overwritten")
+                    db.execute(
+                        "UPDATE archive_items SET label=?,label_provenance=? WHERE archive_path=?",
+                        ("; ".join(change["after"]), "archive_revision_approved_labels", entry["source"]),
+                    )
+                elif field == "GENRE":
+                    from oscar.archive_genres import classify, normalize_genres
+                    from mutagen.flac import FLAC
+                    if scanner._canonical(normalize_genres(change["after"])) != scanner._canonical(change["after"]):
+                        raise BoxsetApplyError("Unreviewed or unsupported genres")
+                    original_manifest = json.loads((Path(entry["backup"]) / "manifest.json").read_text(encoding="utf-8"))
+                    previous = classify(change["before"], profile=original_manifest.get("profile"))
+                    if (row["genres"] not in ("", previous["genres"]) or
+                            row["library_section"] not in ("Unclassified", previous["library_section"])):
+                        raise BoxsetApplyError("Locally curated Collection genre cannot be overwritten")
+                    new_manifest = json.loads((Path(entry["source"]) / "manifest.json").read_text(encoding="utf-8"))
+                    first = new_manifest["files"][0]["filename"]
+                    actual = scanner._canonical(FLAC(str(Path(entry["source"]) / first)).get("GENRE") or [])
+                    if actual != scanner._canonical(change["after"]):
+                        raise BoxsetApplyError("Promoted GENRE differs from approved proposal")
+                    next_values = classify(change["after"], profile=new_manifest.get("profile"))
+                    db.execute(
+                        "UPDATE archive_items SET genres=?,library_section=? WHERE archive_path=?",
+                        (next_values["genres"], next_values["library_section"], entry["source"]),
+                    )
+                elif field != "RELEASECOUNTRY":
+                    raise BoxsetApplyError("Unexpected migration field in durable group journal")
+                db.execute(
+                    "UPDATE metadata_proposals SET status='applied',decided_at=? WHERE fingerprint=?",
+                    (single._now(), change["fingerprint"]),
+                )
+                db.execute(
+                    "INSERT INTO metadata_decision_events "
+                    "(fingerprint,decision,happened_at,archive_revision) VALUES (?,?,?,?)",
+                    (change["fingerprint"], "applied", single._now(), entry["old_manifest_sha256"]),
+                )
         db.execute(
             "UPDATE boxset_revision_operations SET status='completed',finished_at=?,error='' "
             "WHERE operation_id=?", (single._now(), operation_id),
@@ -296,7 +328,9 @@ def _finalize(operation_id, entries):
         db.commit()
 
 
-def apply(release_id, fingerprint, confirmation, *, lookup=None):
+def apply(release_id, fingerprint, confirmation, *, lookup=None, field="LABEL"):
+    if field not in boxset.MODES:
+        raise BoxsetApplyError("Invalid coordinated revision field")
     _enabled()
     if confirmation != _CONFIRM:
         raise BoxsetApplyError("Explicit group migration confirmation required")
@@ -315,7 +349,7 @@ def apply(release_id, fingerprint, confirmation, *, lookup=None):
             ).fetchone()
         if pending:
             raise BoxsetApplyError("An interrupted group must be reconciled before another Apply")
-        review = boxset.preview(release_id, lookup=lookup)
+        review = boxset.preview(release_id, lookup=lookup, field=field)
         if review["fingerprint"] != fingerprint:
             raise BoxsetApplyError("Stale group preview: recheck newly published discs and approvals")
         if not review["all_present_discs_reviewed"]:
@@ -328,11 +362,8 @@ def apply(release_id, fingerprint, confirmation, *, lookup=None):
             if temp.exists() or temp.is_symlink() or backup.exists() or backup.is_symlink():
                 raise BoxsetApplyError("Group stage or retained-original path collision")
             plan = {
-                "accepted_changes": [{
-                    "scope": "release", "track": 0, "field": "LABEL",
-                    "before": entry["before"], "after": entry["after"],
-                    "fingerprint": entry["fingerprint"],
-                }],
+                "accepted_changes": [{**change, "scope": "release", "track": 0}
+                                     for change in journal_changes(entry)],
                 "original_publish_id": entry["old_publish_id"],
                 "original_manifest_sha256": entry["old_manifest_sha256"],
                 "source_path": entry["source"],
@@ -364,7 +395,7 @@ def apply(release_id, fingerprint, confirmation, *, lookup=None):
                 "discs": [e["disc"] for e in entries],
                 "verified_unchanged_discs": [
                     d["disc"] for d in review["disc_reviews"]
-                    if d["label_status"] == "already_correct"
+                    if not any(change["fingerprint"] for change in d["metadata"].values())
                 ],
                 "originals_retained": [e["backup"] for e in entries]}
 
@@ -403,13 +434,15 @@ def operations():
     return {"items": [dict(row) for row in rows]}
 
 
-def start(release_id, fingerprint, confirmation):
+def start(release_id, fingerprint, confirmation, *, field="LABEL"):
+    if field not in boxset.MODES:
+        raise BoxsetApplyError("Invalid coordinated revision field")
     """Run potentially long FLAC verification without relying on proxy timeout."""
     _enabled()
     if confirmation != _CONFIRM:
         raise BoxsetApplyError("Explicit group migration confirmation required")
     # Verify a preview exists, including the exact currently indexed physical discs.
-    review = boxset.preview(release_id)
+    review = boxset.preview(release_id, field=field)
     if review["fingerprint"] != fingerprint or not review["apply_supported"]:
         raise BoxsetApplyError("Group plan changed or is not approved for Apply")
     task_id = uuid.uuid4().hex
@@ -424,7 +457,7 @@ def start(release_id, fingerprint, confirmation):
 
     def work():
         try:
-            result = apply(release_id, fingerprint, confirmation)
+            result = apply(release_id, fingerprint, confirmation, field=field)
             with _MUTEX:
                 _JOBS[task_id].update(status="completed", result=result)
         except Exception as exc:

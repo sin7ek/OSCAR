@@ -5,6 +5,7 @@ upgrade of the persisted operator-accepted provenance or proof of pressing.
 """
 import json
 import re
+from urllib.parse import urlencode
 
 from oscar import musicbrainz, verification, workflow_ledger
 from oscar.boxsets import lookup_release_medium
@@ -60,16 +61,46 @@ def refresh_accepted_match(job_id: str, *, lookup=None) -> dict:
     matching = [m for m in current.get("matched_media", [])
                 if m.get("disc_id_attached") is True
                 and m.get("track_count_matches") is True
-                and m.get("format") == "CD"]
+                and m.get("format") in {"CD", "Enhanced CD"}]
     if current.get("status") == "exact_disc_id_and_track_count" and len(matching) == 1:
         outcome = "disc_id_now_attached"
     elif current.get("status") == "no_exact_medium_match":
         outcome = "disc_id_not_attached"
     else:
         outcome = "ambiguous_or_incompatible"
+    media = current.get("all_media") or []
+    positions = [medium.get("position") for medium in media]
+    valid_media = (len(media) == current.get("total_media")
+                   and all(type(position) is int and position > 0 for position in positions)
+                   and set(positions) == set(range(1, len(media) + 1)))
+    lengths = [round((end - start) * 1000 / 75)
+               for start, end in zip(starts, starts[1:] + [leadout])]
+    options = []
+    for medium in media:
+        tracks = medium.get("tracks") or []
+        differences = [
+            {"track": number, "rip_ms": expected, "musicbrainz_ms": track["length_ms"]}
+            for number, (expected, track) in enumerate(zip(lengths, tracks), 1)
+            if type(track.get("length_ms")) is int and abs(track["length_ms"] - expected) >= 1000
+        ]
+        options.append({
+            "position": medium.get("position"), "title": medium.get("title"),
+            "format": medium.get("format"), "track_count": medium.get("track_count"),
+            "compatible": (valid_media and outcome == "disc_id_not_attached"
+                           and medium.get("format") in {"CD", "Enhanced CD"}
+                           and medium.get("track_count") == last and not medium.get("disc_id_attached")),
+            "duration_differences": differences,
+        })
+    candidates = [option for option in options if option["compatible"]]
+    attach_url = ("https://musicbrainz.org/cdtoc/attach?" + urlencode({
+        "toc": toc, "filter-release.query": release_id,
+    })) if candidates else None
     return {
         "job_id": job_id,
         "accepted_release_id": release_id,
+        "release_title": current.get("release_title"),
+        "media": options,
+        "musicbrainz_attach_url": attach_url,
         "disc_id": disc_id,
         "track_count": last,
         "lookup_status": outcome,

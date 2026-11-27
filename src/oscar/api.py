@@ -5,27 +5,39 @@ from contextlib import asynccontextmanager
 
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse
 
-from oscar.settings import OscarSettings, discover_settings, inspect_drives, save_settings
+from oscar.settings import OscarSettings, discover_settings, inspect_drives, read_settings, save_settings
 from oscar.web import settings_page
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Start the metadata-only worker when explicitly enabled."""
     stop = threading.Event()
-    worker = None
+    workers = []
     if os.environ.get("OSCAR_ENABLE_METADATA_WORKER") == "1":
         from oscar.metadata_queue import worker_loop
         worker = threading.Thread(target=worker_loop, args=(stop,),
                                   daemon=True, name="oscar-metadata-retry")
+        workers.append(worker)
+    from oscar import cleanup
+    if cleanup._auto_days():
+        workers.append(threading.Thread(target=cleanup.worker, args=(stop,), daemon=True,
+                                        name="oscar-staging-cleanup"))
+    from oscar import ripping
+    if ripping.enabled():
+        from oscar.auto_rip import watch_insertions
+
+        workers.append(threading.Thread(target=watch_insertions, args=(stop,),
+                                        daemon=True, name="oscar-disc-insertion"))
+    for worker in workers:
         worker.start()
     try:
         yield
     finally:
         stop.set()
-        if worker is not None:
+        for worker in workers:
             worker.join(timeout=2)
 
 
@@ -68,14 +80,22 @@ def get_settings():
     return discover_settings()
 
 
+_SETTINGS_WRITE_LOCK = threading.Lock()
+
+
 @app.put("/api/settings", response_model=OscarSettings)
-def put_settings(settings: OscarSettings):
+def put_settings(settings: OscarSettings, request: Request,
+                 x_oscar_rip_token: str | None = Header(default=None)):
     # Only configuration is saved; no device command is executed.
     ids = [drive.stable_id for drive in settings.drives]
     if len(ids) != len(set(ids)):
         from fastapi import HTTPException
         raise HTTPException(status_code=422, detail="Duplicate drive stable IDs")
-    save_settings(settings)
+    with _SETTINGS_WRITE_LOCK:
+        if (any(drive.auto_rip_on_insert for drive in settings.drives)
+                or any(drive.auto_rip_on_insert for drive in read_settings().drives)):
+            _rip_auth(x_oscar_rip_token, request, require_ripping=False)
+        save_settings(settings)
     return settings
 
 
@@ -138,15 +158,18 @@ def get_release_candidates(stable_id: str, catalog_number: str | None = None):
 
 @app.get("/api/release-search")
 def search_release_by_physical_evidence(catalog_number: str | None = None,
-                                        title: str | None = None):
-    """MusicBrainz discovery by printed catalog number or title, not an approval."""
+                                        title: str | None = None,
+                                        barcode: str | None = None,
+                                        matrix_runout: str | None = None):
+    """Discover MusicBrainz release candidates from physical evidence."""
     from oscar.musicbrainz import (
         MusicBrainzError, lookup_enabled, search_release_candidates,
     )
     if not lookup_enabled():
         raise HTTPException(status_code=403, detail="MusicBrainz lookup disabled")
     try:
-        return search_release_candidates(catalog_number=catalog_number, title=title)
+        return search_release_candidates(catalog_number=catalog_number, title=title,
+                                         barcode=barcode, matrix_runout=matrix_runout)
     except MusicBrainzError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -211,16 +234,17 @@ def get_metadata_queue_status():
 
 # Experimental extraction endpoints require BOTH environment opt-in and a token.
 # Endpoints never accept a filesystem destination from the browser.
-from fastapi import Header, HTTPException
 from pydantic import BaseModel, Field
 
 
 class RipRequest(BaseModel):
     stable_id: str = Field(min_length=1, max_length=256)
     confirmation: str
+    selected_tracks: list[int] | None = Field(default=None, max_length=99)
+    expected_disc_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9._-]{28}$")
 
 
-def _rip_auth(token: str | None, request: Request | None = None):
+def _rip_auth(token: str | None, request: Request | None = None, *, require_ripping=True):
     """Normal token mode, or explicitly opted-in trusted UI without a token.
 
     Trusted UI is intended ONLY behind an authenticated reverse proxy or
@@ -230,7 +254,7 @@ def _rip_auth(token: str | None, request: Request | None = None):
     from urllib.parse import urlsplit
     from ipaddress import ip_address
     from oscar.ripping import RipError, authorize, enabled
-    if not enabled():
+    if require_ripping and not enabled():
         raise HTTPException(status_code=403, detail="Experimental ripping disabled")
     if token:
         try:
@@ -280,10 +304,48 @@ def get_rip_plan(stable_id: str, request: Request, x_oscar_rip_token: str | None
 def start_rip(request: RipRequest, http_request: Request, x_oscar_rip_token: str | None = Header(default=None)):
     from oscar.ripping import RipError, start
     _rip_auth(x_oscar_rip_token, http_request)
-    if request.confirmation != "RIP_TO_STAGING":
+    expected = "RIP_DIAGNOSTIC_TRACKS" if request.selected_tracks is not None else "RIP_TO_STAGING"
+    if request.confirmation != expected:
         raise HTTPException(status_code=422, detail="Explicit staging confirmation required")
     try:
-        return start(request.stable_id)
+        options = {"expected_disc_id": request.expected_disc_id} if request.expected_disc_id else {}
+        return start(request.stable_id, selected_tracks=request.selected_tracks, **options)
+    except (RipError, OSError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+class DriveTrayRequest(BaseModel):
+    stable_id: str = Field(min_length=1, max_length=256)
+    action: str = Field(pattern=r"^(eject|close)$")
+    confirmation: str
+
+
+@app.post("/api/rip/tray")
+def rip_tray_action(body: DriveTrayRequest, request: Request,
+                    x_oscar_rip_token: str | None = Header(default=None)):
+    from oscar.ripping import RipError, control_tray
+    _rip_auth(x_oscar_rip_token, request)
+    if body.confirmation != "CONTROL_TRAY":
+        raise HTTPException(status_code=422, detail="Explicit tray confirmation required")
+    try:
+        return control_tray(body.stable_id, body.action)
+    except (RipError, OSError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+class StopRipRequest(BaseModel):
+    confirmation: str
+
+
+@app.post("/api/rip/jobs/{job_id}/stop")
+def rip_stop_job(job_id: str, body: StopRipRequest, request: Request,
+                 x_oscar_rip_token: str | None = Header(default=None)):
+    from oscar.ripping import RipError, stop
+    _rip_auth(x_oscar_rip_token, request)
+    if body.confirmation != "STOP_RIP_KEEP_STAGING":
+        raise HTTPException(status_code=422, detail="Explicit stop-and-retain-staging confirmation required")
+    try:
+        return stop(job_id)
     except (RipError, OSError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
@@ -400,6 +462,107 @@ def get_rip_verification(job_id: str, request: Request, x_oscar_rip_token: str |
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+@app.post("/api/rip/jobs/{job_id}/ctdb-verification")
+def verify_staged_disc_with_ctdb(job_id: str, request: Request,
+                                x_oscar_rip_token: str | None = Header(default=None)):
+    from oscar import ctdb_verification
+    from oscar.ripping import RipError
+
+    _rip_auth(x_oscar_rip_token, request)
+    try:
+        return ctdb_verification.verify(job_id)
+    except (RipError, OSError, ValueError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+class DiscogsPressingSearch(BaseModel):
+    catalog: str = Field(default="", max_length=100)
+    barcode: str = Field(default="", max_length=30)
+    matrix: str = Field(default="", max_length=250)
+    mastering_sid: str = Field(default="", max_length=32)
+    mould_sid: str = Field(default="", max_length=32)
+
+
+@app.post("/api/discogs/pressings")
+def search_discogs_pressings(body: DiscogsPressingSearch, request: Request,
+                            x_oscar_rip_token: str | None = Header(default=None)):
+    from oscar import discogs_readonly
+
+    _rip_auth(x_oscar_rip_token, request)
+    try:
+        return discogs_readonly.search_pressings(**body.model_dump())
+    except (discogs_readonly.DiscogsError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+class EditionSearchRequest(DiscogsPressingSearch):
+    discogs_release: str = Field(default="", max_length=300)
+
+
+@app.post("/api/rip/jobs/{job_id}/edition-search")
+def search_staged_disc_editions(job_id: str, body: EditionSearchRequest, request: Request,
+                                x_oscar_rip_token: str | None = Header(default=None)):
+    from oscar import discogs_readonly, edition_search, ripping
+    from oscar.go_controller import GoError
+
+    _rip_auth(x_oscar_rip_token, request)
+    try:
+        return edition_search.search(job_id, **body.model_dump())
+    except (discogs_readonly.DiscogsError, ripping.RipError, GoError, OSError, ValueError, KeyError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+class TrackRecoveryRequest(BaseModel):
+    original_job_id: str = Field(pattern=r"^[a-f0-9]{32}$")
+    diagnostic_job_id: str = Field(pattern=r"^[a-f0-9]{32}$")
+    replacement_tracks: list[int] = Field(min_length=1, max_length=99)
+
+
+class TrackRecoveryStartRequest(TrackRecoveryRequest):
+    confirmation: str
+
+
+@app.post("/api/track-recovery/preview")
+def track_recovery_preview(body: TrackRecoveryRequest, request: Request,
+                           x_oscar_rip_token: str | None = Header(default=None)):
+    """Validate source hashes, cyanrip evidence, physical TOCs and CUE read-only."""
+    from oscar import track_recovery
+    from oscar.ripping import RipError
+    _rip_auth(x_oscar_rip_token, request)
+    try:
+        return track_recovery.preview(
+            body.original_job_id, body.diagnostic_job_id, body.replacement_tracks)
+    except (track_recovery.RecoveryError, RipError, OSError, ValueError, KeyError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/track-recovery/start")
+def track_recovery_start(body: TrackRecoveryStartRequest, request: Request,
+                         x_oscar_rip_token: str | None = Header(default=None)):
+    """Create a fresh staging copy; no source or archive overwrites."""
+    from oscar import track_recovery
+    from oscar.ripping import RipError
+    _rip_auth(x_oscar_rip_token, request)
+    try:
+        return track_recovery.start(
+            body.original_job_id, body.diagnostic_job_id,
+            body.replacement_tracks, body.confirmation)
+    except (track_recovery.RecoveryError, RipError, OSError, ValueError, KeyError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.get("/api/track-recovery/jobs/{job_id}")
+def track_recovery_status(job_id: str, request: Request,
+                          x_oscar_rip_token: str | None = Header(default=None)):
+    from oscar import track_recovery
+    from oscar.ripping import RipError
+    _rip_auth(x_oscar_rip_token, request)
+    try:
+        return track_recovery.status(job_id)
+    except (track_recovery.RecoveryError, RipError, OSError, ValueError, KeyError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 class DeferReleaseReviewRequest(BaseModel):
     reason: str
     title: str = Field(default="", max_length=200)
@@ -466,10 +629,12 @@ def compare_physical_release(job_id: str, body: PhysicalReleaseCompareRequest,
 
 class MetadataPreviewRequest(BaseModel):
     release_id: str = Field(min_length=36, max_length=36)
+    matrix_runout: str | None = Field(default=None, max_length=250)
 
 
 class MetadataCopyRequest(BaseModel):
     release_id: str = Field(min_length=36, max_length=36)
+    matrix_runout: str | None = Field(default=None, max_length=250)
     fingerprint: str = Field(min_length=64, max_length=64)
     confirmation: str
 
@@ -485,7 +650,7 @@ def preview_rip_metadata(job_id: str, request: MetadataPreviewRequest,
     if not lookup_enabled():
         raise HTTPException(status_code=403, detail="MusicBrainz lookup disabled")
     try:
-        return preview(job_id, request.release_id)
+        return preview(job_id, request.release_id, matrix_runout=request.matrix_runout)
     except (MetadataError, MusicBrainzError, RipError, ValueError, OSError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
@@ -534,6 +699,30 @@ def musicbrainz_reprocess_copy(job_id: str, body: MetadataReprocessRequest,
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
+class AdoptRefreshedMetadataRequest(BaseModel):
+    copy_id: str = Field(min_length=32, max_length=32, pattern=r"^[a-f0-9]{32}$")
+    fingerprint: str = Field(min_length=64, max_length=64, pattern=r"^[a-f0-9]{64}$")
+    confirmation: str
+
+
+@app.post("/api/go/jobs/{job_id}/musicbrainz/adopt-refreshed-copy")
+def go_adopt_refreshed_metadata(job_id: str, body: AdoptRefreshedMetadataRequest,
+                               request: Request,
+                               x_oscar_rip_token: str | None = Header(default=None)):
+    """Explicitly select a verified refreshed copy before first Go publish."""
+    from oscar.metadata_reprocess import ReprocessError, adopt_new_staging_copy_for_go
+    from oscar.metadata_staging import MetadataError
+    from oscar.workflow_ledger import WorkflowError
+    from oscar.ripping import RipError
+    _rip_auth(x_oscar_rip_token, request)
+    try:
+        return adopt_new_staging_copy_for_go(
+            job_id, body.copy_id, body.fingerprint, body.confirmation)
+    except (ReprocessError, MetadataError, WorkflowError, RipError,
+            OSError, KeyError, TypeError, ValueError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
 @app.post("/api/rip/jobs/{job_id}/metadata/copy")
 def create_tagged_staging_copy(job_id: str, request: MetadataCopyRequest,
                                http_request: Request, x_oscar_rip_token: str | None = Header(default=None)):
@@ -545,7 +734,8 @@ def create_tagged_staging_copy(job_id: str, request: MetadataCopyRequest,
     if not lookup_enabled():
         raise HTTPException(status_code=403, detail="MusicBrainz lookup disabled")
     try:
-        return start_copy(job_id, request.release_id, request.fingerprint, request.confirmation)
+        return start_copy(job_id, request.release_id, request.fingerprint, request.confirmation,
+                          matrix_runout=request.matrix_runout)
     except (MetadataError, RipError, ValueError, OSError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
@@ -648,17 +838,52 @@ def inspect_classical_v2_copy(job_id: str, copy_id: str, request: Request,
 
 @app.get("/api/rip/jobs/{job_id}/archive-review/{copy_id}")
 def get_archive_review(job_id: str, copy_id: str, request: Request,
-                       kind: str = "classical_v2", profile: str = "auto",
+                       kind: str = "classical_v2", profile: str = "auto", artwork: bool = True,
                        x_oscar_rip_token: str | None = Header(default=None)):
     """Non-destructive consistency, cover candidate and index-preserving CUE preview."""
     from oscar.archive_review import ReviewError, review
     from oscar.ripping import RipError
     _rip_auth(x_oscar_rip_token, request)
     try:
-        return review(job_id, copy_id, kind, profile=profile)
+        return review(job_id, copy_id, kind, profile=profile, artwork=artwork)
     except (ReviewError, RipError, OSError, ValueError, KeyError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
+
+
+@app.post("/api/rip/jobs/{job_id}/cover-art/{copy_id}")
+async def prepare_archive_cover(job_id: str, copy_id: str, request: Request,
+                                kind: str = "original_tags", source: str = "auto",
+                                discogs_release: str = "",
+                                x_oscar_rip_token: str | None = Header(default=None)):
+    """Save a cover selection alongside this completed tagged copy."""
+    import base64
+    from starlette.concurrency import run_in_threadpool
+    from oscar import archive_review, cover_art
+    from oscar.ripping import RipError
+
+    _rip_auth(x_oscar_rip_token, request)
+    if source not in {"auto", "musicbrainz", "discogs", "upload"}:
+        raise HTTPException(status_code=422, detail="Unsupported cover source")
+    upload = bytearray()
+    if source == "upload":
+        async for chunk in request.stream():
+            if len(upload) + len(chunk) > cover_art.MAX_UPLOAD:
+                raise HTTPException(status_code=413, detail="Cover exceeds 8 MiB")
+            upload.extend(chunk)
+    try:
+        root, folder, preview, _, _ = await run_in_threadpool(
+            archive_review._load, job_id, copy_id, kind)
+        original = archive_review.original_preview(root, copy_id, kind, preview)
+        result = await run_in_threadpool(cover_art.select, folder, original["release_id"],
+                                        source, upload=bytes(upload), discogs_release=discogs_release)
+        if not result:
+            return {"artwork": None}
+        info, jpeg = result
+        return {"artwork": info, "preview": "data:image/jpeg;base64," +
+                base64.b64encode(jpeg).decode("ascii")}
+    except (archive_review.ReviewError, RipError, OSError, ValueError, TypeError, KeyError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 class ArchivePublishPreviewRequest(BaseModel):
@@ -666,6 +891,7 @@ class ArchivePublishPreviewRequest(BaseModel):
     kind: str = "original_tags"
     profile: str = "auto"
     include_cover: bool = False
+    include_data: bool = True
 
 
 class ArchivePublishRequest(ArchivePublishPreviewRequest):
@@ -685,14 +911,15 @@ def preview_archive_publish(job_id: str, body: ArchivePublishPreviewRequest,
                             request: Request,
                             x_oscar_rip_token: str | None = Header(default=None)):
     """Prepare archive publication plan without writing any files."""
-    from oscar.archive_publish import PublishError, prepare
+    from oscar.archive_publish import PublishError, prepare, render_sources
     from oscar.archive_review import ReviewError
     from oscar.ripping import RipError
     _rip_auth(x_oscar_rip_token, request)
     _archive_publish_enabled()
     try:
-        return prepare(job_id, body.copy_id, body.kind, body.profile,
-                       include_cover=body.include_cover)
+        plan = prepare(job_id, body.copy_id, body.kind, body.profile,
+                       include_cover=body.include_cover, include_data=body.include_data)
+        return {**plan, "sources_preview": render_sources(plan, "EDITION_NOT_VERIFIED")}
     except (PublishError, ReviewError, RipError, OSError, ValueError, KeyError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
@@ -711,7 +938,8 @@ def start_archive_publish(job_id: str, body: ArchivePublishRequest,
         return start(job_id, body.copy_id, body.kind, body.profile,
                      body.fingerprint, body.confirmation,
                      acknowledge_observations=body.acknowledge_metadata_observations,
-                     include_cover=body.include_cover, approve_cover=body.approve_cover)
+                     include_cover=body.include_cover, approve_cover=body.approve_cover,
+                     include_data=body.include_data)
     except (PublishError, ReviewError, RipError, OSError, ValueError, KeyError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
@@ -726,6 +954,19 @@ def get_archive_publish_status(job_id: str, publish_id: str, request: Request,
         return status(job_id, publish_id)
     except PublishError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/api/diagnostics/drivefit")
+def drivefit_diagnostics(request: Request,
+                         x_oscar_rip_token: str | None = Header(default=None)):
+    """Read-only historical drive observations; no drive/media is probed."""
+    from oscar.drivefit import report
+    from oscar.ripping import RipError
+    _rip_auth(x_oscar_rip_token, request)
+    try:
+        return report()
+    except (RipError, OSError, ValueError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @app.get("/api/rip/dashboard")
@@ -813,6 +1054,7 @@ def archive_revision_operations(request: Request,
 
 class ArchiveBoxsetPreviewRequest(BaseModel):
     release_id: str = Field(pattern=r"^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$")
+    field: str = Field(default="LABEL", pattern=r"^(LABEL|GENRE|RELEASECOUNTRY|METADATA)$")
 
 
 @app.post("/api/collection/archive-revisions/boxset-preview")
@@ -826,7 +1068,7 @@ def archive_revision_boxset_preview(body: ArchiveBoxsetPreviewRequest, request: 
     from oscar.musicbrainz import MusicBrainzError
     _rip_auth(x_oscar_rip_token, request)
     try:
-        return preview(body.release_id)
+        return preview(body.release_id, field=body.field)
     except (BoxsetReviewError, RevisionError, ScanError, CatalogError,
             MusicBrainzError, ValueError, OSError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -847,7 +1089,7 @@ def archive_revision_boxset_apply(body: ArchiveBoxsetApplyRequest, request: Requ
     from oscar.musicbrainz import MusicBrainzError
     _rip_auth(x_oscar_rip_token, request)
     try:
-        return start(body.release_id, body.fingerprint, body.confirmation)
+        return start(body.release_id, body.fingerprint, body.confirmation, field=body.field)
     except (BoxsetApplyError, BoxsetReviewError, ScanError, CatalogError,
             MusicBrainzError, ValueError, OSError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -900,6 +1142,34 @@ def archive_revision_boxset_verify(body: ArchiveBoxsetReconcileRequest, request:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
+class GenreEvidencePreviewRequest(BaseModel):
+    archive_path: str = Field(min_length=5, max_length=2048)
+    discogs_release_id: int | None = Field(default=None, ge=1, le=99999999)
+    workflow: str = Field(default="semi_automatic",
+                          pattern=r"^(best_guess|semi_automatic|secure)$")
+
+
+@app.post("/api/collection/genre-evidence/preview")
+def preview_archive_genre_evidence(body: GenreEvidencePreviewRequest, request: Request,
+                                   x_oscar_rip_token: str | None = Header(default=None)):
+    """Read-only report; no metadata approval, no SOURCES or FLAC writes."""
+    from oscar.genre_evidence import GenreEvidenceError, report_for_archive
+    from oscar.archive_metadata_scan import ScanError
+    from oscar.collection_catalog import CatalogError
+    from oscar.musicbrainz import MusicBrainzError, lookup_enabled
+    from oscar.discogs_readonly import DiscogsError
+    _rip_auth(x_oscar_rip_token, request)
+    if not lookup_enabled():
+        raise HTTPException(status_code=403, detail="MusicBrainz lookup disabled")
+    try:
+        return report_for_archive(body.archive_path,
+                                  discogs_release_id=body.discogs_release_id,
+                                  workflow=body.workflow)
+    except (GenreEvidenceError, ScanError, CatalogError,
+            MusicBrainzError, DiscogsError, OSError, ValueError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
 class ArchiveRevisionVerifyRequest(BaseModel):
     operation_id: str = Field(pattern=r"^[a-f0-9]{32}$")
 
@@ -944,6 +1214,86 @@ def archive_revision_clean(body: ArchiveRevisionCleanRequest, request: Request,
         )
     except (ArchiveCleanupError, ArchiveVerifyError, RevisionError, ScanError,
             CatalogError, ValueError, OSError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+class CleanupSelection(BaseModel):
+    kind: str
+    path: str = Field(max_length=4096)
+    fingerprint: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+
+class CleanupRequest(BaseModel):
+    items: list[CleanupSelection] = Field(min_length=1, max_length=250)
+    confirmation: str
+
+
+class CleanupAction(BaseModel):
+    action: str
+
+
+class CleanupDangerRequest(BaseModel):
+    paths: list[str] = Field(min_length=1, max_length=250)
+    confirmation: str
+
+
+@app.get("/api/cleanup")
+@app.post("/api/cleanup")
+def cleanup_scan(request: Request, x_oscar_rip_token: str | None = Header(default=None)):
+    from oscar import cleanup
+
+    _rip_auth(x_oscar_rip_token, request)
+    try:
+        return cleanup.scan(verify=request.method == "POST")
+    except cleanup._ERRORS as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/cleanup/remove")
+def cleanup_remove(body: CleanupRequest, request: Request,
+                   x_oscar_rip_token: str | None = Header(default=None)):
+    from oscar import cleanup
+
+    _rip_auth(x_oscar_rip_token, request)
+    try:
+        return cleanup.remove([item.model_dump() for item in body.items], body.confirmation)
+    except cleanup._ERRORS as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/cleanup/danger")
+def cleanup_danger(body: CleanupDangerRequest, request: Request,
+                   x_oscar_rip_token: str | None = Header(default=None)):
+    from oscar import cleanup
+
+    _rip_auth(x_oscar_rip_token, request)
+    try:
+        return cleanup.danger_remove(body.paths, body.confirmation)
+    except cleanup._ERRORS as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/cleanup/history")
+def cleanup_move_history(body: CleanupAction, request: Request,
+                         x_oscar_rip_token: str | None = Header(default=None)):
+    from oscar import cleanup
+
+    _rip_auth(x_oscar_rip_token, request)
+    try:
+        return cleanup.relocate_history(body.action)
+    except cleanup._ERRORS as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/cleanup/jobs/{job_id}")
+def cleanup_job(job_id: str, body: CleanupAction, request: Request,
+                x_oscar_rip_token: str | None = Header(default=None)):
+    from oscar import cleanup
+
+    _rip_auth(x_oscar_rip_token, request)
+    try:
+        return cleanup.update_job(job_id, body.action)
+    except cleanup._ERRORS as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
@@ -1062,6 +1412,75 @@ def archive_metadata_history(request: Request,
     return decision_history()
 
 
+class ExternalVerificationRequest(BaseModel):
+    folder: str = Field(min_length=1, max_length=1500)
+
+
+@app.get("/api/collection/external-verification/folders")
+def external_verification_folders(request: Request, folder: str = "",
+                                  x_oscar_rip_token: str | None = Header(default=None)):
+    from oscar import external_verification_ui
+    _rip_auth(x_oscar_rip_token, request, require_ripping=False)
+    try:
+        if len(folder) > 1500:
+            raise ValueError("The folder path is too long")
+        return external_verification_ui.folders(folder)
+    except (ValueError, OSError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/collection/external-verification")
+def start_external_verification(body: ExternalVerificationRequest, request: Request,
+                                x_oscar_rip_token: str | None = Header(default=None)):
+    from oscar import external_verification_ui
+    _rip_auth(x_oscar_rip_token, request, require_ripping=False)
+    try:
+        return external_verification_ui.start(body.folder)
+    except (ValueError, OSError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.get("/api/collection/external-verification")
+def external_verification_status(request: Request, x_oscar_rip_token: str | None = Header(default=None)):
+    from oscar import external_verification_ui
+    _rip_auth(x_oscar_rip_token, request, require_ripping=False)
+    return external_verification_ui.status()
+
+
+class SaveExternalVerificationRequest(BaseModel):
+    job_id: str = Field(pattern=r"^[a-f0-9]{32}$")
+
+
+@app.get("/api/collection/external-verification/reports")
+def saved_external_verifications(request: Request, folder: str = "",
+                                 x_oscar_rip_token: str | None = Header(default=None)):
+    from sqlite3 import Error as DatabaseError
+    from oscar import external_verification_ui
+    from oscar.collection_catalog import CatalogError
+    _rip_auth(x_oscar_rip_token, request, require_ripping=False)
+    try:
+        if len(folder) > 1500:
+            raise ValueError("The folder path is too long")
+        if folder:
+            return external_verification_ui.saved(folder)
+        return {"albums": external_verification_ui.saved_albums()}
+    except (CatalogError, ValueError, OSError, DatabaseError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/collection/external-verification/reports")
+def save_external_verification(body: SaveExternalVerificationRequest, request: Request,
+                               x_oscar_rip_token: str | None = Header(default=None)):
+    from sqlite3 import Error as DatabaseError
+    from oscar import external_verification_ui
+    from oscar.collection_catalog import CatalogError
+    _rip_auth(x_oscar_rip_token, request, require_ripping=False)
+    try:
+        return external_verification_ui.save(body.job_id)
+    except (CatalogError, ValueError, OSError, DatabaseError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
 # Local collection inventory is separate from Discogs and never writes to /archive.
 @app.get("/api/collection")
 def collection_list(request: Request, search: str = "", sort_by: str = "artist",
@@ -1172,7 +1591,7 @@ def collection_reconcile_approved_labels(request: Request,
 
 
 class WorkflowReviewAction(BaseModel):
-    action: str = Field(pattern=r"^(defer|resume)$")
+    action: str = Field(pattern=r"^(defer|resume|reopen_edition)$")
 
 
 @app.post("/api/workflow/jobs/{job_id}/register")
@@ -1194,7 +1613,7 @@ def workflow_refresh(job_id: str, request: Request,
     from oscar.ripping import RipError
     _rip_auth(x_oscar_rip_token,request)
     try:
-        return refresh(job_id)
+        return refresh(job_id, include_rip_review=True)
     except (WorkflowError, RipError, OSError, ValueError) as exc:
         raise HTTPException(status_code=409,detail=str(exc)) from exc
 
@@ -1211,17 +1630,19 @@ def workflow_review(job_id: str, body: WorkflowReviewAction, request: Request,
 
 
 @app.get("/api/workflow/jobs")
-def workflow_jobs(request: Request, x_oscar_rip_token: str | None = Header(default=None)):
+def workflow_jobs(request: Request, rip_review: bool = False,
+                  x_oscar_rip_token: str | None = Header(default=None)):
     from oscar.workflow_ledger import WorkflowError, list_jobs
     _rip_auth(x_oscar_rip_token,request)
     try:
-        return list_jobs()
+        return list_jobs(limit=250, include_rip_review=True) if rip_review else list_jobs()
     except (WorkflowError, OSError, ValueError) as exc:
         raise HTTPException(status_code=409,detail=str(exc)) from exc
 
 
 class GoSemiReleaseApproval(BaseModel):
     release_id: str = Field(min_length=36, max_length=36)
+    matrix_runout: str | None = Field(default=None, max_length=250)
     confirmation: str
 
 
@@ -1238,19 +1659,24 @@ def go_accept_semi_release(job_id: str, body: GoSemiReleaseApproval,
     from oscar.ripping import RipError
     _rip_auth(x_oscar_rip_token, request)
     try:
-        return accept_semi_release(job_id, body.release_id, body.confirmation)
+        return accept_semi_release(job_id, body.release_id, body.confirmation,
+                                   matrix_runout=body.matrix_runout)
     except (WorkflowError, RipError, OSError, ValueError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 class GoArchivePublishApproval(BaseModel):
+    include_cover: bool = False
+    include_data: bool = True
+    approve_cover: bool = False
     fingerprint: str = Field(min_length=64, max_length=64, pattern=r"^[a-f0-9]{64}$")
     confirmation: str
     acknowledge_metadata_observations: bool = False
 
 
 @app.post("/api/go/jobs/{job_id}/archive/preview")
-def go_archive_preview(job_id: str, request: Request,
+def go_archive_preview(job_id: str, request: Request, include_cover: bool = False,
+                       include_data: bool = True,
                        x_oscar_rip_token: str | None = Header(default=None)):
     """Read-only classical/track/CUE review of precisely this verified Go copy."""
     from oscar.go_controller import GoError, archive_preview
@@ -1262,7 +1688,7 @@ def go_archive_preview(job_id: str, request: Request,
     _rip_auth(x_oscar_rip_token, request)
     _archive_publish_enabled()
     try:
-        return archive_preview(job_id)
+        return archive_preview(job_id, include_cover=include_cover, include_data=include_data)
     except (GoError, WorkflowError, ReviewError, PublishError, MetadataError,
             RipError, OSError, ValueError, KeyError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -1283,7 +1709,9 @@ def go_archive_publish(job_id: str, body: GoArchivePublishApproval, request: Req
     try:
         return archive_publish_start(
             job_id, body.fingerprint, body.confirmation,
-            acknowledge_observations=body.acknowledge_metadata_observations)
+            acknowledge_observations=body.acknowledge_metadata_observations,
+            include_cover=body.include_cover, approve_cover=body.approve_cover,
+            include_data=body.include_data)
     except (GoError, WorkflowError, ReviewError, PublishError, MetadataError,
             RipError, OSError, ValueError, KeyError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -1307,83 +1735,40 @@ def musicbrainz_refresh_accepted_match(job_id: str, request: Request,
 
 @app.get("/api/go/jobs/{job_id}/musicbrainz/discid-attach")
 def musicbrainz_discid_attach_link(job_id: str, request: Request,
-                                  x_oscar_rip_token: str | None = Header(default=None)):
-    """Prepare an external human-confirmed MusicBrainz TOC submission link only.
-
-    Never submit a MusicBrainz edit or infer physical edition verification.
-    A saved, verified, explicitly accepted single-CD Semi Automatic job is required.
-    """
-    import json
-    import re
-    import urllib.parse
-    from oscar import verification, workflow_ledger
+                                  x_oscar_rip_token: str | None = Header(default=None),
+                                  medium_position: int | None = None):
+    """Prepare a human-confirmed attachment after checking the saved TOC."""
     from oscar.boxsets import lookup_release_medium
+    from oscar.match_refresh import refresh_accepted_match
     from oscar.musicbrainz import MusicBrainzError
     from oscar.ripping import RipError
     from oscar.workflow_ledger import WorkflowError
 
     _rip_auth(x_oscar_rip_token, request)
     try:
-        workflow = workflow_ledger.refresh(job_id)
-        if (workflow.get("identification_mode") != "semi_automatic"
-                or not workflow.get("accepted_release_id")
-                or workflow.get("release_match_status") != "INFERRED_OPERATOR_ACCEPTED"):
-            raise ValueError("An explicitly accepted Semi Automatic release is required")
-        folder = verification._safe_job(job_id)
-        state = verification._load_job(folder, job_id)
-        report = verification.report(job_id)
-        if (report.get("status") != "checks_passed"
-                or report.get("job_id") != job_id
-                or not all(t.get("checks_passed") for t in report.get("tracks", []))):
-            raise ValueError("A fully verified rip is required before Disc ID submission")
-        planfile = folder / "plan.json"
-        if planfile.is_symlink() or not planfile.is_file():
-            raise ValueError("Unsafe or missing saved rip plan")
-        plan = json.loads(planfile.read_text(encoding="utf-8"))
-        toc = plan.get("toc_string")
-        disc_id = plan.get("disc_id")
-        if not isinstance(toc, str) or len(toc) > 1200:
-            raise ValueError("Missing or invalid saved physical CD TOC")
-        values = toc.split()
-        if (len(values) < 4 or len(values) > 102
-                or any(not re.fullmatch(r"[0-9]{1,10}", v) for v in values)):
-            raise ValueError("Invalid saved TOC format")
-        first, last, leadout = map(int, values[:3])
-        starts = [int(v) for v in values[3:]]
-        if (first != 1 or last < first or last > 99
-                or len(starts) != last - first + 1
-                or any(x < 150 or x >= leadout for x in starts)
-                or starts != sorted(set(starts))):
-            raise ValueError("Saved TOC track boundaries are invalid")
-        if (last != report.get("expected_tracks")
-                or disc_id != state.get("disc_id")
-                or disc_id != plan.get("disc_id")):
-            raise ValueError("Saved TOC does not match the verified rip")
-        release_id = workflow["accepted_release_id"]
-        info = lookup_release_medium(release_id, disc_id, last)
-        media = info.get("all_media") or []
-        if (info.get("status") != "no_exact_medium_match"
-                or len(media) != 1 or info.get("total_media") != 1
-                or media[0].get("format") != "CD"
-                or media[0].get("position") != 1
-                or media[0].get("track_count") != last
-                or media[0].get("disc_id_attached")):
-            raise ValueError("MusicBrainz CD medium is ambiguous, incompatible, or already has this Disc ID")
-        url = "https://musicbrainz.org/cdtoc/attach?" + urllib.parse.urlencode({"toc": toc, "filter-release.query": release_id})
+        info = refresh_accepted_match(job_id, lookup=lookup_release_medium)
+        if info["lookup_status"] == "disc_id_now_attached":
+            raise ValueError("This Disc ID is already attached to the accepted release")
+        candidates = [medium for medium in info["media"] if medium["compatible"]]
+        if medium_position is not None:
+            candidates = [medium for medium in candidates if medium["position"] == medium_position]
+        if not candidates:
+            raise ValueError(f"No compatible CD medium with {info['track_count']} tracks was found")
+        if len(candidates) != 1:
+            raise ValueError("Multiple CD media fit this rip. Select the physical disc in Review.")
         return {
             "status": "human_submission_required",
             "job_id": job_id,
-            "release_id": release_id,
-            "disc_id": disc_id,
-            "track_count": last,
-            "medium_position": 1,
-            "musicbrainz_attach_url": url,
-            "release_url": "https://musicbrainz.org/release/" + release_id,
-            "warning": ("MusicBrainz is an external website. Independently select the exact "
-                        "physical CD medium and confirm there. OSCAR will not submit "
-                        "anything, store MusicBrainz credentials or claim this edit succeeded."),
+            "release_id": info["accepted_release_id"],
+            "disc_id": info["disc_id"],
+            "track_count": info["track_count"],
+            "medium_position": candidates[0]["position"],
+            "musicbrainz_attach_url": info["musicbrainz_attach_url"],
+            "release_url": info["release_url"],
+            "warning": ("Select the indicated physical CD medium on MusicBrainz and confirm there. "
+                        "OSCAR will not submit an edit or claim physical verification."),
         }
-    except (ValueError, RipError, WorkflowError, MusicBrainzError, OSError, KeyError) as exc:
+    except (ValueError, RipError, WorkflowError, MusicBrainzError, OSError, KeyError, TypeError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
@@ -1395,8 +1780,9 @@ def go_start(request: RipRequest, http_request: Request,
     from oscar.ripping import RipError
     from oscar.workflow_ledger import WorkflowError
     _rip_auth(x_oscar_rip_token,http_request)
-    if request.confirmation != "RIP_TO_STAGING":
-        raise HTTPException(status_code=422, detail="Explicit rip-to-staging confirmation required")
+    if (request.selected_tracks is not None or request.expected_disc_id is not None
+            or request.confirmation != "RIP_TO_STAGING"):
+        raise HTTPException(status_code=422, detail="Go! only accepts complete-disc rips")
     try:
         return start(request.stable_id)
     except (GoError,RipError,WorkflowError,OSError,ValueError) as exc:

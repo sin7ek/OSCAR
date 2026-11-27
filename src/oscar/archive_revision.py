@@ -26,7 +26,8 @@ from oscar import archive_publish, collection_catalog as catalog
 from oscar.archive_naming import safe_component
 from oscar.metadata_staging import _streaminfo_md5_hex
 
-_ALLOWED_FIELDS = {"CATALOGNUMBER", "LABEL", "BARCODE", "TITLE", "ARTIST"}
+_RELEASE_FIELDS = {"CATALOGNUMBER", "LABEL", "BARCODE", "GENRE", "DATE", "RELEASECOUNTRY"}
+_TRACK_FIELDS = {"TITLE", "ARTIST"}
 _CONFIRM = "APPLY_VERIFIED_ARCHIVE_REVISION"
 _WORKER_LOCK = threading.Lock()
 _RUNNING = set()
@@ -81,6 +82,13 @@ def _assert_opt_in():
         raise RevisionError("Archive revisions disabled: set OSCAR_ENABLE_ARCHIVE_REVISIONS=1 after review")
 
 
+def _reviewed_year(dates):
+    year = scanner._release_year(dates[0][0]) if len(dates) == 1 and len(dates[0]) == 1 else ""
+    if not year:
+        raise RevisionError("Archive folder naming requires exactly one valid reviewed release date")
+    return year
+
+
 def _plan(archive_path, *, lookup=None):
     snapshot = scanner._archive_snapshot(archive_path)
     root = catalog.archive_root()
@@ -108,34 +116,38 @@ def _plan(archive_path, *, lookup=None):
         raise RevisionError("Published album must first be imported into Collection")
     if not rows:
         raise RevisionError("There are no accepted metadata changes for this published album")
-    candidates = scanner._fresh_values(snapshot, lookup or scanner.lookup_release_medium)
+    candidates, genre_source_url = scanner._fresh_values(
+        snapshot, lookup or scanner.lookup_release_medium,
+        allow_discogs=any(row["source_url"] for row in rows))
     accepted = []
     for row in rows:
         if (row["archive_revision"] != snapshot["manifest_sha256"]
                 or row["publish_id"] != snapshot["publish_id"]
                 or row["release_id"] != snapshot["release_id"]
-                or row["field"] not in _ALLOWED_FIELDS):
+                or row["field"] not in _RELEASE_FIELDS | _TRACK_FIELDS):
             raise RevisionError("Accepted proposal is stale or not supported by archive revision v1")
         before, after = json.loads(row["before_json"]), json.loads(row["after_json"])
-        matches = [
-            entry for entry in candidates
-            if entry[0] == row["scope"] and entry[1] == row["track"]
-            and entry[2] == row["field"]
-            and scanner._canonical(entry[3]) == before
-            and scanner._canonical(entry[4]) == after
-        ]
+        matches = [entry for entry in candidates if scanner._matches_proposal(entry, row, genre_source_url)]
         if len(matches) != 1 or not isinstance(after, list) or not after:
-            raise RevisionError("Accepted metadata differs from current MusicBrainz; rescan and review")
-        if row["scope"] == "release" and row["field"] not in {"CATALOGNUMBER", "LABEL", "BARCODE"}:
+            raise RevisionError("Accepted metadata differs from current provider data; rescan and review")
+        if row["scope"] == "release" and row["field"] not in _RELEASE_FIELDS:
             raise RevisionError("Unsupported release-scope metadata change")
-        if row["scope"] == "track" and (row["field"] not in {"TITLE", "ARTIST"}
+        if row["scope"] == "track" and (row["field"] not in _TRACK_FIELDS
                 or not 1 <= row["track"] <= len(snapshot["tracks"])):
             raise RevisionError("Unsupported track-scope metadata change")
         accepted.append({
             "fingerprint": row["fingerprint"], "scope": row["scope"],
             "track": row["track"], "field": row["field"],
             "before": before, "after": after,
+            **({"source_url": row["source_url"]} if row["source_url"] else {}),
         })
+    genre_changes = [item for item in accepted if item["field"] == "GENRE"]
+    if len(genre_changes) > 1:
+        raise RevisionError("Multiple conflicting genre proposals")
+    if genre_changes:
+        from oscar.archive_genres import normalize_genres
+        if scanner._canonical(normalize_genres(genre_changes[0]["after"])) != scanner._canonical(genre_changes[0]["after"]):
+            raise RevisionError("Unreviewed or unsupported GENRE values")
     parsed = catalog._metadata_from_path(album_path, source_manifest)
     catalog_now = parsed["catalog_number"]
     values = [item["after"] for item in accepted if item["field"] == "CATALOGNUMBER"]
@@ -149,12 +161,14 @@ def _plan(archive_path, *, lookup=None):
     if len(label_values) > 1:
         raise RevisionError("Conflicting label proposals")
     target_label = "; ".join(label_values[0]) if label_values else ""
+    dates = [item["after"] for item in accepted if item["field"] == "DATE"]
+    desired_year = _reviewed_year(dates) if dates else parsed["year"]
+    year = f" ({desired_year})" if desired_year else ""
     album_name = ((f"[{desired_catalog}] " if desired_catalog else "") +
-                  parsed["title"] + " (" + parsed["year"] + ") [" +
-                  snapshot["release_id"].split("-")[0] + "]")
+                  parsed["title"] + year + " [" + snapshot["release_id"].split("-")[0] + "]")
     destination = root / album_path.parent.name / album_name
     if destination != album_path and (destination.exists() or destination.is_symlink()):
-        raise RevisionError("Proposed catalog-based destination already exists: refusing collision")
+        raise RevisionError("Proposed archive destination already exists: refusing collision")
     plan_core = {
         "source_path": snapshot["path"], "dest_path": str(destination),
         "original_manifest_sha256": snapshot["manifest_sha256"],
@@ -206,6 +220,11 @@ def _verify_preserved_evidence(base, manifest):
                 or scanner._digest(source) != wanted
                 or source.stat().st_size != evidence.get("size")):
             raise RevisionError("Archived extraction CUE/log differs from original evidence")
+    from oscar import cd_extra
+    try:
+        cd_extra.check_archive(base, manifest)
+    except (OSError, ValueError, RuntimeError, KeyError) as exc:
+        raise RevisionError(str(exc)) from exc
     return True
 
 
@@ -225,6 +244,10 @@ def _copy_and_retag(plan, temp, source, *, flac_factory=None, runner=None):
     _verify_preserved_evidence(temp, original_manifest)
     changes = plan["accepted_changes"]
     files = original_manifest["files"]
+    try:
+        archive_publish._assert_playable_inventory(temp, files)
+    except archive_publish.PublishError as exc:
+        raise RevisionError(str(exc)) from exc
     release_fields = {x["field"]: x["after"] for x in changes if x["scope"] == "release"}
     for entry in files:
         number = entry["track"]
@@ -292,6 +315,12 @@ def _copy_and_retag(plan, temp, source, *, flac_factory=None, runner=None):
         "type": "operator_approved_metadata_only",
         "audio_bytes_unchanged_verified_by_streaminfo_md5": True,
     }
+    if genre_source := next((item["source_url"] for item in changes
+                             if item["field"] == "GENRE" and item.get("source_url")), ""):
+        if genre_source == scanner.CLASSICAL_PROFILE_SOURCE:
+            original_manifest["revision"]["genre_source"] = "archive_profile"
+        else:
+            original_manifest["revision"]["genre_source_url"] = genre_source
     new_manifest = json.dumps(original_manifest, ensure_ascii=False, indent=2) + "\n"
     manifest_path.write_text(new_manifest, encoding="utf-8")
     # Verify every new FLAC against its NEW whole-file digest and manifest,
@@ -342,6 +371,33 @@ def _finalize(db, row, *, snapshot_verified=True):
         )
     elif db.execute("SELECT 1 FROM archive_items WHERE archive_path=?", (dest,)).fetchone() is None:
         raise RevisionError("Neither old nor new Collection archive entry exists")
+    # Keep Collection in sync using the approved values pinned in the journal.
+    proposals = db.execute(
+        "SELECT field,after_json FROM metadata_proposals "
+        "WHERE fingerprint IN (" + ",".join("?" for _ in fingerprints) + ")",
+        tuple(fingerprints),
+    ).fetchall()
+    dates = [json.loads(entry["after_json"]) for entry in proposals if entry["field"] == "DATE"]
+    if dates:
+        db.execute("UPDATE archive_items SET year=? WHERE archive_path=?", (_reviewed_year(dates), dest))
+    selected_genre = [entry for entry in proposals if entry["field"] == "GENRE"]
+    if len(selected_genre) > 1:
+        raise RevisionError("Conflicting genre approvals in archive journal")
+    if selected_genre:
+        from oscar.archive_genres import classify
+        genre_values = json.loads(selected_genre[0]["after_json"])
+        # Read the actual promoted FLAC tags to anchor the derived Collection
+        # classification in publication evidence (not a cached provider value).
+        manifest = json.loads((Path(dest) / "manifest.json").read_text(encoding="utf-8"))
+        first = manifest["files"][0]["filename"]
+        actual = scanner._canonical(FLAC(str(Path(dest) / first)).get("GENRE") or [])
+        if actual != scanner._canonical(genre_values):
+            raise RevisionError("Promoted GENRE differs from accepted proposal")
+        classification = classify(genre_values, profile=manifest.get("profile"))
+        db.execute(
+            "UPDATE archive_items SET genres=?,library_section=? WHERE archive_path=?",
+            (classification["genres"], classification["library_section"], dest),
+        )
     for fp in fingerprints:
         item = db.execute("SELECT status,archive_revision FROM metadata_proposals WHERE fingerprint=?", (fp,)).fetchone()
         if item is None or item["status"] not in {"accepted", "applied"}:
@@ -405,12 +461,13 @@ def apply(archive_path, fingerprint, confirmation):
         dest = Path(plan["dest_path"])
         operation_id = uuid.uuid4().hex
         temp = old.parent / (".oscar-unpublished-revision-" + operation_id)
-        history_parent = root / ".oscar-archive-versions" / plan["original_publish_id"]
+        from oscar import archive_history
+        hidden = archive_history.retained(root, plan["original_publish_id"], operation_id)
+        history_parent = hidden.parent
         if (history_parent.is_symlink() or history_parent.parent.is_symlink()
                 or history_parent.parent.exists() and not history_parent.parent.is_dir()):
             raise RevisionError("Unsafe archive revision history directory")
         history_parent.mkdir(parents=True, exist_ok=True)
-        hidden = history_parent / operation_id
         for path in (temp, hidden):
             if path.exists() or path.is_symlink():
                 raise RevisionError("Archive revision path already exists")
@@ -433,7 +490,7 @@ def apply(archive_path, fingerprint, confirmation):
                 "started_at": _now(),
             }
             _journal(fields)
-            archive_publish._rename_noreplace(old, hidden)
+            archive_history.move(root, old, hidden)
             moved = True
             archive_publish._rename_noreplace(temp, dest)
             with _db() as db:
@@ -452,7 +509,7 @@ def apply(archive_path, fingerprint, confirmation):
             # original live path, retaining the isolated staging candidate.
             if moved and not dest.exists() and hidden.exists() and not old.exists():
                 try:
-                    archive_publish._rename_noreplace(hidden, old)
+                    archive_history.move(root, hidden, old)
                     with _db() as db:
                         db.execute(
                             "UPDATE archive_revision_operations SET status='rolled_back',"
@@ -494,7 +551,8 @@ def reconcile(operation_id):
                 _finalize(db, row)
             return {"operation_id": operation_id, "status": "completed"}
         if not new.exists() and backup.is_dir() and not old.exists():
-            archive_publish._rename_noreplace(backup, old)
+            from oscar import archive_history
+            archive_history.move(root, backup, old)
         if old.is_dir() and not backup.exists() and (old == new or not new.exists()):
             with _db() as db:
                 db.execute(

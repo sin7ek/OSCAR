@@ -8,13 +8,15 @@ import hashlib
 import json
 import re
 import sqlite3
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 from mutagen.flac import FLAC
 
 from oscar import collection_catalog as catalog, musicbrainz
 from oscar.boxsets import lookup_release_medium, RELEASE_ID, DISC_ID
+
+CLASSICAL_PROFILE_SOURCE = "archive-profile:classical"
 
 _ID = re.compile(r"[a-f0-9]{64}\Z")
 _MAX_ALBUMS = 20
@@ -29,6 +31,7 @@ CREATE TABLE IF NOT EXISTS metadata_proposals (
  field TEXT NOT NULL,
  before_json TEXT NOT NULL,
  after_json TEXT NOT NULL,
+ source_url TEXT NOT NULL DEFAULT '',
  archive_revision TEXT NOT NULL,
  status TEXT NOT NULL DEFAULT 'pending',
  first_seen TEXT NOT NULL,
@@ -134,7 +137,9 @@ def _archive_snapshot(archive_path):
         "path": str(album), "manifest_sha256": hashlib.sha256(raw).hexdigest(),
         "publish_id": publish_id, "release_id": release,
         "disc_id": next(iter(disc_ids)), "tracks": tracks,
+        "profile": manifest.get("profile"),
         "disc_number": manifest.get("disc_number", 1),
+        "disc_total": manifest.get("disc_total", 1),
     }
 
 
@@ -152,7 +157,18 @@ def _existing_label_values(tags):
     return standard or legacy
 
 
-def _fresh_values(snapshot, lookup):
+def _release_year(value):
+    """Return the year of a valid full or partial MusicBrainz release date."""
+    if not isinstance(value, str) or not re.fullmatch(r"[0-9]{4}(?:-[0-9]{2}){0,2}", value):
+        return ""
+    try:
+        date.fromisoformat(value + "-01" * (2 - value.count("-")))
+    except ValueError:
+        return ""
+    return value[:4]
+
+
+def _fresh_values(snapshot, lookup, *, allow_discogs=False):
     result = lookup(snapshot["release_id"], snapshot["disc_id"], len(snapshot["tracks"]))
     if result.get("release_id", "").lower() != snapshot["release_id"].lower():
         raise ScanError("Unexpected MusicBrainz release identity")
@@ -171,12 +187,42 @@ def _fresh_values(snapshot, lookup):
                          for x in labels if isinstance(x, dict) and x.get("catalog_number")))
     label_names = sorted(set(str(x.get("name")).strip()
                              for x in labels if isinstance(x, dict) and x.get("name")))
+    # Release-scope genres must be consistent across the archived CD before
+    # proposing a change. Never silently overwrite conflicting per-track styles.
+    genre_values = [_canonical(track["tags"].get("GENRE", [])) for track in snapshot["tracks"]]
+    if any(values != genre_values[0] for values in genre_values[1:]):
+        raise ScanError("Inconsistent GENRE tags across archived tracks; manual review required")
+    provider_genres = result.get("genres") or []
+    if provider_genres:
+        from oscar.archive_genres import normalize_genres
+        provider_genres = normalize_genres(provider_genres)
+    genre_source_url = ""
+    if allow_discogs and snapshot["disc_total"] == 1 and not genre_values[0] and not provider_genres:
+        from oscar.genre_evidence import discogs_fallback
+        provider_genres, genre_source_url = discogs_fallback(result)
+    if (not provider_genres and not result.get("genre_lookup_incomplete")
+            and snapshot.get("profile") == "classical"
+            and genre_values[0] in ([], ["Classical"])):
+        provider_genres = ["Classical"]
+        genre_source_url = CLASSICAL_PROFILE_SOURCE
     candidates = [
         ("release", 0, "CATALOGNUMBER", snapshot["tracks"][0]["tags"].get("CATALOGNUMBER", []), numbers),
         ("release", 0, "LABEL", _existing_label_values(snapshot["tracks"][0]["tags"]), label_names),
         ("release", 0, "BARCODE", snapshot["tracks"][0]["tags"].get("BARCODE", []),
          [result["barcode"]] if result.get("barcode") else []),
+        ("release", 0, "GENRE", genre_values[0], provider_genres),
     ]
+    release_date, country = result.get("date"), result.get("country")
+    for field, value in (
+        ("DATE", release_date if _release_year(release_date) else None),
+        ("RELEASECOUNTRY", country if isinstance(country, str) and re.fullmatch(r"[A-Z]{2}", country) else None),
+    ):
+        if value is None:
+            continue
+        existing = [_canonical(track["tags"].get(field, [])) for track in snapshot["tracks"]]
+        if any(values != existing[0] for values in existing[1:]):
+            raise ScanError(f"Inconsistent {field} tags across archived tracks; manual review required")
+        candidates.append(("release", 0, field, existing[0], [value]))
     for index, (archived, external) in enumerate(zip(snapshot["tracks"], tracks), 1):
         if external.get("position") != index:
             raise ScanError("MusicBrainz track position mismatch")
@@ -188,18 +234,23 @@ def _fresh_values(snapshot, lookup):
                            [external["title"]] if external.get("title") else []))
         candidates.append(("track", index, "ARTIST", tags.get("ARTIST", []),
                            [external["artist_credit"]] if external.get("artist_credit") else []))
-    return candidates
+    return candidates, genre_source_url
 
 
 def _db():
     connection = catalog._connect()
     connection.executescript(_SCHEMA)
+    if "source_url" not in {row[1] for row in connection.execute("PRAGMA table_info(metadata_proposals)")}:
+        with connection:
+            connection.execute("BEGIN IMMEDIATE")
+            if "source_url" not in {row[1] for row in connection.execute("PRAGMA table_info(metadata_proposals)")}:
+                connection.execute("ALTER TABLE metadata_proposals ADD COLUMN source_url TEXT NOT NULL DEFAULT ''")
     return connection
 
 
-def _fingerprint(snapshot, scope, track, field, before, after):
+def _fingerprint(snapshot, scope, track, field, before, after, source_url):
     payload = [snapshot["publish_id"], snapshot["release_id"],
-               snapshot["manifest_sha256"], scope, track, field, before, after, "musicbrainz"]
+               snapshot["manifest_sha256"], scope, track, field, before, after, source_url or "musicbrainz"]
     return hashlib.sha256(_stable_json(payload).encode("utf-8")).hexdigest()
 
 
@@ -207,8 +258,11 @@ def _as_dict(row):
     d = dict(row)
     d["before"] = json.loads(d.pop("before_json"))
     d["after"] = json.loads(d.pop("after_json"))
-    d["source"] = "musicbrainz"
-    d["source_url"] = "https://musicbrainz.org/release/" + d["release_id"]
+    if d["source_url"] == CLASSICAL_PROFILE_SOURCE:
+        d["source"] = "archive_profile"
+    else:
+        d["source"] = "discogs" if d["source_url"] else "musicbrainz"
+    d["source_url"] = d["source_url"] or ("https://musicbrainz.org/release/" + d["release_id"])
     return d
 
 
@@ -219,7 +273,8 @@ def scan(mode, archive_path, *, lookup=None):
     if not musicbrainz.lookup_enabled() and lookup is None:
         raise ScanError("MusicBrainz lookups are disabled")
     snapshot = _archive_snapshot(archive_path)
-    values = _fresh_values(snapshot, lookup or lookup_release_medium)
+    values, genre_source_url = _fresh_values(snapshot, lookup or lookup_release_medium,
+                                              allow_discogs=mode == "additions")
     now = datetime.now(timezone.utc).isoformat()
     observed = []
     with _db() as db:
@@ -230,14 +285,15 @@ def scan(mode, archive_path, *, lookup=None):
             kind = "additions" if not before else "changes"
             if mode != kind:
                 continue
-            fp = _fingerprint(snapshot, scope, track, field, before, after)
+            source_url = genre_source_url if field == "GENRE" else ""
+            fp = _fingerprint(snapshot, scope, track, field, before, after, source_url)
             before_json, after_json = _stable_json(before), _stable_json(after)
             db.execute("""INSERT OR IGNORE INTO metadata_proposals
                 (fingerprint,archive_path,publish_id,release_id,scope,track,field,
-                 before_json,after_json,archive_revision,first_seen,last_seen)
-                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                 before_json,after_json,source_url,archive_revision,first_seen,last_seen)
+                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (fp, snapshot["path"], snapshot["publish_id"], snapshot["release_id"],
-                 scope, track, field, before_json, after_json,
+                 scope, track, field, before_json, after_json, source_url,
                  snapshot["manifest_sha256"], now, now))
             db.execute("UPDATE metadata_proposals SET last_seen=? WHERE fingerprint=?", (now, fp))
             observed.append(fp)
@@ -263,6 +319,17 @@ def list_proposals(*, include_decided=False, limit=200):
     return {"items": [_as_dict(r) for r in rows], "count": len(rows)}
 
 
+def _matches_proposal(candidate, row, genre_source_url):
+    scope, track, field, before, after = candidate
+    source_url = genre_source_url if field == "GENRE" else ""
+    return (
+        (scope, track, field) == (row["scope"], row["track"], row["field"])
+        and source_url == row["source_url"]
+        and _canonical(before) == json.loads(row["before_json"])
+        and _canonical(after) == json.loads(row["after_json"])
+    )
+
+
 def decide(fingerprint, choice, *, lookup=None):
     if not _ID.fullmatch(fingerprint) or choice not in {"accept", "ignore"}:
         raise ScanError("Invalid metadata proposal decision")
@@ -276,12 +343,9 @@ def decide(fingerprint, choice, *, lookup=None):
                 or archived["publish_id"] != row["publish_id"]):
             raise ScanError("Archive changed since proposal; rescan before deciding")
         # Ensure external value remains current before accepting/ignoring an old result.
-        candidates = _fresh_values(archived, lookup or lookup_release_medium)
-        matches = [entry for entry in candidates
-                   if entry[0] == row["scope"] and entry[1] == row["track"]
-                   and entry[2] == row["field"]
-                   and _canonical(entry[3]) == json.loads(row["before_json"])
-                   and _canonical(entry[4]) == json.loads(row["after_json"])]
+        candidates, genre_source_url = _fresh_values(
+            archived, lookup or lookup_release_medium, allow_discogs=bool(row["source_url"]))
+        matches = [entry for entry in candidates if _matches_proposal(entry, row, genre_source_url)]
         if len(matches) != 1:
             raise ScanError("Provider value changed; rescan before deciding")
         now = datetime.now(timezone.utc).isoformat()
@@ -320,16 +384,14 @@ def reopen_decision(fingerprint, *, lookup=None):
                 or archived["publish_id"] != row["publish_id"]
                 or archived["release_id"] != row["release_id"]):
             raise ScanError("Published archive revision changed; rescan before reopening")
-        candidates = _fresh_values(archived, lookup or lookup_release_medium)
-        before, after = json.loads(row["before_json"]), json.loads(row["after_json"])
-        matches = [
-            item for item in candidates
-            if item[0] == row["scope"] and item[1] == row["track"]
-            and item[2] == row["field"]
-            and _canonical(item[3]) == before and _canonical(item[4]) == after
-        ]
+        candidates, genre_source_url = _fresh_values(
+            archived, lookup or lookup_release_medium, allow_discogs=bool(row["source_url"]))
+        matches = [entry for entry in candidates if _matches_proposal(entry, row, genre_source_url)]
         if len(matches) != 1:
-            raise ScanError("MusicBrainz data changed; rescan instead of reopening stale proposal")
+            source = _as_dict(row)["source"]
+            label = {"archive_profile": "Archive profile", "discogs": "Discogs",
+                     "musicbrainz": "MusicBrainz"}[source]
+            raise ScanError(f"{label} data changed; rescan instead of reopening stale proposal")
         now = datetime.now(timezone.utc).isoformat()
         db.execute(
             "UPDATE metadata_proposals SET status='pending', decided_at='' WHERE fingerprint=? AND status IN ('ignored','accepted')",

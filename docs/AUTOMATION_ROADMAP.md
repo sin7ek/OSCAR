@@ -1,16 +1,26 @@
-## Current Go! reality and next step — 2026-11-20
-
-**Update to supersede older “future” and “phase 1” wording below:** All three policy choices are now available; Semi Automatic has user-tested release acceptance, an isolated metadata-copy progression and reviewed archive publication. The user successfully published two different CDs from a six-CD classical boxset into one parent path on Unraid. This does **not** mean disc insertion triggers an unattended full workflow, that all metadata relationships are edition-verified, or that recovery/cleanup is automatic. Older planning sections below are historical milestones and may refer to past implementations as future.
-
-**Next implementation:** provide an explicit **refresh MusicBrainz Disc ID match** on saved, already accepted verified jobs, using a fresh MusicBrainz release-medium request. Distinguish current `exact_disc_id_and_track_count` lookup evidence from historical `INFERRED_OPERATOR_ACCEPTED` operator review; never silently reclassify user physical-edition evidence. Carmen Gomes *Desire* now has a user-attached Disc ID and is the real regression case.
-
-**Collection-management expansion:** MusicBrainz OAuth collection read is a separate optional integration; configuration names: `OSCAR_MUSICBRAINZ_ID`, `OSCAR_MUSICBRAINZ_CS`; Discogs remains `OSCAR_DISCOGS_PAK`. Server-side OAuth only, secure tokens, configurable redirect, no collection writes in phase one. Local ownership copies, MB release membership, Discogs collection instances and archived boxset media are **distinct** concepts. Edit notes for MusicBrainz Disc ID submission will be deterministic, operator-reviewed local templates, without AI/API dependency.
-
----
-
 # OSCAR — CD inserted → Go! automation roadmap
 
-**State:** plans and implemented foundations as of November 19, 2026. This is *not* a completed automatic pipeline.
+## Current Go! workflow — 2026-11-25
+
+Go! runs rip and verification, records edition lookup evidence and guides the operator through the configured release and archive review. The three policy choices are available. Explicitly enabled Best Guess can automatically publish when all of its checks pass. Semi Automatic has been exercised through reviewed publication on Tower. Insertion-triggered ripping is available as an explicit per-drive opt-in. Tower acceptance and unattended review remain open.
+
+### Automatic start on insertion
+
+Under **Settings → Optical drives**, enable **Start ripping automatically when I insert an audio CD** on each drive you want to use, then save. The drive must be enabled, persistently identified and have a configured read offset. Automatic start is off by default and requires the existing ripping opt-in. Saving the setting uses the existing rip authorization.
+
+OSCAR must observe an empty drive or open tray followed by two consecutive observations of a CD with audio tracks. Leave the tray open for at least one three-second poll when replacing a disc. The monitor respects the concurrent-rip limit and starts the regular tracked Go! extraction and post-rip verification. The result appears in RipReview. A disc already inserted at service startup or when opting in requires a manual Go! start or an observed removal and reinsertion.
+
+### RipReview
+
+The Go! worklist reads the persistent job ledger and saved extraction evidence. It groups jobs by next action, including read again, audio/data review, edition review and archive review. Lookup gaps remain visible separately from a reported mismatch. For a proven track-specific issue, Review recommends an eligible idle drive using DriveFit and can start a separate, explicitly confirmed diagnostic after checking the inserted Disc ID. Track Recovery opens with both job IDs and the affected tracks filled in.
+
+Unattended re-reads and automatic recovery remain future increments. RipReview neither changes verification and publication policy nor starts another physical read merely because an issue was detected.
+
+### Advanced review handoffs
+
+Review provides prefilled handoffs from a verified rip to metadata preview, tagged-copy inspection and read-only archive preview. Semi Secure and Secure expose optional physical identifiers for MusicBrainz/Discogs comparison. Guided Disc ID attachment uses operator confirmation on MusicBrainz. Go! records independent CTDB evidence for eligible full-disc rips and includes it in the archive provenance.
+
+See the [dashboard](PROGRESS.md) and [current acceptance tests](PROJECT_STATUS.md#next-acceptance-checks). The milestones below retain their original design and implementation context.
 
 ## One verified audio pipeline; three top-level operating modes (design decision, 2026-11-19)
 

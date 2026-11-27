@@ -19,19 +19,19 @@ import stat
 import subprocess
 import threading
 import time
-import urllib.request
 import uuid
 
-from mutagen.flac import FLAC
+from mutagen.flac import FLAC, Picture
 
-from oscar import archive_review, verification
+from oscar import archive_review, cd_extra, cover_art, ctdb_verification, edition_provenance, verification
+from oscar.archive_audit import _PLAYABLE_AUDIO_SUFFIXES
 from oscar.archive_naming import safe_component
 from oscar.metadata_staging import _COPY_ID, _streaminfo_md5_hex
+from oscar.pressing_evidence import observed_matrix
 
 _LOCK = threading.RLock()
 _JOBS = {}
 _RUNNING = set()
-_MAX_COVER = 8 * 1024 * 1024
 _CONFIRM = "PUBLISH_REVIEWED_ARCHIVE"
 
 
@@ -155,7 +155,7 @@ def _names(review):
 
 
 def prepare(job_id, copy_id, kind="original_tags", profile="auto",
-            *, include_cover=False):
+            *, include_cover=False, include_data=True):
     if not _COPY_ID.fullmatch(job_id) or not _COPY_ID.fullmatch(copy_id):
         raise PublishError("Invalid rip or copy ID")
     if kind not in {"original_tags", "classical_v2"}:
@@ -163,7 +163,8 @@ def prepare(job_id, copy_id, kind="original_tags", profile="auto",
     if profile not in {"auto", "standard", "classical"}:
         raise PublishError("Invalid processing profile")
     root = verification._safe_job(job_id)
-    if verification.report(job_id).get("status") != "checks_passed":
+    verification_report = verification.report(job_id)
+    if verification_report.get("status") != "checks_passed":
         raise PublishError("Source rip verification must pass before publishing")
     review = archive_review.review(job_id, copy_id, kind, profile=profile, artwork=False)
     relative, names, disc_number, disc_total = _names(review)
@@ -188,8 +189,47 @@ def prepare(job_id, copy_id, kind="original_tags", profile="auto",
         records.append({"number": track["number"], "source": rel,
                         "filename": filename, "expected_sha256": expected,
                         "audio_md5": audio_md5})
-    evidence = _source_evidence(job_id)
+        source_sha = entry.get("source_sha256")
+        if kind == "original_tags" and isinstance(source_sha, str) and re.fullmatch(r"[a-f0-9]{64}", source_sha):
+            records[-1]["rip_sha256"] = source_sha
+    ctdb_verification.automatic(job_id, root)
+    ctdb = ctdb_verification.saved_evidence(job_id, root)
+    evidence = _source_evidence(job_id, include_ctdb=bool(ctdb))
+    recovery = _recovery_provenance(root, review["album"], records, verification_report)
+    provenance = {
+        "metadata_source": saved_preview.get("source") or "MusicBrainz",
+        "verification_method": verification_report.get("verification_method") or
+        ("cyanrip" if verification_report.get("tracks") else "not_recorded"),
+        "accuraterip_coverage": verification_report.get("accuraterip_coverage"),
+        "track_verification": {t["number"]: t.get("accuraterip", {})
+                               for t in verification_report.get("tracks", [])},
+        "recovery": recovery,
+    }
+    if genre_source_url := saved_preview.get("album", {}).get("genre_source_url"):
+        provenance["genre_source_url"] = genre_source_url
+    if ar_lookup := verification_report.get("accuraterip_lookup"):
+        provenance["accuraterip_lookup"] = ar_lookup
+    edition_search = edition_provenance.for_release(
+        root, job_id, review["album"].get("musicbrainz_disc_id"), review["release_id"])
+    if edition_search:
+        provenance["edition_search"] = edition_search
+    if ctdb:
+        result, report_hash = ctdb
+        if not any(item["source"] == ctdb_verification.REPORT and item["sha256"] == report_hash
+                   for item in evidence):
+            raise PublishError("CTDB report changed during archive preview; retry")
+        provenance["ctdb"] = result
+    if matrix := observed_matrix(review["album"].get("matrix_runout")):
+        provenance["physical_matrix_runout"] = {"value": matrix, "source": "operator_transcription"}
+    if include_cover:
+        selected = cover_art.load(tagged_folder, review["release_id"])
+        if not selected:
+            raise PublishError("Load or upload a cover before previewing publication")
+        provenance["artwork"] = selected[0]
     cue = review["cue"]["archive_cue_proposal"]
+    if excluded := review["cue"].get("excluded_data_track"):
+        provenance["excluded_data_track"] = excluded
+        provenance["cd_extra_data"] = cd_extra.review(root, excluded, include_data)
     referenced = [match.group(1) for line in cue.splitlines()
                   if (match := archive_review._CUEFILE.match(line))]
     if referenced != names:
@@ -198,6 +238,8 @@ def prepare(job_id, copy_id, kind="original_tags", profile="auto",
         raise PublishError("Expected one sourced INDEX 01 per track; review the original CUE")
     # No network call or source audio hash on preview; the final publisher
     # rehashes and tests every byte before any rename.
+    archive = archive_root()
+    destination = archive / relative
     plan = {"job_id": job_id, "copy_id": copy_id, "kind": kind,
             "profile": review["music_profile"]["name"],
             "profile_request": profile,
@@ -205,16 +247,23 @@ def prepare(job_id, copy_id, kind="original_tags", profile="auto",
             "relative_directory": relative.as_posix(),
             "disc_number": disc_number, "disc_total": disc_total,
             "tracks": records, "cue": cue, "source_evidence": evidence,
+            "provenance": provenance,
             "include_cover": bool(include_cover),
             "metadata_observations": review["consistency"]["flags"],
             "original_preview_fingerprint": saved_preview.get("fingerprint"),
             "requires_explicit_review": True,
-            "output_exists": (archive_root() / relative).exists(),
+            "output_exists": destination.exists() or destination.is_symlink(),
             "notes": [
                 "Physical edition, CUE, cover and metadata exceptions require explicit operator review.",
                 "This proposal does not rename, move or modify the original ripped or tagged staging files.",
-                "Artwork is downloaded only if separately approved, and is never automatically embedded in FLACs.",
+                "The selected cover is embedded in the published FLAC copies and saved as folder.jpg.",
             ]}
+    data = provenance.get("cd_extra_data") or {}
+    if plan["output_exists"] and data.get("status") == "included":
+        try:
+            plan["data_supplement"] = _plan_data_supplement(archive, destination, plan, data)
+        except (OSError, ValueError, RuntimeError, KeyError, TypeError) as exc:
+            plan["destination_block_reason"] = str(exc)
     fingerprint_input = {k: v for k, v in plan.items()
                          if k not in {"output_exists", "notes"}}
     plan["fingerprint"] = hashlib.sha256(json.dumps(
@@ -223,8 +272,327 @@ def prepare(job_id, copy_id, kind="original_tags", profile="auto",
     return plan
 
 
-def _source_evidence(job_id):
-    """Read-only inventory of original CUE and available cyanrip logs."""
+def _plan_data_supplement(root, destination, plan, data):
+    from oscar import archive_revision
+
+    _check_directory(destination, root)
+    path = destination / "manifest.json"
+    if path.is_symlink() or not path.is_file() or path.stat().st_size > 3_000_000:
+        raise PublishError("Existing archive has no safe publication manifest")
+    raw = path.read_bytes()
+    manifest = json.loads(raw)
+    if (not isinstance(manifest, dict) or manifest.get("status") != "published_verified"
+            or any(manifest.get(key) != plan[key] for key in ("release_id", "disc_number", "disc_total"))):
+        raise PublishError("Existing archive is a different release or disc")
+    extra = destination / "CD-Extra"
+    if extra.exists() or extra.is_symlink():
+        raise PublishError("Archive already contains a CD-Extra directory")
+    provenance = manifest.get("provenance") or {}
+    archive_revision._verify_preserved_evidence(destination, manifest)
+    toc = (provenance.get("ctdb") or {}).get("disc_toc") or (provenance.get("accuraterip_lookup") or {}).get("disc_toc")
+    if not toc:
+        evidence = destination / "ExtractionEvidence"
+        _check_directory(evidence / "audio", root)
+        *offsets, start, _ = map(int, data["disc_toc"].split(":"))
+        toc = ctdb_verification._cd_extra_toc(evidence, data["track"] - 1,
+                                              [offset + 150 for offset in offsets], -start - 11400 + 150)
+    if toc != data["disc_toc"]:
+        raise PublishError("Existing archive has a different physical CD-Extra TOC")
+    files = manifest.get("files") or []
+    if len(files) != len(plan["tracks"]):
+        raise PublishError("Existing archive audio track count differs")
+    for archived, staged in zip(files, plan["tracks"], strict=True):
+        name = archived["filename"]
+        if (Path(name).name != name or not name.lower().endswith(".flac")
+                or archived.get("track") != staged["number"]
+                or archived.get("streaminfo_audio_md5") != staged["audio_md5"]):
+            raise PublishError("Existing archive audio differs from the staged disc")
+        audio = destination / name
+        if audio.is_symlink() or not audio.is_file() or _hash(audio) != archived.get("sha256"):
+            raise PublishError("Existing archive FLAC fails its recorded SHA-256")
+    return {
+        "archive_identity": {key: manifest.get(key) for key in ("job_id", "copy_id", "release_id", "disc_number")},
+        "archive_manifest_sha256": hashlib.sha256(raw).hexdigest(),
+    }
+
+
+def _publish_data_supplement(destination, root, plan, data, publish_id):
+    if _plan_data_supplement(root, destination, plan, data) != plan["data_supplement"]:
+        raise PublishError("Existing archive changed; review the addition again")
+    temp = destination.parent / (".oscar-unpublished-" + publish_id)
+    temp.mkdir(mode=0o700)
+    cd_extra.copy_to_archive(verification._safe_job(plan["job_id"]), temp, data)
+    receipt = {**plan["data_supplement"], "status": "published_verified",
+               "publish_id": publish_id, "job_id": plan["job_id"], "copy_id": plan["copy_id"],
+               "release_id": plan["release_id"], "archive_plan_fingerprint": plan["fingerprint"], "data": data}
+    for filename, content in (
+        (cd_extra.SUPPLEMENT_FILENAME, json.dumps(receipt, indent=2) + "\n"),
+        ("CD-Extra/SOURCES.txt", _data_sources(plan["job_id"], data)),
+    ):
+        with (temp / filename).open("x", encoding="utf-8") as output:
+            output.write(content)
+            output.flush()
+            os.fsync(output.fileno())
+    digest = _hash(temp / cd_extra.SUPPLEMENT_FILENAME)
+    _assert_playable_inventory(temp / "CD-Extra", [])
+    _rename_noreplace(temp / "CD-Extra", destination / "CD-Extra")
+    try:
+        temp.rmdir()
+        fd = os.open(destination, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+    except OSError:
+        pass
+    return {"status": "published_verified", "publish_id": publish_id,
+            "job_id": plan["job_id"], "copy_id": plan["copy_id"], "data_supplement": True,
+            "relative_directory": plan["relative_directory"], "file_count": 0,
+            "manifest_sha256": digest, "source_preserved": True}
+
+
+def _data_sources(job_id, data):
+    return (f"CD-Extra data track {data['track']}\n"
+            f"Staging rip job: {job_id}\n"
+            f"Staging file: {data['source']}\n"
+            f"Format: {data['format']} · LSN {data['start_lsn']} · {data['sectors']} sectors · {data['size']} bytes\n"
+            f"Physical TOC: {data['disc_toc']}\n"
+            f"SHA-256: {data['sha256']}\n"
+            "Verification: two matching raw reads; archive copy checked by SHA-256\n")
+
+
+def _valid_rip_attempt(attempt, job_id):
+    return (
+        attempt["source_type"] == "physical_cd_rip"
+        and attempt["job_id"] == job_id
+        and re.fullmatch(r"audio/[^/\r\n]+\.flac", attempt["file"])
+        and re.fullmatch(r"[a-f0-9]{64}", attempt["sha256"])
+        and (attempt.get("read_offset_samples") is None or type(attempt["read_offset_samples"]) is int)
+    )
+
+
+def _recovery_provenance(job, album, records, report):
+    path = job / "recovery-sources.json"
+    is_recovery = report.get("verification_method") == "independent_trackverify_R_v1_v2"
+    if not is_recovery and not path.exists() and not report.get("recovery_sources"):
+        return None
+    if not is_recovery or not path.is_file() or path.is_symlink():
+        raise PublishError("Missing or inconsistent track recovery evidence")
+    try:
+        recovery = json.loads(path.read_text(encoding="utf-8"))
+        parent_ids = {key: recovery[key] for key in ("original_job_id", "diagnostic_job_id")}
+        ids = set(parent_ids.values())
+        tracks = recovery["tracks"]
+        verification_tracks = report["tracks"]
+        state = verification._load_job(job, report["job_id"])
+        if (
+            recovery["format"] != "OSCAR_TRACK_RECOVERY_V1"
+            or parent_ids != report["recovery_sources"]
+            or len(ids) != 2 or report["job_id"] in ids
+            or not all(_COPY_ID.fullmatch(value) for value in ids)
+            or recovery["disc_id"] != state["disc_id"]
+            or (album.get("musicbrainz_disc_id") and recovery["disc_id"] != album["musicbrainz_disc_id"])
+            or recovery["track_count"] != len(records)
+            or len(tracks) != len(verification_tracks) or len(tracks) != len(records)
+            or not any(track["source_job_id"] == parent_ids["diagnostic_job_id"] for track in tracks)
+        ):
+            raise ValueError
+        for track, verified, record in zip(tracks, verification_tracks, records):
+            source_path = track["source_path"]
+            source_hash = track["source_sha256"]
+            if (
+                track["track"] != record["number"] or verified["number"] != record["number"]
+                or track["source_job_id"] not in ids or track["source_job_id"] != verified["source_job_id"]
+                or verified["file"] != record["source"] or not verified["checks_passed"]
+                or not re.fullmatch(r"audio/[^/\r\n]+\.flac", source_path)
+                or not re.fullmatch(r"[a-f0-9]{64}", source_hash)
+                or source_hash != track["recovered_sha256"]
+                or source_hash != state["files_sha256"][record["source"]]
+                or source_hash != record.get("rip_sha256", source_hash)
+                or verification.accuraterip_assessment(verified["accuraterip"])["status"] != "both_versions_matched"
+            ):
+                raise ValueError
+            if "selected_attempt" in track:
+                selected = track["selected_attempt"]
+                if (not _valid_rip_attempt(selected, track["source_job_id"])
+                        or selected["file"] != source_path or selected["sha256"] != source_hash):
+                    raise ValueError
+                if track["source_job_id"] == parent_ids["diagnostic_job_id"]:
+                    excluded = track["excluded_attempt"]
+                    if (not _valid_rip_attempt(excluded, parent_ids["original_job_id"])
+                            or excluded["file"] != record["source"]):
+                        raise ValueError
+                elif "excluded_attempt" in track:
+                    raise ValueError
+            elif "excluded_attempt" in track:
+                raise ValueError
+    except (ValueError, TypeError, KeyError, AttributeError) as exc:
+        raise PublishError("Inconsistent track recovery evidence") from exc
+    return recovery
+
+
+def _source_type(plan):
+    return "HYBRID_REPAIRED_CD_RIP" if plan["provenance"]["recovery"] else "PHYSICAL_CD_RIP"
+
+
+def _attempt_lines(label, attempt):
+    lines = [f"  {label} ({attempt['source_type']}):"]
+    if attempt.get("job_id"):
+        lines.append(f"    Job: {attempt['job_id']}")
+    if attempt.get("origin"):
+        lines.append(f"    Origin: {attempt['origin']}")
+    lines.extend([f"    File: {attempt['file']}", f"    SHA-256: {attempt['sha256']}"])
+    if attempt["source_type"] == "physical_cd_rip":
+        drive = attempt.get("drive_id") or "not recorded"
+        offset = attempt.get("read_offset_samples")
+        lines.append(f"    Drive ID: {drive}")
+        lines.append(f"    Read offset (samples): {offset if offset is not None else 'not recorded'}")
+    if attempt.get("checks_passed") is not None:
+        result = "passed" if attempt["checks_passed"] else "did not pass"
+        lines.append(f"    Saved track checks: {result}")
+    verifier = attempt.get("verification_source")
+    if verifier:
+        lines.append(f"    Saved verification source: {verifier}")
+    if attempt.get("eac_crc32"):
+        lines.append(f"    EAC CRC32: {attempt['eac_crc32']}")
+    for version, match in attempt.get("accuraterip", {}).items():
+        confidence = match.get("confidence")
+        suffix = f" (confidence {confidence})" if confidence is not None else ""
+        lines.append(f"    AccurateRip {version}: {match['status'].replace('_', ' ')}{suffix}")
+    return lines
+
+
+def render_sources(plan, release_match_status, *, published_files=None):
+    """Render the same provenance text for Go review and archive publication."""
+    if plan.get("data_supplement"):
+        return _data_sources(plan["job_id"], plan["provenance"]["cd_extra_data"])
+    provenance = plan["provenance"]
+    recovery = provenance["recovery"]
+    album = plan["album"]
+    disc = plan["disc_number"]
+    total = plan["disc_total"]
+    disc_id = album.get("musicbrainz_disc_id") or (recovery or {}).get("disc_id") or "Not recorded"
+    method = {
+        "independent_trackverify_R_v1_v2": "Independent trackverify -R (AccurateRip v1 and v2, offset 0)",
+        "cyanrip": "AccurateRip results reported by cyanrip during extraction",
+        "cyanrip_cd_extra_accuraterip_lookup": "Independent AccurateRip full-CD-Extra TOC lookup; CRCs calculated by cyanrip during extraction",
+    }.get(provenance["verification_method"], "Verification method not recorded")
+    lines = [
+        "OSCAR archive sources",
+        f"SOURCE_TYPE: {_source_type(plan)}",
+        f"Album: {album['artist']} — {album['title']}",
+        f"Medium: Disc {disc:02d} of {total:02d}",
+        f"Disc ID: {disc_id}",
+        "",
+        "[Metadata]",
+        f"Source: {provenance['metadata_source']}",
+        f"MusicBrainz release: https://musicbrainz.org/release/{plan['release_id']}",
+        f"Physical edition status: {release_match_status}",
+        f"Processing profile: {plan['profile']}",
+        f"Tagged staging copy: {plan['copy_id']} ({plan['kind']})",
+    ]
+    if album.get("catalog_numbers"):
+        lines.append("Catalog numbers from metadata: " + "; ".join(album["catalog_numbers"]))
+    if matrix := provenance.get("physical_matrix_runout"):
+        lines.append("Physical matrix/runout (operator transcription): " + matrix["value"])
+    if album.get("genre_source"):
+        lines.append(f"Genre metadata source: {album['genre_source']}")
+        if genre_source_url := provenance.get("genre_source_url"):
+            lines.append(f"Genre source release: {genre_source_url}")
+    if cover := provenance.get("artwork"):
+        lines.append("Front cover: " + (cover["source"] or "User upload") +
+                     " · folder.jpg and FLAC PICTURE blocks")
+        lines.append("Front cover SHA-256: " + cover["sha256"])
+    if searches := provenance.get("edition_search"):
+        lines.extend(edition_provenance.render(searches))
+    lines.extend(["", "[Audio extraction]", f"Staging rip job: {plan['job_id']}"])
+    if data_track := provenance.get("excluded_data_track"):
+        data = provenance.get("cd_extra_data", {})
+        lines.append(f"CD-Extra data track {data_track}: {data.get('status', 'excluded')}; full original CUE retained in ExtractionEvidence")
+        if data.get("status") == "included":
+            lines.extend([f"  Raw data image: {data['filename']}",
+                          f"  Format: {data['format']} · LSN {data['start_lsn']} · {data['sectors']} sectors · {data['size']} bytes",
+                          f"  SHA-256: {data['sha256']}",
+                          "  Verification: two matching raw reads; archive copy checked by SHA-256",
+                          "  AccurateRip and CTDB verify audio only."])
+        elif data.get("message"):
+            lines.append("  " + data["message"])
+    if recovery:
+        lines.extend([
+            f"Original full-disc rip job: {recovery['original_job_id']}",
+            f"Replacement diagnostic rip job: {recovery['diagnostic_job_id']}",
+            "The recovery job assembled the disc from both staging sources.",
+        ])
+    lines.extend(["", "[Verification]", method])
+    if lookup := provenance.get("accuraterip_lookup"):
+        lines.append("AccurateRip full-disc lookup: " + lookup["status"])
+        lines.append("AccurateRip URL: " + lookup["url"])
+        lines.append("AccurateRip physical TOC (LSN): " + lookup["disc_toc"])
+    ctdb = provenance.get("ctdb")
+    if ctdb:
+        detail = f" ({ctdb['confidence']}/{ctdb['total']} confidence)" if "confidence" in ctdb else ""
+        trigger = f" ({ctdb['trigger']})" if ctdb.get("trigger") else ""
+        message = f" — {ctdb['message']}" if ctdb.get("message") else ""
+        lines.append(f"CTDB: {ctdb['status']}{detail} via {ctdb['method']}{trigger}{message}")
+        if ctdb.get("cue_layout") == "cyanrip_split_pregaps":
+            lines.append("CTDB input: compatible copy of cyanrip CUE; original indexes preserved")
+        elif ctdb.get("cue_layout") == "cd_extra_audio_session":
+            lines.append("CTDB input: CD-Extra audio session; data track outside verification scope")
+        elif ctdb.get("cue_layout") == "cd_extra_full_toc":
+            lines.append("CTDB input: full physical CD-Extra TOC; audio checksums only")
+            lines.append("CTDB physical TOC (LSN): " + ctdb["disc_toc"])
+    else:
+        lines.append("CTDB: not checked by OSCAR")
+    if provenance["accuraterip_coverage"]:
+        lines.append(f"AccurateRip coverage: {provenance['accuraterip_coverage']}")
+    lines.extend(["Archive checks: FLAC decode, file SHA-256, STREAMINFO audio MD5 and CUE references.",
+                  "", "[Track sources]"])
+    final_hashes = {item["track"]: item["sha256"] for item in published_files or ()}
+    for item in plan["tracks"]:
+        number = item["number"]
+        lines.append(f"Disc {disc:02d} / Track {number:02d} — {item['filename']}")
+        if recovery:
+            source = recovery["tracks"][number - 1]
+            job_id = source["source_job_id"]
+            origin = "diagnostic replacement" if job_id == recovery["diagnostic_job_id"] else "original full-disc rip"
+            lines.extend([
+                f"  Audio source: {origin}",
+                f"  Source job: {job_id}",
+                f"  Source file: {source['source_path']}",
+                f"  Source and recovered-copy SHA-256: {source['source_sha256']}",
+            ])
+            if source.get("selected_attempt"):
+                lines.extend(_attempt_lines("Selected attempt", source["selected_attempt"]))
+            if source.get("excluded_attempt"):
+                lines.extend(_attempt_lines("Excluded original attempt", source["excluded_attempt"]))
+            elif job_id == recovery["diagnostic_job_id"]:
+                lines.append("  Excluded original attempt: details not recorded in this recovery job")
+        else:
+            lines.append(f"  Audio source: {plan['job_id']}/{item['source']}")
+            if item.get("rip_sha256"):
+                lines.append(f"  Source FLAC SHA-256: {item['rip_sha256']}")
+        versions = provenance["track_verification"].get(number, {})
+        for version in ("v1", "v2"):
+            match = versions.get(version)
+            if not match:
+                lines.append(f"  AccurateRip {version}: not reported")
+                continue
+            confidence = match.get("confidence")
+            suffix = f" (confidence {confidence})" if confidence is not None else ""
+            lines.append(f"  AccurateRip {version}: {match['status'].replace('_', ' ')}{suffix}")
+        if plan["include_cover"] and number not in final_hashes:
+            lines.append(f"  Tagged staging FLAC SHA-256: {item['expected_sha256']}")
+        else:
+            lines.append(f"  Published FLAC SHA-256: {final_hashes.get(number, item['expected_sha256'])}")
+    lines.extend(["", "[Archived evidence]", "album.cue — CUE with published file names",
+                  "manifest.json — archive file hashes and provenance"])
+    for item in plan["source_evidence"]:
+        lines.append(f"ExtractionEvidence/{item['source']} — SHA-256: {item['sha256']}")
+    return "\n".join(lines) + "\n"
+
+
+def _source_evidence(job_id, *, include_ctdb=False):
+    """Read-only inventory of the source CUE, logs and verification records."""
     job = verification._safe_job(job_id)
     audio = job / "audio"
     if audio.is_symlink() or not audio.is_dir():
@@ -237,6 +605,15 @@ def _source_evidence(job_id):
         for path in sorted(folder.glob("*.log")):
             if path.is_symlink() or not path.is_file():
                 raise PublishError("Unsafe original extraction log")
+            paths.append(path)
+    names = ["verification-report.json", "recovery-sources.json"]
+    if include_ctdb:
+        names.append(ctdb_verification.REPORT)
+    for name in names:
+        path = job / name
+        if path.is_symlink() or (path.exists() and not path.is_file()):
+            raise PublishError("Unsafe verification or recovery evidence")
+        if path.is_file():
             paths.append(path)
     return [{"source": path.relative_to(job).as_posix(),
              "sha256": _hash(path), "size": path.stat().st_size}
@@ -272,40 +649,57 @@ def _copy_source_evidence(job_id, entries, temp):
     return output
 
 
-def _cover(release_id, target, *, opener=None):
-    """Fetch only front art for the exactly selected release, after approval."""
-    url = f"https://coverartarchive.org/release/{release_id}/front"
-    req = urllib.request.Request(url, headers={"User-Agent": "OSCAR/0.1 (reviewed archive artwork)"})
-    with (opener or urllib.request.urlopen)(req, timeout=15) as response:
-        length = response.headers.get("Content-Length")
-        if length and int(length) > _MAX_COVER:
-            raise PublishError("Cover art exceeds size limit")
-        raw = response.read(_MAX_COVER + 1)
-        if len(raw) > _MAX_COVER:
-            raise PublishError("Cover art exceeds size limit")
-    if raw.startswith(b"\xff\xd8\xff"):
-        extension = "jpg"
-    elif raw.startswith(b"\x89PNG\r\n\x1a\n"):
-        extension = "png"
-    else:
-        raise PublishError("Cover Art Archive did not return a supported JPEG/PNG")
-    dest = target / f"cover.{extension}"
-    with dest.open("xb") as out:
-        out.write(raw)
-        out.flush()
-        os.fsync(out.fileno())
-    return {"filename": dest.name, "sha256": _hash(dest), "source": url,
-            "reviewed_physical_front": True}
+def _assert_playable_inventory(directory, published):
+    """Do not expose undeclared audio or failed extraction evidence to players."""
+    expected = {entry["filename"] for entry in published}
+    actual = set()
+    def unreadable(error):
+        raise PublishError(f"Unable to inspect publication inventory: {error}") from error
+
+    for base, dirs, files in os.walk(directory, onerror=unreadable):
+        for name in dirs + files:
+            path = Path(base) / name
+            if path.is_symlink():
+                raise PublishError("Symlink in publication")
+        for name in files:
+            path = Path(base) / name
+            if path.suffix.lower() in _PLAYABLE_AUDIO_SUFFIXES:
+                actual.add(path.relative_to(directory).as_posix())
+    if actual != expected:
+        raise PublishError("Unexpected or missing playable audio in publication: "
+                           + ", ".join(sorted(actual ^ expected)))
 
 
-def _do_publish(plan, publish_id, *, allow_metadata_observations, cover_download=None):
+def _embed_front(target, selected, raw):
+    flac = FLAC(target)
+    retained = [picture for picture in flac.pictures if picture.type != 3]
+    flac.clear_pictures()
+    for picture in retained:
+        flac.add_picture(picture)
+    front = Picture()
+    front.type = 3
+    front.mime = "image/jpeg"
+    front.width, front.height = selected["width"], selected["height"]
+    front.depth = 24
+    front.data = raw
+    flac.add_picture(front)
+    flac.save()
+    with target.open("rb") as output:
+        os.fsync(output.fileno())
+
+
+def _do_publish(plan, publish_id, *, allow_metadata_observations):
     job_id, copy_id, kind = plan["job_id"], plan["copy_id"], plan["kind"]
+    data = plan["provenance"].get("cd_extra_data", {})
     new_plan = prepare(job_id, copy_id, kind, plan["profile_request"],
-                       include_cover=plan["include_cover"])
+                       include_cover=plan["include_cover"],
+                       include_data=data.get("status") != "excluded_by_operator")
     if new_plan["fingerprint"] != plan["fingerprint"]:
         raise PublishError("Archive preview changed; review and confirm a new preview")
-    if new_plan["metadata_observations"] and not allow_metadata_observations:
+    if new_plan["metadata_observations"] and not allow_metadata_observations and not new_plan.get("data_supplement"):
         raise PublishError("Metadata review observations require explicit acknowledgement")
+    if data.get("status") == "unavailable":
+        raise PublishError("CD-Extra data unavailable; capture it or explicitly exclude the data session")
     root = archive_root()
     destination = root / new_plan["relative_directory"]
     parent = destination.parent
@@ -319,6 +713,8 @@ def _do_publish(plan, publish_id, *, allow_metadata_observations, cover_download
     with lockfile.open("a+b") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         try:
+            if new_plan.get("data_supplement"):
+                return _publish_data_supplement(destination, root, new_plan, data, publish_id)
             if destination.exists() or destination.is_symlink():
                 raise PublishError("Archive target already exists; refusing to overwrite")
             parent.mkdir(parents=True, exist_ok=True)
@@ -327,8 +723,22 @@ def _do_publish(plan, publish_id, *, allow_metadata_observations, cover_download
             temp = parent / (".oscar-unpublished-" + publish_id)
             temp.mkdir(mode=0o700, exist_ok=False)
             source_job = verification._safe_job(job_id)
+            if data.get("status") == "included":
+                cd_extra.copy_to_archive(source_job, temp, data)
             prefix = "metadata-copy-" if kind == "original_tags" else "metadata-v2-"
             source_folder = source_job / (prefix + copy_id)
+            artwork = new_plan["provenance"].get("artwork")
+            cover = None
+            if artwork:
+                selected = cover_art.load(source_folder, new_plan["release_id"])
+                if not selected or selected[0] != artwork:
+                    raise PublishError("Cover selection changed; review the archive preview again")
+                _, cover = selected
+                with (temp / "folder.jpg").open("xb") as output:
+                    output.write(cover)
+                    output.flush()
+                    os.fsync(output.fileno())
+                artwork = {**artwork, "embedded_in_flacs": True}
             published = []
             for entry in new_plan["tracks"]:
                 source = source_folder / entry["source"]
@@ -344,16 +754,24 @@ def _do_publish(plan, publish_id, *, allow_metadata_observations, cover_download
                     shutil.copyfileobj(src, dst, length=1024 * 1024)
                     dst.flush()
                     os.fsync(dst.fileno())
+                if _hash(target) != entry["expected_sha256"]:
+                    raise PublishError("Archive FLAC differs from tagged staging copy")
+                if cover is not None:
+                    _embed_front(target, artwork, cover)
                 result = subprocess.run(["flac", "-t", "--silent", str(target)],
                                         capture_output=True, timeout=180, check=False)
                 if result.returncode:
                     raise PublishError(f"FLAC decode failed for track {entry['number']}")
-                if _hash(target) != entry["expected_sha256"]:
-                    raise PublishError("Archive FLAC differs from tagged staging copy")
-                if _streaminfo_md5_hex(FLAC(str(target)).info.md5_signature) != entry["audio_md5"]:
+                archived = FLAC(str(target))
+                if _streaminfo_md5_hex(archived.info.md5_signature) != entry["audio_md5"]:
                     raise PublishError("Archive FLAC audio MD5 differs")
+                if cover is not None:
+                    if archived.tags != original.tags:
+                        raise PublishError("FLAC tags changed while embedding the front cover")
+                    if [p.data for p in archived.pictures if p.type == 3] != [cover]:
+                        raise PublishError("Embedded front cover differs from reviewed folder.jpg")
                 published.append({"track": entry["number"], "filename": entry["filename"],
-                                  "sha256": entry["expected_sha256"],
+                                  "sha256": _hash(target) if cover is not None else entry["expected_sha256"],
                                   "streaminfo_audio_md5": entry["audio_md5"]})
             cue_path = temp / "album.cue"
             with cue_path.open("x", encoding="utf-8") as out:
@@ -368,23 +786,18 @@ def _do_publish(plan, publish_id, *, allow_metadata_observations, cover_download
             if not all((temp / name).is_file() for name in cue_names):
                 raise PublishError("Published CUE references missing FLAC files")
             evidence_copies = _copy_source_evidence(job_id, new_plan["source_evidence"], temp)
-            artwork = (cover_download or _cover)(new_plan["release_id"], temp) if new_plan["include_cover"] else None
-            sources = (
-                "OSCAR archived copy — original ripping evidence remains in staging\n"
-                f"Staging rip job: {job_id}\nTagged staging copy: {copy_id}\n"
-                f"MusicBrainz physical release: https://musicbrainz.org/release/{new_plan['release_id']}\n"
-                f"Processing profile: {new_plan['profile']}\n"
-                "AccurateRip confidence is from cyanrip's saved verification report, not a new independent lookup.\n"
-                "The original CUE and available extraction logs are also preserved in ExtractionEvidence/.\n"
-                "The originally ripped CUE, logs and FLACs remain in their original staging folder.\n"
-                "This folder contains reviewed copies, not new recordings or rewritten audio.\n"
-            )
-            (temp / "SOURCES.txt").write_text(sources, encoding="utf-8")
+            release_match_status = plan.get("_release_match_status") or "EDITION_NOT_VERIFIED"
+            with (temp / "SOURCES.txt").open("x", encoding="utf-8") as out:
+                out.write(render_sources(new_plan, release_match_status, published_files=published))
+                out.flush()
+                os.fsync(out.fileno())
             manifest = {
                 "status": "published_verified", "publish_id": publish_id,
                 "job_id": job_id, "copy_id": copy_id,
                 "release_id": new_plan["release_id"], "profile": new_plan["profile"],
-                "release_match_status": plan.get("_release_match_status") or "EDITION_NOT_VERIFIED",
+                "release_match_status": release_match_status,
+                "source_type": _source_type(new_plan),
+                "provenance": new_plan["provenance"],
                 "label_info": new_plan["album"].get("labels") or [],
                 "disc_number": new_plan["disc_number"],
                 "disc_total": new_plan["disc_total"],
@@ -404,6 +817,7 @@ def _do_publish(plan, publish_id, *, allow_metadata_observations, cover_download
                 out.write("\n")
                 out.flush()
                 os.fsync(out.fileno())
+            _assert_playable_inventory(temp, published)
             # Refuse even an unexpectedly appearing target. Rename on the
             # same filesystem (under lock) only after full verification.
             if destination.exists() or destination.is_symlink():
@@ -435,7 +849,7 @@ def _do_publish(plan, publish_id, *, allow_metadata_observations, cover_download
 
 def start(job_id, copy_id, kind, profile, fingerprint, confirmation,
           *, acknowledge_observations=False, include_cover=False,
-          approve_cover=False, release_match_status=None,
+          approve_cover=False, include_data=True, release_match_status=None,
           reserved_publish_id=None):
     if confirmation != _CONFIRM:
         raise PublishError("Explicit archive publishing confirmation is required")
@@ -444,15 +858,17 @@ def start(job_id, copy_id, kind, profile, fingerprint, confirmation,
         raise PublishError("Unsupported edition provenance for archive publishing")
     if not isinstance(fingerprint, str) or not re.fullmatch(r"[a-f0-9]{64}", fingerprint):
         raise PublishError("A reviewed plan fingerprint is required")
-    if include_cover and not approve_cover:
-        raise PublishError("You must confirm the cover matches your physical edition")
     # Preflight before creating any output or background thread.
-    plan = prepare(job_id, copy_id, kind, profile, include_cover=include_cover)
+    plan = prepare(job_id, copy_id, kind, profile, include_cover=include_cover, include_data=include_data)
+    if plan["provenance"].get("cd_extra_data", {}).get("status") == "unavailable":
+        raise PublishError("CD-Extra data unavailable; capture it or explicitly exclude the data session")
     if plan["fingerprint"] != fingerprint:
         raise PublishError("Archive preview changed; review again")
-    if plan["output_exists"]:
-        raise PublishError("Archive target already exists; refusing to overwrite")
-    if plan["metadata_observations"] and not acknowledge_observations:
+    if plan["output_exists"] and not plan.get("data_supplement"):
+        raise PublishError(plan.get("destination_block_reason") or "Archive target already exists; refusing to overwrite")
+    if include_cover and not approve_cover and not plan.get("data_supplement"):
+        raise PublishError("You must confirm the cover matches your physical edition")
+    if plan["metadata_observations"] and not acknowledge_observations and not plan.get("data_supplement"):
         raise PublishError("Review observations require acknowledgement")
     # Provenance is server-supplied; not an operator-editable MusicBrainz match.
     plan["_release_match_status"] = release_match_status

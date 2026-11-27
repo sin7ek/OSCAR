@@ -85,6 +85,8 @@ def refresh_preview(job_id, *, lookup=None):
     workflow = _accepted_workflow(job_id)
     old = _old_copy_preview(job_id, workflow)
     opts = {"operator_accepted": True}
+    if matrix := workflow.get("matrix_runout"):
+        opts["matrix_runout"] = matrix
     if lookup is not None:
         opts["lookup"] = lookup
     fresh = metadata_staging.preview(job_id, workflow["accepted_release_id"], **opts)
@@ -95,6 +97,7 @@ def refresh_preview(job_id, *, lookup=None):
         "job_id": job_id,
         "release_id": workflow["accepted_release_id"],
         "previous_copy_id": workflow["metadata_copy_id"],
+        "matrix_runout": workflow.get("matrix_runout") or "",
         "historical_status": workflow["release_match_status"],
         "old_catalog_numbers": (old.get("album") or {}).get("catalog_numbers") or [],
         "new_catalog_numbers": (fresh.get("album") or {}).get("catalog_numbers") or [],
@@ -118,13 +121,103 @@ def create_new_staging_copy(job_id, fingerprint, confirmation):
         raise ReprocessError("No new MusicBrainz metadata changes to stage")
     if current["fingerprint"] != fingerprint:
         raise ReprocessError("MusicBrainz changed since preview; compare again")
+    options = {"matrix_runout": current["matrix_runout"]} if current.get("matrix_runout") else {}
     started = metadata_staging.start_copy(
         job_id, current["release_id"], fingerprint, "COPY_TAGGED_TO_STAGING",
-        identification_status="INFERRED_OPERATOR_ACCEPTED")
+        identification_status="INFERRED_OPERATOR_ACCEPTED", **options)
     return {
         **started, "previous_copy_id": current["previous_copy_id"],
         "release_id": current["release_id"],
         "note": ("Independent tagged staging copy only; original rip, old copy, "
                  "archive, Collection catalog and workflow remain unchanged. "
                  "Inspect this copy; no archive replacement is implemented."),
+    }
+
+
+def adopt_new_staging_copy_for_go(job_id, copy_id, fingerprint, confirmation):
+    """Review and bind a completed refreshed copy to an unpublished Go job.
+
+    No new tagged copies, rip/FLAC mutations, archive writes, automatic
+    publication, or change to the originally accepted MusicBrainz release.
+    """
+    import re
+    from oscar import verification
+    if confirmation != "USE_REVIEWED_COPY_FOR_FIRST_PUBLICATION":
+        raise ReprocessError("Explicit refreshed-copy approval is required")
+    if not isinstance(copy_id, str) or not re.fullmatch(r"[a-f0-9]{32}", copy_id):
+        raise ReprocessError("Invalid refreshed copy ID")
+    if not isinstance(fingerprint, str) or not re.fullmatch(r"[a-f0-9]{64}", fingerprint):
+        raise ReprocessError("Invalid reviewed copy fingerprint")
+    workflow = _accepted_workflow(job_id)
+    if workflow["phase"] != "METADATA_READY" or workflow.get("archive_publish_id"):
+        raise ReprocessError("Only unpublished METADATA_READY jobs may select a new copy")
+    previous = workflow["metadata_copy_id"]
+    if previous == copy_id:
+        raise ReprocessError("The refreshed copy is already the active Go copy")
+    old = _old_copy_preview(job_id, workflow)
+    root = verification._safe_job(job_id)
+    folder = root / ("metadata-copy-" + copy_id)
+    if folder.is_symlink() or not folder.is_dir():
+        raise ReprocessError("Refreshed copy is unavailable or unsafe")
+    paths = [folder / "metadata-manifest.json", folder / "metadata-preview.json"]
+    for path in paths:
+        if path.is_symlink() or not path.is_file() or path.stat().st_size > 3_000_000:
+            raise ReprocessError("Refreshed copy evidence is missing or unsafe")
+    manifest, proposal = [json.loads(path.read_text(encoding="utf-8")) for path in paths]
+    if (manifest.get("status") != "tagged_copy_ready_for_review"
+            or manifest.get("job_id") != job_id
+            or manifest.get("copy_id") != copy_id
+            or manifest.get("release_id") != workflow["accepted_release_id"]
+            or manifest.get("preview_fingerprint") != fingerprint
+            or manifest.get("identification_status") != "INFERRED_OPERATOR_ACCEPTED"
+            or proposal.get("job_id") != job_id
+            or proposal.get("release_id") != workflow["accepted_release_id"]
+            or proposal.get("fingerprint") != fingerprint):
+        raise ReprocessError("Refreshed copy differs from the approved release or reviewed fingerprint")
+    old_tracks = old.get("tracks") or []
+    new_tracks = proposal.get("tracks") or []
+    if (len(old_tracks) != len(new_tracks) or not new_tracks
+            or [(x.get("number"), x.get("original_file"))
+                for x in old_tracks] !=
+               [(x.get("number"), x.get("original_file"))
+                for x in new_tracks]):
+        raise ReprocessError("Refreshed copy has changed rip track order/source paths")
+    old_album, new_album = old.get("album") or {}, proposal.get("album") or {}
+    for key in ("musicbrainz_release_id", "musicbrainz_disc_id", "matrix_runout"):
+        if old_album.get(key) != new_album.get(key):
+            raise ReprocessError("Refreshed physical release/Disc ID changed")
+    for before, after in zip(old_tracks, new_tracks):
+        for key in ("MUSICBRAINZ_ALBUMID", "MUSICBRAINZ_DISCID",
+                    "DISCNUMBER", "DISCTOTAL", "TRACKNUMBER", "TRACKTOTAL"):
+            if (before.get("tags") or {}).get(key) != (after.get("tags") or {}).get(key):
+                raise ReprocessError("Refreshed copy differs in physical disc/track identity")
+    inspected = metadata_staging.inspect_copy(job_id, copy_id)
+    if (inspected.get("status") != "tags_match_preview"
+            or inspected.get("release_id") != workflow["accepted_release_id"]
+            or inspected.get("track_count") != len(new_tracks)
+            or any(not t.get("sha256_matches") or not t.get("audio_streaminfo_md5_matches")
+                   or not t.get("tags_match") for t in inspected.get("tracks", []))):
+        raise ReprocessError("Refreshed staging FLAC tags, hashes or audio MD5 failed inspection")
+    # Protect against a stale-source race: the original rip and all its file
+    # hashes are re-verified by the same source validation used for staging.
+    _, source_state, _ = metadata_staging._source(job_id)
+    originals = source_state.get("files_sha256") or {}
+    entries = manifest.get("files") or {}
+    if (set(entries) != {x["original_file"] for x in new_tracks}
+            or any(entries[x["original_file"]].get("source_sha256")
+                   != originals.get(x["original_file"]) for x in new_tracks)):
+        raise ReprocessError("Refreshed copy no longer matches verified original rip hashes")
+    revised = workflow_ledger.adopt_refreshed_metadata_copy(
+        job_id, previous, copy_id, workflow["accepted_release_id"],
+        fingerprint, confirmation)
+    return {
+        "status": "refreshed_copy_selected_for_first_publication",
+        "job_id": job_id, "previous_copy_id": previous,
+        "active_copy_id": copy_id, "release_id": workflow["accepted_release_id"],
+        "workflow_phase": revised["phase"],
+        "new_archive_publication": False,
+        "note": ("Go now uses the independently verified refreshed staging copy. "
+                 "No archive was published and the original rip and previous copy "
+                 "remain unchanged. Review a NEW archive preview before approval. "
+                 "Physical edition inference status remains unchanged."),
     }
