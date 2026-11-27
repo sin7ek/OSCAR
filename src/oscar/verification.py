@@ -1,7 +1,8 @@
 """Conservative, post-rip staged verification. No writes to audio/CUE/log.
 
-AccurateRip evidence is *parsed from cyanrip's captured log*, NOT independently
-queried by OSCAR. A passing report is not CTDB confirmation or archive approval.
+AccurateRip CRCs come from cyanrip's captured log. A validated CD-Extra can
+receive an independent database lookup. A passing report is not CTDB confirmation
+or archive approval.
 """
 import hashlib
 import shutil
@@ -32,6 +33,7 @@ _AR = re.compile(
     r"(?im)^\s*Accurip v([12]):\s*([0-9A-F]{8})\s*"
     r"\((accurately ripped|[^,\)]+)(?:,\s*confidence\s*(\d+))?\)"
 )
+_AR_BARE = re.compile(r"(?im)^[ \t]*Accurip v([12]):[ \t]*([0-9a-f]{8})[ \t]*$")
 
 
 
@@ -40,14 +42,14 @@ _EVIDENCE_LINE = re.compile(
 )
 
 
-def read_cyanrip_evidence(path):
+def read_cyanrip_evidence(path, *, pattern=_EVIDENCE_LINE):
     """Stream-filter CR/LF-delimited cyanrip output, ignoring bulky progress spam."""
     evidence = bytearray()
     current = bytearray()
     total = 0
 
     def consume(line):
-        if len(line) <= 4096 and _EVIDENCE_LINE.match(line):
+        if len(line) <= 4096 and pattern.match(line):
             if len(evidence) + len(line) + 1 > _MAX_EVIDENCE:
                 raise ripping.RipError("Too many verification records in rip log")
             evidence.extend(line)
@@ -90,9 +92,30 @@ def parse_cyanrip_log(contents):
             "track": num,
             "eac_crc32": crc.upper(),
             "database_found": "disc found in database" in header.lower(),
+            "database_missing": header.strip().lower() == "not found",
             "accuraterip": ar,
+            "calculated_crcs": {"v" + version: value.upper()
+                                for version, value in _AR_BARE.findall(accurip)},
         }
     return records
+
+
+def _extra_accuraterip(job_id, directory, evidence, expected):
+    """Only recover absent cyanrip lookups for a validated complete CD-Extra."""
+    if (set(evidence) != set(range(1, expected + 1)) or
+            any(not record["database_missing"] or record["accuraterip"] or
+                set(record["calculated_crcs"]) != {"v1", "v2"}
+                for record in evidence.values())):
+        return None, {}
+    from oscar import ctdb_verification, cd_extra_accuraterip
+    try:
+        _, _, _, _, _, disc_toc = ctdb_verification._inputs(job_id, directory)
+    except (ripping.RipError, OSError, ValueError):
+        return None, {}
+    if not disc_toc:
+        return None, {}
+    return cd_extra_accuraterip.lookup(
+        disc_toc, {number: record["calculated_crcs"] for number, record in evidence.items()})
 
 
 
@@ -207,6 +230,7 @@ def _verify(directory, job_id, runner=subprocess.run):
         cue_details["references_match"] = cue_ok
         cue_details["track_references"] = len(refs)
     tracks = []
+    extra_lookup, extra_matches = _extra_accuraterip(job_id, directory, evidence, expected)
     for number in range(1, expected + 1):
         relative = numbered.get(number)
         result = {"number": number, "file": relative, "sha256_matches": False,
@@ -227,6 +251,10 @@ def _verify(directory, job_id, runner=subprocess.run):
         if parsed:
             result["eac_crc32"] = parsed["eac_crc32"]
             result["accuraterip"] = parsed["accuraterip"]
+        if extra_lookup and extra_lookup["status"] == "found":
+            result["accuraterip"] = extra_matches[number]
+            result["calculated_accuraterip_crcs"] = parsed["calculated_crcs"]
+            result["evidence_source"] = "cyanrip-console.log + full-disc AccurateRip database lookup"
         result["accuraterip_assessment"] = accuraterip_assessment(result["accuraterip"])
         result["checks_passed"] = (
             result["sha256_matches"] and result["flac_decodes"] and
@@ -241,7 +269,7 @@ def _verify(directory, job_id, runner=subprocess.run):
         track["number"] for track in tracks
         if track["accuraterip_assessment"]["status"] == "single_version_matched"
     ]
-    return {
+    report = {
         "job_id": job_id,
         "status": "checks_passed" if all_passed else "review_required",
         "accuraterip_coverage": (
@@ -261,10 +289,20 @@ def _verify(directory, job_id, runner=subprocess.run):
             "An absent AccurateRip version does not negate a positive match in another version; any explicitly negative version still requires review.",
             "Check accuraterip_coverage and single_version_tracks. Confidence reflects reported reference matches; no unverified database entries were inferred.",
             "FLAC -t validates each encoded stream; saved SHA-256 checks detect changes since extraction.",
-            "No CTDB verification; no archive publication or automatic cleanup.",
+            "CTDB is checked separately from this report. No archive publication or automatic cleanup.",
             "A passing report never authorizes publishing or deleting staged audio."
         ],
     }
+    if extra_lookup:
+        report["accuraterip_lookup"] = extra_lookup
+        if extra_lookup["status"] == "found":
+            report["verification_method"] = "cyanrip_cd_extra_accuraterip_lookup"
+            report["notes"][0] = (
+                "OSCAR compared cyanrip's calculated CRCs with AccurateRip using the full CD-Extra TOC. "
+                "The audio CRC values come from the original extraction log; FLAC integrity and saved hashes were checked separately.")
+        else:
+            report["notes"].insert(1, "Full CD-Extra AccurateRip lookup: " + extra_lookup["status"])
+    return report
 
 
 def report(job_id):
@@ -277,7 +315,15 @@ def report(job_id):
     if running:
         return {"job_id": job_id, "status": "running"}
     if destination.is_file():
-        return json.loads(destination.read_text(encoding="utf-8"))
+        result = json.loads(destination.read_text(encoding="utf-8"))
+        from oscar import ctdb_verification
+        try:
+            ctdb = ctdb_verification.saved_evidence(job_id, directory)
+        except (ripping.RipError, OSError, ValueError):
+            ctdb = None
+        if ctdb:
+            result["ctdb"] = ctdb[0]
+        return result
     return {"job_id": job_id, "status": "not_started"}
 
 
@@ -297,6 +343,8 @@ def start(job_id):
         _RUNNING.add(job_id)
     def work():
         try:
+            from oscar import ctdb_verification
+            ctdb_verification.automatic(job_id, directory)
             result = _verify(directory, job_id)
         except Exception as exc:
             result = {"job_id": job_id, "status": "review_required",
@@ -320,6 +368,11 @@ def start(job_id):
                     output.flush()
                     os.fsync(output.fileno())
             os.replace(tmp, destination)
+            try:
+                from oscar.drivefit_history import record_verification
+                record_verification(job_id, result)
+            except Exception:
+                pass  # No verification verdict depends on DriveFit availability.
         except OSError:
             pass
         finally:

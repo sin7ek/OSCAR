@@ -84,3 +84,25 @@ def test_medium_endpoint_respects_disabled_flag(monkeypatch):
     monkeypatch.delenv("OSCAR_ENABLE_MUSICBRAINZ", raising=False)
     r = TestClient(app).get("/api/release-medium", params={"stable_id":"ata-Optiarc","release_id":RELEASE_ID})
     assert r.status_code == 403
+
+
+def test_cached_release_lookup_reuses_response_but_checks_each_disc(monkeypatch):
+    import oscar.mb_client as client
+
+    calls = []
+    payload = fixture()
+    other_id = "a" * 28
+    payload["media"][0]["discs"] = [{"id": other_id}]
+
+    def fetch(request, **options):
+        calls.append(request.full_url)
+        return payload
+
+    monkeypatch.setattr(client, "fetch_json", fetch)
+    lookup = boxsets.cached_release_lookup()
+    assert lookup(RELEASE_ID, DISC_ID, 32)["matched_media"][0]["position"] == 6
+    assert lookup(RELEASE_ID, other_id, 9)["matched_media"][0]["position"] == 1
+    assert lookup(RELEASE_ID, DISC_ID, 31)["status"] == "review_disc_id_or_count_ambiguity"
+    assert len(calls) == 1
+    boxsets.cached_release_lookup()(RELEASE_ID, DISC_ID, 32)
+    assert len(calls) == 2

@@ -103,7 +103,8 @@ def parse_release_media(payload: dict, disc_id: str, track_count: int) -> dict:
     }
 
 
-def lookup_release_medium(release_id: str, disc_id: str, track_count: int, opener=None) -> dict:
+def lookup_release_medium(release_id: str, disc_id: str, track_count: int, opener=None,
+                          *, fetch=None) -> dict:
     if not RELEASE_ID.fullmatch(release_id):
         raise mb.MusicBrainzError("Invalid release MBID")
     if not DISC_ID.fullmatch(disc_id):
@@ -117,7 +118,8 @@ def lookup_release_medium(release_id: str, disc_id: str, track_count: int, opene
         "User-Agent": mb._UA, "Accept": "application/json",
     })
     from oscar.mb_client import fetch_json
-    payload = fetch_json(request, opener=opener, timeout=18, max_bytes=8_000_000)
+    fetch = fetch or fetch_json
+    payload = fetch(request, opener=opener, timeout=18, max_bytes=8_000_000)
     if payload.get("id", "").lower() != release_id.lower():
         raise mb.MusicBrainzError("Unexpected release ID in response")
     result = parse_release_media(payload, disc_id, track_count)
@@ -134,13 +136,36 @@ def lookup_release_medium(release_id: str, disc_id: str, track_count: int, opene
                 "User-Agent": mb._UA, "Accept": "application/json",
             })
             try:
-                group_data = fetch_json(group_request, opener=opener, timeout=18, max_bytes=1_000_000)
+                group_data = fetch(group_request, opener=opener, timeout=18, max_bytes=1_000_000)
                 if group_data.get("id", "").lower() == group_id.lower():
                     result["genres"] = musicbrainz_genres(group_data)
                     if result["genres"]:
                         result["genre_source"] = "musicbrainz_release_group"
+                else:
+                    result["genre_lookup_incomplete"] = True
             except mb.MusicBrainzError:
                 # Genre enrichment is optional; transient MusicBrainz 503/429
                 # must not prevent accurate core rip/release identification.
-                pass
+                result["genre_lookup_incomplete"] = True
     return result
+
+
+def cached_release_lookup():
+    """Reuse provider responses within one serial scan or boxset preview."""
+    from oscar.mb_client import fetch_json
+
+    responses = {}
+
+    def fetch(request, **options):
+        url = request.full_url
+        if url not in responses:
+            payload = fetch_json(request, **options)
+            if len(responses) >= 4:
+                responses.pop(next(iter(responses)))
+            responses[url] = payload
+        return responses[url]
+
+    def lookup(release_id, disc_id, track_count):
+        return lookup_release_medium(release_id, disc_id, track_count, fetch=fetch)
+
+    return lookup

@@ -6,6 +6,10 @@ A strictly read-only, operator-triggered refresh for an **already accepted Semi 
 
 `/api/go/jobs/{job_id}/musicbrainz/refresh-match`
 
+If Go! pauses tagging, **Open this job in Review** opens the same job and explains the MusicBrainz match. Review compares medium numbers, formats, track counts and duration differences. A compatible single or multi-disc release can be linked with the TOC from staging, including CD and Enhanced CD media. If several discs are compatible, choose the physical disc before opening MusicBrainz. The link filters the release, and you confirm the indicated medium on MusicBrainz. Then select **Check Disc ID link** in Review and continue tagging in Go! once the match appears.
+
+An incompatible accepted edition can be reopened for selection before creating a tagged copy. Normal Go! workflows still handle routine release acceptance and archive approval. The lookup does not publish audio or change MusicBrainz.
+
 The endpoint re-reads saved `plan.json`, staging state and completed verification evidence, then fetches the **currently accepted MusicBrainz release** using the existing release-medium lookup and shared MusicBrainz rate limiter.
 
 ## Results

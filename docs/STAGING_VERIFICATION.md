@@ -1,4 +1,4 @@
-# Staging verification report — prototype
+# Staging verification report
 
 After a cyanrip staging job completes with `status=needs_verification`, OSCAR can independently read the existing staged data and provide a **non-destructive report**. It does not modify FLAC/CUE/log files, change the rip state to verified, or publish anything.
 
@@ -17,17 +17,17 @@ API: `POST /api/rip/jobs/{job_id}/verification` starts the check; `GET /api/rip/
 - SHA-256 from `state.json` recomputed for each FLAC; this checks whether the file changed since the hash was recorded.
 - Full FLAC stream integrity using the installed `flac -t --silent` on **each file** (fixed argument list, no shell).
 - Extract `EAC CRC32`, AccurateRip v1/v2 CRC, status and confidence **from cyanrip's captured console log**, associating each with the track number in the log. At least one positively matched AccurateRip version (v1 or v2) can satisfy verification when the other version is **absent**; an explicitly negative result for either version requires review. The report records `accuraterip_coverage`, `single_version_tracks` and per-track absent/negative evidence, so a one-version match is never represented as two matches.
-- Confirm the original CUE's 28 `FILE` references match the staged FLAC names and confirm `Ripping errors: 0` is present.
+- Confirm the original CUE's audio `FILE` references match the staged FLAC names and confirm `Ripping errors: 0` is present.
 
 A report of `checks_passed` means **all these observed checks passed**, not `verified archive`. `review_required` covers missing evidence, malformed CUE, mismatched hashes or decode errors.
 
 ## Deliberate limitations
 
-- **No independent AccurateRip database implementation**: values are parsed from cyanrip's output only.
-- **No CTDB**, optical re-read, HTOA/pre-gap audio reconstruction, CUE index provenance verification or authoritative physical-edition determination.
+- AccurateRip normally uses cyanrip's reported results. For validated trailing-data CD-Extra discs with an absent cyanrip lookup, OSCAR independently queries AccurateRip using the complete physical TOC and compares the original logged v1/v2 CRCs. Audio CRCs are not independently recalculated by this second lookup.
+- OSCAR automatically runs CTDB as a separate check after an eligible full-disc rip. **Verify this staged disc against CTDB** can also run it manually. Its result enters publication evidence without changing AccurateRip-based staging approval. On Tower, the full physical CD-Extra TOC identified *Machines in Motion* and its 15 audio tracks matched CTDB at 5/5. See [archive publishing](ARCHIVE_PUBLISHER.md).
 - The CUE check validates referenced filenames, **not** the completeness/correctness of all sector indexes or hidden audio.
 - The original job's `state.json` remains `needs_verification`; no automatic archive or deletion even if all checks pass.
-- The first complete HDD test (Nov 19, 2026) previously showed 28/28 AccurateRip v1 and v2 matches and all files passed manual `flac -t`. This new report should be **tested against that real staging directory on Unraid** after deployment, but CI is only simulated.
+- The first complete HDD test (Nov 19, 2026) showed 28/28 AccurateRip v1 and v2 matches and all files passed manual `flac -t`. The later CD-Extra acceptance used a separate 15-track physical disc.
 - Retain staging evidence. Later a verified publisher can consume the report only after additional independent checks and physical release review.
 
 

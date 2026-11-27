@@ -5,6 +5,7 @@ Network lookup is opt-in; release candidates always require human review.
 """
 import json
 import os
+import re
 import threading
 import time
 import urllib.error
@@ -82,40 +83,51 @@ def lookup_enabled() -> bool:
     return os.environ.get("OSCAR_ENABLE_MUSICBRAINZ") == "1"
 
 
-def search_release_candidates(*, catalog_number=None, title=None, opener=None):
-    """Find physical-release *candidates* without a Disc ID lookup.
+def _quoted_search_value(value):
+    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
-    Catalog and release title searches are separate evidence sources. Query
-    tokens are quoted as Lucene string literals, not raw search syntax.
-    No search result implies a Disc ID attachment or physical-edition match.
-    """
-    import re
-    values = [("catalog_number", catalog_number), ("title", title)]
-    if not any(value for _, value in values):
-        raise MusicBrainzError("Enter a catalog number or release title")
-    for field, value in values:
-        if value is not None and (
-            not isinstance(value, str) or not 1 <= len(value.strip()) <= 100
-            or any(ord(ch) < 32 for ch in value)
-        ):
-            raise MusicBrainzError(f"Invalid {field}")
-    if catalog_number and title:
-        raise MusicBrainzError("Search one evidence field at a time")
-    field = "catno" if catalog_number else "release"
-    query_value = (catalog_number or title).strip()
-    # Quote and escape all search syntax so user-supplied search values
-    # remain literal rather than injecting Lucene operators or filters.
-    escaped = re.sub(r'([\\\\"])', r'\\\\\1', query_value)
-    expression = f'{field}:"{escaped}"'
-    url = "https://musicbrainz.org/ws/2/release/?" + urllib.parse.urlencode({
+
+def _search(entity, expression, opener):
+    url = f"https://musicbrainz.org/ws/2/{entity}/?" + urllib.parse.urlencode({
         "query": expression, "limit": "25", "fmt": "json",
     })
     request = urllib.request.Request(url, headers={
-        "User-Agent": _UA, "Accept": "application/json",
+        "User-Agent": _UA,
+        "Accept": "application/json",
     })
     from oscar.mb_client import fetch_json
-    payload = fetch_json(request, opener=opener, timeout=12,
-                         max_bytes=1_000_000)
+    return fetch_json(request, opener=opener, timeout=12, max_bytes=1_000_000)
+
+
+def search_release_candidates(*, catalog_number=None, title=None, barcode=None,
+                              matrix_runout=None, opener=None):
+    """Find physical-release *candidates* without a Disc ID lookup.
+
+    Catalog, barcode, title and matrix searches are separate evidence sources. Query
+    tokens are quoted as Lucene string literals, not raw search syntax.
+    No search result implies a Disc ID attachment or physical-edition match.
+    """
+    from oscar.pressing_evidence import observed_matrix
+
+    fields = {"catno": catalog_number, "release": title, "barcode": barcode,
+              "matrix_runout": matrix_runout}
+    supplied = [(field, value) for field, value in fields.items() if value is not None]
+    if len(supplied) != 1:
+        raise MusicBrainzError("Enter one catalog number, barcode, release title or matrix/runout")
+    field, value = supplied[0]
+    try:
+        query_value = observed_matrix(value)
+    except ValueError as exc:
+        raise MusicBrainzError(str(exc)) from exc
+    if not query_value or (field != "matrix_runout" and len(value.strip()) > 100):
+        raise MusicBrainzError("Invalid search value")
+    if field == "barcode" and not re.fullmatch(r"[0-9]{8,14}", query_value):
+        raise MusicBrainzError("Enter the barcode as 8 to 14 digits")
+
+    if field == "matrix_runout":
+        return _search_matrix_annotations(query_value, opener)
+
+    payload = _search("release", f"{field}:{_quoted_search_value(query_value)}", opener)
     releases = []
     for item in payload.get("releases") or []:
         if not isinstance(item, dict) or not re.fullmatch(
@@ -135,6 +147,8 @@ def search_release_candidates(*, catalog_number=None, title=None, opener=None):
             "id": item["id"], "title": item.get("title"), "artist": artist,
             "date": item.get("date"), "country": item.get("country"),
             "barcode": item.get("barcode"), "labels": labels,
+            "formats": [medium.get("format") for medium in item.get("media") or []
+                        if isinstance(medium, dict) and medium.get("format")],
             "search_score": item.get("score"),
             "provenance": f"musicbrainz_search_{field}",
         })
@@ -144,6 +158,33 @@ def search_release_candidates(*, catalog_number=None, title=None, opener=None):
         "releases": releases, "requires_review": True,
         "disc_id_compared": False, "physical_edition_approved": False,
         "note": "Search candidates are not Disc ID or track-count matches. Inspect the exact release medium and physical evidence separately before tagging.",
+    }
+
+
+def _search_matrix_annotations(matrix, opener):
+    """Find release annotations containing the entered text as a phrase."""
+    payload = _search("annotation", f"type:release AND text:{_quoted_search_value(matrix)}", opener)
+    releases = {}
+    for item in payload.get("annotations") or []:
+        if not isinstance(item, dict) or item.get("type") != "release":
+            continue
+        release_id = item.get("entity")
+        if not isinstance(release_id, str) or not re.fullmatch(
+                r"[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}", release_id):
+            continue
+        releases.setdefault(release_id, {
+            "id": release_id, "title": item.get("name"), "labels": [],
+            "provenance": "musicbrainz_release_annotation",
+            "annotation": str(item.get("text") or "")[:1500],
+        })
+    return {
+        "status": "candidates" if releases else "no_match",
+        "query_kind": "matrix_runout", "query_value": matrix,
+        "releases": list(releases.values()), "requires_review": True,
+        "disc_id_compared": False, "physical_edition_approved": False,
+        "note": ("Only searchable MusicBrainz release annotations are covered. "
+                 "Try a distinctive part of the matrix such as a mastering code. "
+                 "An annotation match is a candidate for manual physical review."),
     }
 
 

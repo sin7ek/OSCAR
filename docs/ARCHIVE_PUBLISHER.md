@@ -1,17 +1,73 @@
 # OSCAR safe archive publisher (first opt-in version)
 
-**Status:** Code shipped via the feature PR after CI; hardware deployment **not yet proven**. This feature is explicitly disabled by default and never deletes originals. Use initially with the known-good Anastacia 12-track staging copy; after that, the Boulez Classical v2 copy (32 tracks).
+**Status:** Explicitly approved archive publication was observed on Tower for Anastacia, Boulez and Carmen Gomes. The publisher is opt-in and preserves original rip evidence. [#138](https://github.com/sin7ek/OSCAR/pull/138) shipped structured source provenance with green PR Tests and Docker build. The new Go! SOURCES preview and publication of a recovered disc still need separate Tower acceptance. See [project status](PROJECT_STATUS.md).
+
+New archive candidates must contain only the playable tracks declared in their manifest. OSCAR checks all subdirectories, including evidence. Metadata revisions and CD-Extra additions check the candidate before promotion.
 
 ## How it works
 
 1. Source rip must have a saved `checks_passed` verification report. Metadata must have been copied to a completed **Original MusicBrainz tagged copy** or **Classical v2 tagged copy**, and the operator must have reviewed the physical edition.
 2. From OSCAR's **Publish verified FLAC archive (explicit opt-in)** panel, enter the original job ID, the completed tagged-copy ID, the copy kind and the music processing profile (`auto` by default).
 3. Click **Preview proposed archive (read-only)**. It shows the destination path, final FLAC filenames, full CUE including original recorded INDEX/PREGAP lines, and all outstanding metadata-review observations. The generated `fingerprint` binds this proposal to the exact source manifest and preview.
-4. Explicitly confirm the physical edition and CUE/track names. Acknowledge any listed uncertain work/recording relations separately. Optionally select **Include Cover Art Archive front image**, but only after visually comparing it to the user's physical package and explicitly accepting the exact candidate (Boulez's removable-looking sticker may differ); cover is saved as a separate `cover.jpg`/`cover.png`, **not embedded in FLACs**.
+4. Explicitly confirm the physical edition and CUE/track names. Acknowledge any listed uncertain work/recording relations separately. Review the front cover shown in Go! or Archive Review. Compare it with the physical package, switch the source or select **Upload your own cover artwork**, and explicitly approve the image before publishing.
 5. Confirm publication. A background worker copies each tagged FLAC to a **new** hidden staging directory under the destination filesystem, verifies source SHA-256 and STREAMINFO MD5, decodes the copied FLAC, compares its full SHA-256 and audio MD5 with the source, writes an `album.cue` with exact existing FILE references, verifies those references, then writes `SOURCES.txt` and `manifest.json`. Only after all checks pass is the verified directory atomically promoted with Linux `renameat2(RENAME_NOREPLACE)`. No existing album/disc may be overwritten.
-6. The UI polls status while the OSCAR process is running. The new folder contains `NN - Title.flac`, `album.cue`, `manifest.json`, `SOURCES.txt` and optionally a separately reviewed cover image.
+6. The UI polls status while the OSCAR process is running. The new folder contains `NN - Title.flac`, `album.cue`, `manifest.json`, `SOURCES.txt` and, when approved, `folder.jpg` next to the disc’s FLACs. The same JPEG is embedded as the front cover in each published FLAC.
 
-**Important:** No independent Audio/CTDB check takes place during publishing. The rip's AccurateRip evidence is from the saved cyanrip verification. The CUE preserves captured INDEX/PREGAP as reported; this is not an independent optical index verification. A passing publish only proves the copied archive matches the verified, reviewed staging inputs. The original rip, original cyanrip CUE/log, and tagged staging copy remain intact.
+## Audio and metadata sources
+
+Use **Review → Advanced tools** to search MusicBrainz by barcode, catalog number, title or matrix/runout. Matrix search checks indexed release annotations. Try a distinctive fragment when the full inscription yields no candidates. Review the release against the physical disc as annotations are incomplete and a shared code can appear on more than one release.
+
+Transcribe the matrix from the inner ring in **Go!** while accepting a Semi Automatic release, or in **Metadata & tagging** while previewing a manual tagged copy. OSCAR records the optional transcription per disc as a custom Vorbis comment `MATRIX_RUNOUT` and attributes it to the operator in `SOURCES.txt` and the archive manifest. Search results do not populate the tag. Both Go and manual publication show the proposed `SOURCES.txt`.
+
+`SOURCES.txt` records the selected MusicBrainz release and edition status, disc position, audio source and AccurateRip evidence per track, published FLAC SHA-256 values, and archived evidence paths and hashes. Go! Archive Review shows the proposed text before approval.
+
+**Front cover** records the artwork source and SHA-256 in both `SOURCES.txt` and the manifest. The approval is bound to the exact JPEG. OSCAR validates the embedded pictures, FLAC decoding and audio checksums, then records new archive file hashes. Tagged staging files and original rip files are preserved. On Tower, test the Cover Art Archive result, a Discogs fallback and a replacement upload in a test archive. Open the archived FLAC and compare its embedded cover with `folder.jpg`.
+
+The **Edition search** section records saved lookup evidence for the disc and MusicBrainz release used by the tagged copy. The standard Go! Disc ID/TOC lookup records its evidence automatically. When the operator runs **Find matching editions**, the same section also includes the supplied identifiers, whether the candidate was suggested, and matched Discogs references, matrix comparisons, provider country values and lookup warnings. The archive manifest retains the same evidence. The provider results are kept as a historical comparison from the recorded date. Editing or approving an edition remains separate from discovery.
+
+
+- A regular rip uses `PHYSICAL_CD_RIP` and attributes its saved AccurateRip results to cyanrip.
+- A Track Recovery publication uses `HYBRID_REPAIRED_CD_RIP`. Each row identifies the source job and file and records the identical raw-source and recovery-copy SHA-256. The verification section attributes the saved v1/v2 results to the independent `trackverify -R` run. `ExtractionEvidence/` contains the recovery source map, saved verification report and available verifier transcript.
+- Publication checks the archived FLACs and CUE references against the reviewed staging inputs. Publication uses saved verification evidence. For a new rip interrupted before its automatic CTDB check, archive preparation can complete the pending attempt. Physical edition identification requires separate evidence.
+
+New Track Recovery jobs save the selected attempt and, for each replacement, the excluded original. Both record the source file and SHA-256, the optical job, drive ID and read offset when recorded, and saved verification evidence. The final independent AccurateRip results remain separate. Older jobs can still publish with an explicit missing-history line. Digital candidates are reserved for a future importer. That importer must record the acquisition origin and original candidate hash and use independent verification before selection. Optical fields apply only to optical attempts.
+
+For Unraid acceptance, open the recovered Mahler/Bernstein Disc 11 in Go! Archive Review and expand **Proposed SOURCES.txt**. Expect 16 tracks from the original full-disc job and **Disc 11 / Track 07** from the replacement diagnostic job, with v1/v2 results and both source and published file hashes. If publishing to a test archive, compare the resulting text with the preview and confirm the archived recovery evidence matches the saved staging records.
+
+## Independent CTDB evidence and Discogs pressing comparison
+
+After each successful full-disc rip, OSCAR automatically runs independent CTDB verification on the saved FLACs and eligible CUE. This also runs when cyanrip has no positive AccurateRip result. CTDB evidence does not change the existing AccurateRip-based publication policy. The optical drive is released before the check. Match confidence, no audio match, disc not found and lookup failure are separate outcomes. Review shows the saved outcome. The archive preview and final publication report it in `SOURCES.txt`, with the same result in `manifest.json` and the hash-bound `ctdb-report.json` in extraction evidence.
+
+In **Review → Advanced tools → Staging verification**, enter the complete staged rip job ID and select **Verify this staged disc against CTDB**. OSCAR checks the ordered cue and saved input hashes, then runs `ctdb-cli --xml verify` against the existing FLACs. A match reports database confidence, separate from the AccurateRip evidence. No database entry, no audio match, and lookup failure have distinct outcomes. Verification never submits a rip or applies repairs. CTDB requires a complete supported CUE and does not change archive or Track Recovery approval rules.
+
+The OSCAR container bundles a self-contained Linux build of [ctdb-cli](https://github.com/Masterisk-F/ctdb-cli/tree/627d2daae63d638c6ca9b578a2abba1290a45350) at `/opt/ctdb/ctdb-cli`. Standalone installs can configure `OSCAR_CTDB_EXECUTABLE` to the absolute path of a compatible build. The container includes the corresponding verifier source archive under `/usr/share/doc/oscar/`.
+
+For cyanrip CUEs with pregaps stored in the preceding FLAC, OSCAR accepts the repeated track header and removes the duplicate in a temporary CUE used only by the verifier. File order, INDEX positions and original files are preserved. The report records both CUE hashes.
+
+For cyanrip CD-Extra layouts with a trailing Mode 1 data session, OSCAR checks the FLAC sector lengths and CUE audio starts against the saved audio TOC. It also validates the data-track start, pregap, length and lead-out from the original cyanrip log. The bundled patched verifier receives the full physical TOC and a temporary audio-only CUE. CTDB identifies the complete disc, while the audio checksums cover the FLACs only. The report and SOURCES.txt include the exact full TOC. Existing audio-only CD-Extra reports require a new CTDB lookup. The original CUE, FLACs and data file are unchanged.
+
+The reviewed archive CUE for this layout describes the audio tracks only. OSCAR preserves the complete original CUE in ExtractionEvidence. Unsupported non-audio CUE layouts remain in review.
+
+### CD-Extra data conservation
+
+To complete an existing audio archive, open archive review for the newly verified rip and choose **Add CD-Extra data to archive**. OSCAR checks the release, disc position, full physical TOC and archived audio against the staged rip. It adds the BIN, checksum, `CD-Extra/SOURCES.txt` and `CD-Extra/data-manifest.json` in a single directory promotion. The original publication manifest and its audio, CUE and artwork remain intact. Archive audit, revision verification and payload export also recognize the data supplement. An existing data directory blocks another addition.
+
+cyanrip 0.9.3 reports data geometry and names a BIN in its CUE but does not read data sectors. After a successful full-disc cyanrip extraction, OSCAR retains the drive reservation, checks the saved audio TOC and logged data geometry, and reads the trailing Mode 1 main-channel sectors using libcdio MMC READ CD. It checks each raw sector header and requires two complete reads with matching SHA-256 digests. Failed reads leave partial staging evidence; audio verification remains independent. The physical disc must be inserted for capture. Earlier audio-only stages cannot produce missing data from the CUE or FLACs.
+
+Go! and manual archive preview offer **Archive CD-Extra data session (recommended)**, enabled by default. The selected image must have a saved successful two-read record and match its recorded size, geometry and SHA-256. If unavailable, either rip the physical disc again or explicitly deselect the checkbox to publish an audio-only archive. A BIN left by an older extraction does not establish the required matching reads. The legacy *Machines in Motion* fixture has an 8,475-byte BIN without a verified capture record. A fresh capture for that disc should contain 61,755 raw sectors (145,247,760 bytes). Publication copies the original raw data image to `CD-Extra/data-track.bin` and writes `CD-Extra/data-track.sha256`; the archive manifest and SOURCES.txt record its source, format, geometry and hash. The original CUE remains intact and the playable album CUE references only FLACs. Published data is included in archive audits, revision verification and restart reconciliation.
+
+For optional recovery, the BIN contains the original 2352-byte Mode 1 main-channel sectors, without subchannel or lead-in/lead-out capture. Use `python -m oscar.cd_extra /archive/path/to/disc /some/writable/path/data-track.iso` to extract the 2048-byte sector payloads into a separate image, verified against the archived hash. Multisession filesystem extent addresses may require session-aware software and the recorded start LSN to browse/extract files; the raw image remains authoritative. OSCAR does not automatically execute, mount or unpack data content.
+
+Tower acceptance: insert Machines In Motion again for a new test rip, confirm the data capture has two matching reads and 145247760 bytes for 61755 sectors, approve inclusion, check both archive files and the full original CUE, and run the archive integrity audit. Existing published archives are not changed by this feature.
+
+The pinned verifier also distinguishes network or database access errors from a confirmed not-found response. Standalone CD-Extra verification requires OSCAR's `--disc-toc` patch. A direct database lookup using the reported Machines In Motion layout found one entry with confidence 5, while the audio-only TOC returned HTTP 404. Tower subsequently verified the actual *Machines in Motion* FLACs with CTDB confidence 5/5 and AccurateRip v2 matches on all 15 audio tracks. The raw data capture and supplement publication require separate Tower tests.
+
+The same full TOC supports a second AccurateRip lookup when cyanrip reported no database entry and recorded both calculated CRCs for every track. OSCAR compares the logged values against the exact full-disc AccurateRip response. It maintains the existing positive-match and FLAC integrity requirements and records the lookup URL, physical TOC, matching versions and confidence. Machines In Motion's original log has all 15 v2 CRCs matching the full-disc AccurateRip entry, confidence 1 each. Verify the existing staging job on Tower before continuing.
+
+A completed lookup result is saved as `ctdb-report.json` with the original CUE and FLAC hashes. Rerun **Proposed SOURCES.txt** after verification. Publication includes the compatible report under `ExtractionEvidence/` and its result in `SOURCES.txt` and the manifest. A transient lookup failure is shown immediately and preserves any previous completed lookup.
+
+Use **Compare physical pressings with Discogs** in Advanced tools, or open it from Semi Automatic Go! review. Enter barcode or catalog number and any observed matrix, mastering SID and mould SID. OSCAR uses the private `OSCAR_DISCOGS_PAT` already supported by the container. It compares identifiers within each numbered Discogs variant for the first five CD candidates. Discogs comparison is read-only. Release approval and tag sources still use the reviewed MusicBrainz edition.
+
 
 ## Unraid / Portainer requirements
 
@@ -20,11 +76,13 @@
   `/mnt/user/oscar-archive-test:/archive` on the host/container. The example uses a **separate host share**, not a subdirectory inside the existing `/mnt/user/ai-workspace` staging share. Create/verify this empty host directory first. Do not map the existing music library writable in early tests.
 - Set `OSCAR_ARCHIVE_ROOT=/archive` and `OSCAR_ENABLE_ARCHIVE_PUBLISH=1` explicitly. Publishing remains disabled when the flag or mount is absent. Original ripping opt-in/token/trusted UI settings continue to govern authorization.
 - `/archive` must exist and be writable to OSCAR's container user; paths through symlinks are rejected. A lockfile `/archive/.oscar-publish.lock` serializes publication across cooperating OSCAR processes on that filesystem.
-- No implicit network access for cover images unless you separately check the artwork checkbox and approve the cover. No automatic cover artwork edit or embedding.
+- Opening cover review looks up artwork from the accepted MusicBrainz release in Cover Art Archive. If unavailable, OSCAR tries the uniquely linked Discogs CD release when a Discogs token is configured. You can enter a Discogs release ID or URL manually or upload a JPEG, PNG or WebP. An upload and every downloaded image are normalized to JPEG for the preview and publication. The automatic Best Guess publication path does not select or approve artwork.
 - If publishing fails halfway through, a hidden `.oscar-unpublished-<id>` directory may remain for inspection. OSCAR does **not** automatically delete or reuse partial files. You can inspect or separately remove only clearly identified failed temporary directories after reviewing them, but never delete original staging.
 - The output path is `<album artist>/<catalog prefix> <album title> (<year>) [release-uuid-prefix]/`, with `Disc NN/` for multidisc sets. A second publish of the same album/disc is **refused**. An overwrite is never the default behavior.
 
-## Hardware acceptance sequence
+[PR #139](https://github.com/sin7ek/OSCAR/pull/139) adds selected and excluded source-attempt details for new recoveries. It explicitly identifies unavailable historical details for earlier recovery jobs. Existing production source input is a local diagnostic rip.
+
+## Initial hardware fixtures
 
 ### Anastacia
 
@@ -53,6 +111,6 @@
 - Automated full-release identification and MusicBrainz fallback cache/providers (#40), rather than manually pasting job/copy IDs.
 - Persistent publication-progress journal and restart recovery, disk-space preflight, richer metadata tracklist comparison against physical packaging, more robust cross-process device/mount selection.
 - Integrated extraction→verify→match→tag→review→publish automation profiles (#32).
-- Optional cover embedding and user-supplied cover handling, independent INDEX00/HTOA and CTDB checks, read-only post-publish revalidation UI.
+- Independent INDEX00/HTOA checks and read-only post-publish revalidation UI.
 
-This version has **no cleanup feature** and must never delete the original ripping evidence.
+Publication preserves the original ripping evidence. For a later, explicit cleanup or opt-in staging retention policy, see [Cleanup](CLEANUP.md).

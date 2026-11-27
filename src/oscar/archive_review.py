@@ -257,6 +257,14 @@ def cue_preview(root, tracks, album_title, album_artist, *, profile="classical")
     if len(cues) != 1:
         return {"status": "needs_review", "reason": "Exactly one original CUE required; no synthetic INDEX or PREGAP generated"}
     original = cues[0].read_text(encoding="utf-8-sig", errors="replace")
+    from oscar.ctdb_verification import _CD_EXTRA_SUFFIX
+    extra = _CD_EXTRA_SUFFIX.search(original)
+    data_track = None
+    if extra and int(extra[1]) == int(extra[2]) == len(tracks) + 1:
+        data_track = int(extra[2])
+        original = original[:extra.start()]
+    if re.search(r'(?im)^\s*TRACK\s+\d+\s+(?!AUDIO\b)\S+', original):
+        return {"status": "needs_review", "reason": "Unsupported non-audio track in the original CUE"}
     lines = original.splitlines()
     referenced = [_CUEFILE.match(line.strip()) for line in lines]
     names = [m.group(1) for m in referenced if m]
@@ -321,7 +329,7 @@ def cue_preview(root, tracks, album_title, album_artist, *, profile="classical")
             renamed.append(line)
     if index != len(proposed) or len(set(proposed)) != len(proposed):
         raise ReviewError("Unable to build distinct archive CUE filename proposal")
-    return {
+    result = {
         "status": "preview_requires_review",
         "text": "\n".join(prefix + out) + "\n",
         "archive_cue_proposal": "\n".join(renamed) + "\n",
@@ -335,6 +343,12 @@ def cue_preview(root, tracks, album_title, album_artist, *, profile="classical")
         "music_profile": profile,
         "note": "Both CUE proposals preserve the original INDEX/PREGAP lines without independent validation. The first points to current staged files; the second names proposed future archive files that do not exist yet. Review before publication.",
     }
+    if data_track:
+        result["excluded_data_track"] = data_track
+        result["note"] = (
+            f"CD-Extra: both CUE proposals describe the audio session only. Data track {data_track} "
+            "can be archived separately when a verified image is available; the complete original CUE is preserved as extraction evidence.")
+    return result
 
 
 def cover_preview(release_id, *, opener=None):
@@ -366,11 +380,16 @@ def cover_preview(release_id, *, opener=None):
         return {"status": "unavailable", "note": "Cover Art Archive could not be reached; no cover inferred."}
 
 
+def original_preview(root, copy_id, kind, preview):
+    source_copy = copy_id if kind == "original_tags" else preview["source_copy_id"]
+    if not isinstance(source_copy, str) or not _COPY_ID.fullmatch(source_copy):
+        raise ReviewError("Missing original tagged copy ID")
+    return _json_file(root / ("metadata-copy-" + source_copy), "metadata-preview.json")
+
+
 def review(job_id, copy_id, kind="classical_v2", *, profile="auto", artwork=True, cover_lookup=cover_preview):
     root, folder, preview, manifest, tracks = _load(job_id, copy_id, kind)
-    original = _json_file(root / ("metadata-copy-" +
-                          (copy_id if kind == "original_tags" else preview["source_copy_id"])),
-                          "metadata-preview.json")
+    original = original_preview(root, copy_id, kind, preview)
     album = original.get("album") or {}
     release_id = original.get("release_id")
     if not RELEASE_ID.fullmatch(str(release_id or "")):

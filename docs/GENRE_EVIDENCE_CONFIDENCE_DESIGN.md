@@ -1,19 +1,21 @@
-# Proposal: Genre Evidence & Confidence Engine
+# Genre evidence and provenance design
 
-**Status:** design proposal, **not implemented**, 2026-11-22. This document records the operator's requested direction and testable safety requirements; confidence thresholds and provider eligibility need a separate implementation/review decision. Physical Classical/Popular archive splitting remains opt-in and undecided.
+## Current implementation
+
+[Genre Evidence v1](GENRE_EVIDENCE_V1.md) is a read-only source comparison for a published release. It displays official MusicBrainz claims and optional catalog-matched Discogs claims, with source attribution, grouped evidence, abstentions and agreement. The existing [reviewed genre workflow](REVIEWED_GENRE_TAGGING.md) separately supports MusicBrainz tags and a Discogs genre fallback where matching CDs agree. New publications already record the genre source and an available Discogs release URL in `SOURCES.txt`, and store the source URL in the manifest.
+
+This design covers richer evidence and approval history, possible additional eligible sources, and a reviewed publication path. Its proposed thresholds and automatic write policies require separate implementation and acceptance. Tower acceptance for the source comparison remains open.
 
 ## Problem
 
-OSCAR currently accepts normalized official MusicBrainz release/release-group `genres` as candidate GENRE values. MusicBrainz genres are user-contributed tags with vote counts, not objective physical-release facts. This was sufficient for Anastacia's `Pop` Unraid acceptance, but does not solve missing/weak genre evidence for Carmen Gomes Inc. – `Desire`. Generic artist genres must never silently determine an album's genre.
-
-Genre confidence is **not** rip verification, disc identity proof, metadata edition confidence, or audio quality. They have separate assurance and provenance fields. No provider alone proves the exact physical pressing.
+MusicBrainz genre votes and Discogs styles are editorial claims. Album-level evidence can help with missing genres. Genre agreement does not establish pressing identity, rip verification or audio quality. Artist genres are too broad to determine the genre of a particular album.
 
 ## Sources and eligibility
 
 - **MusicBrainz**: official `genres` and vote counts for the verified release first, release-group as fallback, never unreviewed arbitrary `tags` as genres. Record MBID, entity type, count, URL, fetched timestamp, tag-list snapshot hash, and match evidence.
 - **Discogs**: read-only release-level `genres` + `styles`; do not compare an arbitrary master or adjacent pressing without cross-reference to catalog number, barcode, label and format. Its broad genre and specific style are separate raw claims.
 - **Qobuz**: album-level genre, only through a permitted officially accessible service/authorized API. Verify API terms, application-key eligibility, retention and attribution **before building a connector**. A webpage/retail listing without a licensed API may at most become a manually cited operator-supplied reference.
-- **Other sources**: label/artist's official album description; trusted specialist album reviews; library/store catalogs with identifiable edition and clear publication origin. No arbitrary scraping or artificial source-count inflation. Manual operator citation is supported.
+- **Other sources**: label/artist's official album description; trusted specialist album reviews; library/store catalogs with identifiable edition and clear publication origin. No arbitrary scraping or artificial source-count inflation. Manual operator citations are a possible extension.
 - **User curations**: explicit operator assertion is separately labelled `operator_approved`; distinguish it from public provider votes or independent confirmation.
 
 Every observation must include `source_id`, `source_type`, exact URL or stable provider ID, `entity_scope` (physical release/release group/album/artist), release-match evidence, original genre/style string, canonical mapped genre(s), timestamp, API status, source-independence cluster and source reliability tier. Store unsuccessful queries as `no_genre` or `unavailable`—not as votes against a genre.
@@ -36,14 +38,14 @@ Suggested initial gate:
 
 | Outcome | Evidence / conflict requirement | Action |
 | --- | --- | --- |
-| high_confidence | at least 3 independent applicable album-level evidence clusters, clear compatible majority (e.g. >= 75%) and **no credible unresolved conflicting specific genre** | Eligible for automatic recommendation; write rules still mode-dependent |
-| medium_confidence | at least 2 independent compatible album-level clusters or majority with gaps/minor conflict | Recommend with explanation; explicit approval required outside Best Guess policy |
+| high_confidence | at least 3 independent applicable album-level evidence clusters, clear compatible majority (e.g. >= 75%) and **no credible unresolved conflicting specific genre** | Candidate for recommendation under a future approved policy |
+| medium_confidence | at least 2 independent compatible album-level clusters or majority with gaps/minor conflict | Recommend with explanation for explicit review |
 | conflicting | roughly balanced credible clusters (e.g. 50/50), incompatible styles, uncertain album match, or serious contradictory expert evidence | Manual approval only, no automatic genre write |
 | unknown | zero/one weak relevant cluster or no safe mapping | Keep Unclassified, show sources checked |
 
 **These are design placeholders:** calibrate against a diverse operator-reviewed test corpus before promoting thresholds to a live rule. No false numerical precision. Some albums legitimately belong to several genres; require evidence per tag and distinguish broad parent genres from independently supported subgenres.
 
-## Workflow mapping (genre trust != physical-edition trust)
+## Proposed workflow mapping
 
 Actual OSCAR settings are `identification_mode=best_guess|semi_automatic|secure` and `secure_review_level=on_ambiguity|before_archive|every_step`. Documentation may call these Best Guess / Semi Secure / Secure, but do not invent a second product mode. Genre assurance does not upgrade or bypass physical-release identification gates.
 
@@ -54,7 +56,7 @@ Actual OSCAR settings are `identification_mode=best_guess|semi_automatic|secure`
 
 ## Provenance storage and SOURCES.txt
 
-**Current actual behavior:** `src/oscar/archive_publish.py` creates a human-readable `SOURCES.txt`, and `manifest.json` includes release IDs, processing profile and source metadata. Both are part of published non-audio integrity evidence. Existing single-CD and boxset verification demands non-FLAC evidence remains byte-identical between old/new generations.
+Published `SOURCES.txt` and the existing manifest fields provide a baseline for this design. A complete, archived snapshot of all provider claims and approvals remains open. Revision verification protects the original non-audio evidence and requires explicit authorization for permitted differences.
 
 Proposed:
 1. Store canonical `genre_evidence` payload in the archive **manifest** and local Collection (or a SHA-256-bound additional JSON evidence sidecar), including `model_version`/policy version, normalized tags, source URLs/IDs, original claims, vote counts, query timestamp, source match and independence assessment, agreement fractions, confidence category, operator action, reviewed timestamp and exact publication/proposal fingerprint. No credentials or authorization tokens.
@@ -69,9 +71,9 @@ Proposed:
 
 ## Proposed acceptance milestones
 
-1. Pure classification/evidence model + normalizer, human-reviewed cases (Anastacia/Pop, Carmen Gomes/unknown or Jazz with evidence, Baroque broad-vs-style, electronic/hardcore, mixed compilations), explicit conflicting and duplicated-source tests.
-2. MusicBrainz vote provenance and Discogs read-only release-level evidence adapters; opt-in Qobuz adapter only after API/terms verification. Mocked provider failure and rate-limiting tests.
-3. Review UI with per-source claims, independence, confidence and confirmation. Distinguish Best Guess/Semi Automatic/Secure settings, while keeping physical identity gates.
+1. Extend the existing evidence model and normalizer with human-reviewed cases (Anastacia/Pop, Carmen Gomes/unknown or Jazz with evidence, Baroque broad-vs-style, electronic/hardcore, mixed compilations), explicit conflicting and duplicated-source tests.
+2. Review the existing MusicBrainz and Discogs adapters on Tower and record representative provider responses. Consider an opt-in Qobuz adapter only after API and terms verification.
+3. Extend the existing comparison UI with durable review and confirmation. Distinguish Best Guess/Semi Automatic/Secure settings, while keeping physical identity gates.
 4. Persist provenance in new-rip `manifest.json` + `SOURCES.txt`, with SHA integrity and stable format version.
 5. Add approved versioned provenance+genre revisions to existing single-CD / coordinated boxset, with full negative integrity tests, double-revision historical lineage and read-only Unraid acceptance.
 6. Calibration: count editor disagreements/false positives and review ambiguous examples before enabling any automatic high-confidence tagging policy.

@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
-from oscar import go_controller as go, workflow_ledger as ledger, ripping, verification
+from oscar import go_controller as go, rip_working_title, workflow_ledger as ledger, ripping, verification
 from oscar.settings import OscarSettings
 from oscar.api import app
 
@@ -28,6 +28,8 @@ def rig(tmp_path,monkeypatch):
     monkeypatch.setenv("OSCAR_WORKFLOW_DB",str(config/"workflow.sqlite3"))
     monkeypatch.setenv("OSCAR_ENABLE_RIPPING","1")
     monkeypatch.setenv("OSCAR_RIP_TOKEN",TOKEN)
+    # Working-title tests exercise the background lookup with their own worker.
+    monkeypatch.setattr(rip_working_title, "display", lambda *args, **kwargs: "")
     monkeypatch.setattr(ripping,"selected_drive",lambda stable:("/dev/sr2",667))
     monkeypatch.setattr(ripping,"read_toc",lambda device:{
         "musicbrainz_disc_id":DISC,"toc_string":"1 2 1000 150 300",
@@ -217,6 +219,13 @@ def test_semi_automatic_snapshots_candidates_and_requires_explicit_acceptance(ri
     assert outcome["release_id"]==RELEASE2
     assert not list(rig[0].rglob("metadata-copy-*"))
 
+    reopened = ledger.review_action(job_id, "reopen_edition")
+    assert reopened["phase"] == "RELEASE_REVIEW_PENDING"
+    assert not reopened["accepted_release_id"]
+    assert reopened["events"][-1]["reason"] == "operator_reopened_edition_" + RELEASE2
+    assert ledger.accept_semi_release(job_id, RELEASE1, "ACCEPT_INFERRED_RELEASE")[
+        "accepted_release_id"] == RELEASE1
+
 
 def test_semi_automatic_can_defer_and_resume_without_losing_candidates(rig):
     rig[1]["mode"]="semi_automatic"
@@ -283,7 +292,9 @@ def test_go_semi_metadata_handoff_is_durable_single_copy(rig):
     job_id = _finish(rig)
     rig[2]["status"] = "checks_passed"
     go.advance(job_id, lookup=lambda disc, toc: {"releases": [{"id": RELEASE1}]})
-    ledger.accept_semi_release(job_id, RELEASE1, "ACCEPT_INFERRED_RELEASE")
+    matrix = "936245901-2.2 WME"
+    ledger.accept_semi_release(job_id, RELEASE1, "ACCEPT_INFERRED_RELEASE",
+                               matrix_runout=matrix)
     calls, adapters = _fake_metadata_flow(job_id, RELEASE1)
     started = go.advance(job_id, **adapters)
     assert started["action"] == "metadata_copy_running"
@@ -293,6 +304,8 @@ def test_go_semi_metadata_handoff_is_durable_single_copy(rig):
     assert started["workflow"]["release_match_status"] == "INFERRED_OPERATOR_ACCEPTED"
     assert calls[-1][0] == "start"
     assert calls[-1][-1]["reserved_copy_id"] == copy_id
+    assert calls[-1][-1]["matrix_runout"] == matrix
+    assert started["workflow"]["matrix_runout"] == matrix
     assert calls[-1][-1]["identification_status"] == "INFERRED_OPERATOR_ACCEPTED"
     # No new worker can be launched on a repeat poll.
     result = go.advance(job_id, **adapters)
@@ -401,7 +414,12 @@ def _prepare_verified_go_archive(rig, monkeypatch, mode="semi_automatic"):
 def _fake_go_archive_plan(job_id, copy_id):
     return {"job_id": job_id, "copy_id": copy_id, "release_id": RELEASE1,
             "fingerprint": "a" * 64, "relative_directory": "Boulez/Stravinsky",
-            "output_exists": False, "metadata_observations": []}
+            "output_exists": False, "metadata_observations": [],
+            "album": {"title": "Stravinsky", "artist": "Boulez"}, "disc_number": 1,
+            "disc_total": 1, "profile": "classical", "kind": "original_tags",
+            "provenance": {"recovery": None, "metadata_source": "MusicBrainz",
+                           "verification_method": "cyanrip", "accuraterip_coverage": None},
+            "tracks": [], "source_evidence": [], "include_cover": False}
 
 
 def test_go_archive_preview_only_after_verified_copy(rig, monkeypatch):
@@ -422,6 +440,7 @@ def test_go_archive_preview_only_after_verified_copy(rig, monkeypatch):
     assert preview["requires_operator_confirmation"]
     assert preview["archive_review"]["tracks"][0]["work_ids"] == ["work-1"]
     assert preview["release_match_status"] == "INFERRED_OPERATOR_ACCEPTED"
+    assert "Physical edition status: INFERRED_OPERATOR_ACCEPTED" in preview["sources_preview"]
 
 
 def test_go_archive_publish_confirmation_fingerprint_and_source(rig, monkeypatch):
@@ -692,8 +711,8 @@ def test_review_reverify_uses_existing_auth_protected_verification_api():
     """Review reuses the existing explicit verification API, never starts another rip."""
     html = TestClient(app).get("/").text
     assert "Reverify saved rip" in html
-    assert "verifyExistingJob(job.job_id,status)" in html
-    assert "if(job.phase==='VERIFICATION_PENDING')" in html
+    assert "verifyExistingJob(id,result)" in html
+    assert "job.phase==='VERIFICATION_PENDING'" in html
     assert "The prior verification report is backed up" in html
     assert "/api/rip/jobs/'+job+'/verification" in html
     assert "window.confirm('Reverify this saved rip" in html
@@ -702,6 +721,7 @@ def test_review_reverify_uses_existing_auth_protected_verification_api():
 def test_discid_attach_link_uses_saved_toc_and_never_submits_edit(tmp_path, monkeypatch):
     """Only an accepted, verified single CD gets a link to MusicBrainz' own editor."""
     from oscar import boxsets
+    monkeypatch.setenv("OSCAR_ENABLE_MUSICBRAINZ", "1")
     directory = tmp_path / ("oscar-" + "a" * 32)
     directory.mkdir()
     (directory / "plan.json").write_text(json.dumps({
@@ -720,7 +740,7 @@ def test_discid_attach_link_uses_saved_toc_and_never_submits_edit(tmp_path, monk
     from oscar import api
     monkeypatch.setattr(api, "lookup_release_medium", lambda *args: None, raising=False)
     monkeypatch.setattr(boxsets, "lookup_release_medium", lambda *args: {
-        "status": "no_exact_medium_match", "total_media": 1,
+        "release_id": RELEASE1, "status": "no_exact_medium_match", "total_media": 1,
         "all_media": [{"format": "CD", "position": 1, "track_count": 2,
                        "disc_id_attached": False}]})
     response = TestClient(app).get(
@@ -733,11 +753,15 @@ def test_discid_attach_link_uses_saved_toc_and_never_submits_edit(tmp_path, monk
     assert "filter-release.query=" + RELEASE1 in data["musicbrainz_attach_url"]
     assert data["release_id"] == RELEASE1
     assert "will not submit" in data["warning"].lower()
-    assert "Add missing Disc ID to MusicBrainz" in TestClient(app).get("/").text
+    html = TestClient(app).get("/").text
+    assert "Open this job in Review" in html
+    assert "Link Disc ID to CD " in html
+    assert "Continue tagging in Go!" in html
 
 
 def test_discid_attach_link_rejects_unaccepted_or_ambiguous_job(tmp_path, monkeypatch):
     from oscar import boxsets
+    monkeypatch.setenv("OSCAR_ENABLE_MUSICBRAINZ", "1")
     directory = tmp_path / ("oscar-" + "a" * 32)
     directory.mkdir()
     (directory / "plan.json").write_text(json.dumps({
@@ -760,6 +784,17 @@ def test_discid_attach_link_rejects_unaccepted_or_ambiguous_job(tmp_path, monkey
     accepted["accepted_release_id"] = RELEASE1
     accepted["release_match_status"] = "INFERRED_OPERATOR_ACCEPTED"
     monkeypatch.setattr(boxsets, "lookup_release_medium", lambda *args: {
-        "status": "no_exact_medium_match", "total_media": 2,
+        "release_id": RELEASE1, "status": "no_exact_medium_match", "total_media": 2,
         "all_media": [{"format": "CD", "position": 1, "track_count": 2}]})
     assert client.get(url, headers=headers).status_code == 409
+
+
+    monkeypatch.setattr(boxsets, "lookup_release_medium", lambda *args: {
+        "release_id": RELEASE1, "status": "no_exact_medium_match", "total_media": 2,
+        "all_media": [{"format": "CD", "position": position, "track_count": 2,
+                       "disc_id_attached": False} for position in (1, 2)]})
+    assert client.get(url, headers=headers).status_code == 409
+    assert client.get(url + "?medium_position=3", headers=headers).status_code == 409
+    selected = client.get(url + "?medium_position=2", headers=headers)
+    assert selected.status_code == 200
+    assert selected.json()["medium_position"] == 2

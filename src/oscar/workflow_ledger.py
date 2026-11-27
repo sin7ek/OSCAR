@@ -14,6 +14,7 @@ import re
 import sqlite3
 
 from oscar import verification
+from oscar.pressing_evidence import observed_matrix
 from oscar.settings import discover_settings
 
 _JOB_ID = re.compile(r"[a-f0-9]{32}\Z")
@@ -31,6 +32,7 @@ CREATE TABLE IF NOT EXISTS workflow_jobs (
   candidate_options TEXT NOT NULL DEFAULT '[]',
   accepted_release_id TEXT NOT NULL DEFAULT '',
   release_approved_at TEXT NOT NULL DEFAULT '',
+  matrix_runout TEXT NOT NULL DEFAULT '',
   metadata_copy_id TEXT NOT NULL DEFAULT '',
   metadata_fingerprint TEXT NOT NULL DEFAULT '',
   metadata_release_id TEXT NOT NULL DEFAULT '',
@@ -50,6 +52,14 @@ CREATE TABLE IF NOT EXISTS workflow_events (
   happened_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS workflow_events_by_job ON workflow_events(job_id, id);
+CREATE TABLE IF NOT EXISTS cleanup_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  path TEXT NOT NULL,
+  target_archive TEXT NOT NULL,
+  bytes INTEGER NOT NULL,
+  status TEXT NOT NULL,
+  happened_at TEXT NOT NULL
+);
 """
 
 
@@ -73,11 +83,11 @@ def _db():
     db.executescript(_SCHEMA)
     existing = {row[1] for row in db.execute("PRAGMA table_info(workflow_jobs)")}
     for name in ("proposed_release_id", "release_evidence", "candidate_options",
-                 "accepted_release_id", "release_approved_at", "metadata_copy_id",
+                 "accepted_release_id", "release_approved_at", "matrix_runout", "metadata_copy_id",
                  "metadata_fingerprint", "metadata_release_id",
                  "archive_publish_id", "archive_fingerprint",
                  "archive_relative_directory", "archive_release_id",
-                 "archive_catalog_status", "archive_automatic"):
+                 "archive_catalog_status", "archive_automatic", "archived_at"):
         if name not in existing:
             if name == "archive_automatic":
                 db.execute("ALTER TABLE workflow_jobs ADD COLUMN archive_automatic INTEGER NOT NULL DEFAULT 0")
@@ -115,6 +125,8 @@ def _observed_phase(job_id, state):
         return "RIP_FAILED"
     if phase == "interrupted":
         return "RIP_INTERRUPTED"
+    if phase == "partial_diagnostic":
+        raise WorkflowError("Selected-track diagnostic cannot enter Go workflow")
     if phase in ("queued", "running"):
         return "RIP_IN_PROGRESS"
     if phase != "needs_verification" or state.get("returncode") != 0:
@@ -196,9 +208,11 @@ def register_created(job):
             VALUES (?,?,?,?,?,?,?)""",
             (job_id,str(job.get("disc_id") or "")[:28],settings.identification_mode,
              settings.secure_review_level,"RIP_IN_PROGRESS",stamp,stamp))
+        reason = ("disc_insertion_before_extraction" if job.get("start_trigger") == "disc_insertion"
+                  else "go_created_before_extraction")
         db.execute("""INSERT INTO workflow_events
             (job_id,phase_before,phase_after,reason,happened_at) VALUES (?,?,?,?,?)""",
-            (job_id,"UNREGISTERED","RIP_IN_PROGRESS","go_created_before_extraction",stamp))
+            (job_id,"UNREGISTERED","RIP_IN_PROGRESS",reason,stamp))
         return _view(db,job_id)
 
 def register(job_id):
@@ -223,7 +237,47 @@ def register(job_id):
         return _view(db,job_id)
 
 
-def refresh(job_id):
+def register_recovery(job_id):
+    """Register a successfully independently verified recovery for manual review.
+
+    Recovery is deliberately Semi Automatic irrespective of current Best Guess
+    configuration; a recovered CD never inherits unattended archive approval.
+    """
+    state = _state(job_id)
+    report = verification.report(job_id)
+    directory = verification._safe_job(job_id)
+    plan_path = directory / "plan.json"
+    if plan_path.is_symlink() or not plan_path.is_file():
+        raise WorkflowError("Recovery plan missing")
+    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    recovery = plan.get("recovery") or {}
+    if (recovery.get("format") != "OSCAR_TRACK_RECOVERY_V1"
+            or state.get("status") != "needs_verification"
+            or state.get("returncode") != 0
+            or report.get("status") != "checks_passed"
+            or report.get("verification_method") != "independent_trackverify_R_v1_v2"
+            or report.get("job_id") != job_id
+            or len(report.get("tracks") or []) != plan.get("track_count")
+            or not all(track.get("checks_passed") for track in report["tracks"])):
+        raise WorkflowError("Recovery lacks fully verified independent AccurateRip evidence")
+    settings = discover_settings()
+    stamp = _now()
+    with _db() as db:
+        if db.execute("SELECT 1 FROM workflow_jobs WHERE job_id=?", (job_id,)).fetchone():
+            raise WorkflowError("Recovered workflow already registered")
+        db.execute("""INSERT INTO workflow_jobs
+            (job_id,disc_id,identification_mode,secure_review_level,phase,created_at,updated_at)
+            VALUES (?,?,?,?,?,?,?)""",
+            (job_id, state["disc_id"], "semi_automatic", settings.secure_review_level,
+             "RELEASE_REVIEW_PENDING", stamp, stamp))
+        db.execute("""INSERT INTO workflow_events
+            (job_id,phase_before,phase_after,reason,happened_at) VALUES (?,?,?,?,?)""",
+            (job_id, "UNREGISTERED", "RELEASE_REVIEW_PENDING",
+             "independently_verified_track_recovery_manual_release_review", stamp))
+        return _view(db, job_id)
+
+
+def refresh(job_id, *, include_rip_review=False):
     """Reconcile durable state with saved rip/verification evidence only."""
     state = _state(job_id)
     from oscar import ripping
@@ -240,7 +294,13 @@ def refresh(job_id):
         if phase in {"RIP_IN_PROGRESS","VERIFICATION_PENDING"} and observed in {
                 "VERIFICATION_PENDING","RELEASE_REVIEW_PENDING","RIP_FAILED","RIP_INTERRUPTED"}:
             _transition(db,job_id,phase,observed,"source_staging_reconciliation")
-        return _view(db,job_id)
+        result = _view(db,job_id)
+    if include_rip_review:
+        from oscar import rip_review
+
+        result["rip_review"] = rip_review.next_step(
+            job_id, result["phase"], has_candidate=bool(result["proposed_release_id"]))
+    return result
 
 
 
@@ -314,7 +374,7 @@ def remember_semi_candidates(job_id, candidates, evidence):
         return _view(db, job_id)
 
 
-def accept_semi_release(job_id, release_id, confirmation):
+def accept_semi_release(job_id, release_id, confirmation, *, matrix_runout=None):
     """Approve an inferred release explicitly, without tagging or publishing."""
     if not _JOB_ID.fullmatch(job_id):
         raise WorkflowError("Invalid rip job ID")
@@ -323,6 +383,7 @@ def accept_semi_release(job_id, release_id, confirmation):
     if not isinstance(release_id, str) or not re.fullmatch(
             r"[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}", release_id):
         raise WorkflowError("Invalid MusicBrainz release UUID")
+    matrix = observed_matrix(matrix_runout)
     # Always check live saved verification before accepting identity.
     current = refresh(job_id)
     with _db() as db:
@@ -330,7 +391,7 @@ def accept_semi_release(job_id, release_id, confirmation):
         if not item or item["identification_mode"] != "semi_automatic":
             raise WorkflowError("Only Semi Automatic jobs can accept inferred releases")
         if item["phase"] == "RELEASE_ACCEPTED":
-            if item["accepted_release_id"] == release_id:
+            if item["accepted_release_id"] == release_id and item["matrix_runout"] == matrix:
                 return _view(db, job_id)
             raise WorkflowError("Release was already accepted; cannot silently replace it")
         if item["phase"] != "RELEASE_REVIEW_PENDING" or current["phase"] != "RELEASE_REVIEW_PENDING":
@@ -340,9 +401,9 @@ def accept_semi_release(job_id, release_id, confirmation):
             raise WorkflowError("Only a saved server-discovered candidate may be accepted")
         stamp = _now()
         result = db.execute("""UPDATE workflow_jobs SET accepted_release_id=?,
-            release_approved_at=?,updated_at=? WHERE job_id=? AND
+            release_approved_at=?,matrix_runout=?,updated_at=? WHERE job_id=? AND
             accepted_release_id='' AND phase='RELEASE_REVIEW_PENDING'""",
-            (release_id, stamp, stamp, job_id))
+            (release_id, stamp, matrix, stamp, job_id))
         if result.rowcount != 1:
             raise WorkflowError("Concurrent release review changed; refresh")
         _transition(db, job_id, "RELEASE_REVIEW_PENDING", "RELEASE_ACCEPTED",
@@ -426,6 +487,52 @@ def complete_metadata_copy(job_id, copy_id, *, checked, reason):
 
 
 
+
+def adopt_refreshed_metadata_copy(job_id, old_copy_id, new_copy_id, release_id,
+                                  new_fingerprint, confirmation):
+    """Atomically use an already verified isolated copy for first Go publication.
+
+    The prior copy is retained. A pending or completed publication reservation
+    permanently closes this path, even if the archive is not currently visible.
+    """
+    if confirmation != "USE_REVIEWED_COPY_FOR_FIRST_PUBLICATION":
+        raise WorkflowError("Explicit refreshed-copy adoption confirmation required")
+    if not all(isinstance(value, str) and _JOB_ID.fullmatch(value)
+               for value in (job_id, old_copy_id, new_copy_id)):
+        raise WorkflowError("Invalid metadata copy or rip job ID")
+    if old_copy_id == new_copy_id:
+        raise WorkflowError("Refreshed copy must differ from original")
+    if not isinstance(release_id, str) or not re.fullmatch(
+            r"[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}", release_id):
+        raise WorkflowError("Invalid accepted release UUID")
+    if not isinstance(new_fingerprint, str) or not re.fullmatch(r"[a-f0-9]{64}", new_fingerprint):
+        raise WorkflowError("Invalid new copy preview fingerprint")
+    with _db() as db:
+        db.execute("BEGIN IMMEDIATE")
+        row = db.execute("SELECT * FROM workflow_jobs WHERE job_id=?", (job_id,)).fetchone()
+        if not row or row["phase"] != "METADATA_READY":
+            raise WorkflowError("Only ready, unpublished Go jobs can select a refreshed copy")
+        if row["identification_mode"] != "semi_automatic" or row["accepted_release_id"] != release_id:
+            raise WorkflowError("The original accepted Semi Automatic release must remain unchanged")
+        if row["metadata_release_id"] != release_id or row["metadata_copy_id"] != old_copy_id:
+            raise WorkflowError("Existing metadata copy/release changed; refresh Go before retrying")
+        if row["archive_publish_id"]:
+            raise WorkflowError("An archive publication was already reserved; adoption prohibited")
+        stamp = _now()
+        updated = db.execute("""UPDATE workflow_jobs
+            SET metadata_copy_id=?,metadata_fingerprint=?,updated_at=?
+            WHERE job_id=? AND metadata_copy_id=? AND metadata_release_id=?
+              AND phase='METADATA_READY' AND archive_publish_id=''""",
+            (new_copy_id, new_fingerprint, stamp, job_id, old_copy_id, release_id))
+        if updated.rowcount != 1:
+            raise WorkflowError("Concurrent metadata or publication change; retry review")
+        db.execute("""INSERT INTO workflow_events
+            (job_id,phase_before,phase_after,reason,happened_at)
+            VALUES (?,?,?,?,?)""", (job_id, "METADATA_READY", "METADATA_READY",
+                "operator_adopted_refreshed_copy:" + old_copy_id + "->" + new_copy_id, stamp))
+        return _view(db, job_id)
+
+
 def reserve_archive_publish(job_id, copy_id, release_id, fingerprint,
                             relative_directory, *, automatic=False):
     """Single durable publication reservation, committed before any archive worker.
@@ -503,7 +610,25 @@ def complete_archive_publish(job_id, publish_id, *, published, catalog_status=""
 
 
 def review_action(job_id, action):
-    """The only manual transitions in v1: defer/resume edition review."""
+    """Operator decisions during release review."""
+    if action == "reopen_edition":
+        if not _JOB_ID.fullmatch(job_id):
+            raise WorkflowError("Invalid rip job ID")
+        with _db() as db:
+            item = _view(db, job_id)
+            release = item["accepted_release_id"]
+            if not release or item["identification_mode"] != "semi_automatic":
+                raise WorkflowError("An accepted Semi Automatic release is required")
+            changed = db.execute("""
+                UPDATE workflow_jobs SET accepted_release_id='', release_approved_at=''
+                WHERE job_id=? AND phase='RELEASE_ACCEPTED' AND accepted_release_id=?
+                AND metadata_copy_id='' AND archive_publish_id=''
+                """, (job_id, release))
+            if changed.rowcount != 1:
+                raise WorkflowError("Edition review can only be reopened before tagged-copy creation")
+            _transition(db, job_id, "RELEASE_ACCEPTED", "RELEASE_REVIEW_PENDING",
+                        "operator_reopened_edition_" + release)
+            return _view(db, job_id)
     if action not in {"defer", "resume"}:
         raise WorkflowError("Unsupported review action")
     after = "DEFERRED_REVIEW" if action == "defer" else "RELEASE_REVIEW_PENDING"
@@ -519,12 +644,51 @@ def review_action(job_id, action):
         return _view(db,job_id)
 
 
-def list_jobs(limit=100):
+def set_archived(job_id, archived):
+    if not _JOB_ID.fullmatch(job_id):
+        raise WorkflowError("Invalid workflow job ID")
+    with _db() as db:
+        where = (" AND phase NOT IN ('RIP_IN_PROGRESS','METADATA_COPY_RUNNING','ARCHIVE_PUBLISH_RUNNING')"
+                 if archived else "")
+        result = db.execute("UPDATE workflow_jobs SET archived_at=? WHERE job_id=?" + where,
+                            (_now() if archived else "", job_id))
+        if not result.rowcount:
+            raise WorkflowError("Workflow job is active or unavailable")
+    return {"job_id": job_id, "archived": archived}
+
+
+def list_jobs(limit=100, *, include_archived=False, include_rip_review=False):
     if not 1 <= limit <= 250:
         raise WorkflowError("Invalid workflow listing limit")
     with _db() as db:
         rows = [dict(x) for x in db.execute(
-            "SELECT job_id,disc_id,phase,identification_mode,secure_review_level,updated_at "
-            "FROM workflow_jobs ORDER BY updated_at DESC LIMIT ?", (limit,))]
+            "SELECT job_id,disc_id,phase,identification_mode,secure_review_level,"
+            "created_at,updated_at,proposed_release_id,accepted_release_id,"
+            "candidate_options,archived_at FROM workflow_jobs "
+            "WHERE (? OR archived_at='') ORDER BY updated_at DESC LIMIT ?", (include_archived, limit))]
+    from oscar import rip_review, rip_working_title
+
+    # The title worker runs outside the list request and never selects a release.
+    for row in rows:
+        row["working_title"] = rip_working_title.display(
+            row["job_id"], row["disc_id"],
+            schedule=not row["archived_at"] and row["phase"] not in {"RIP_IN_PROGRESS", "RIP_FAILED", "RIP_INTERRUPTED",
+                                          "ARCHIVE_PUBLISHED"})
+        try:
+            candidates = json.loads(row.pop("candidate_options") or "[]")
+        except (ValueError, TypeError):
+            candidates = []
+        selected = row["accepted_release_id"] or row["proposed_release_id"]
+        match = next((c for c in candidates if isinstance(c, dict)
+                      and c.get("release_id") == selected), None)
+        row["candidate_title"] = str(match.get("title") or "")[:300] if match else ""
+        row["candidate_date"] = str(match.get("date") or "")[:30] if match else ""
+        row["candidate_count"] = len(candidates)
+        row["match_status"] = ("INFERRED_OPERATOR_ACCEPTED" if row["accepted_release_id"]
+                               else "INFERRED_NOT_PHYSICALLY_VERIFIED" if selected
+                               else "UNRESOLVED")
+        if include_rip_review:
+            row["rip_review"] = rip_review.next_step(
+                row["job_id"], row["phase"], has_candidate=bool(selected))
     return {"jobs":rows, "engine_running":False,
             "notice":"Persistent Go archive reservations and safe reconciliation; no automatic retry after interruption."}

@@ -140,8 +140,8 @@ def test_boxset_preview_api_requires_auth_and_ui_is_explicitly_read_only(prepare
     monkeypatch.delenv("OSCAR_TRUSTED_LOCAL_UI", raising=False)
     client = TestClient(app)
     html = client.get("/").text
-    assert "Preview coordinated multidisc labels (read-only)" in html
-    assert "archive-boxset-label-preview" in html
+    assert "Preview coordinated multidisc metadata update (read-only)" in html
+    assert "archive-boxset-metadata-preview" in html
     assert "boxset-preview" in html
     no_auth = client.post("/api/collection/archive-revisions/boxset-preview",
                           json={"release_id": RELEASE})
@@ -497,7 +497,8 @@ def test_group_skips_already_correct_disc_and_versions_only_approved_leaf(prepar
     assert (paths[6] / "01 - Track.flac").read_bytes().endswith(b" TAGGED")
 
 
-def test_real_flac_two_disc_group_apply_preserves_audio_and_cue(prepared, monkeypatch, tmp_path):
+@pytest.mark.parametrize("combined", [False, True, "profile"])
+def test_real_flac_two_disc_group_apply_preserves_audio_and_cue(prepared, monkeypatch, tmp_path, combined):
     """End-to-end CD leaves with genuine FLAC streams, original CUE and manifest hashes."""
     import array
     import shutil
@@ -545,29 +546,81 @@ def test_real_flac_two_disc_group_apply_preserves_audio_and_cue(prepared, monkey
             "sha256": hashlib.sha256(cue.read_bytes()).hexdigest(),
         }
         data["source_evidence"] = []
+        if combined == "profile":
+            data["profile"] = "classical"
         manifest_path.write_text(json.dumps(data))
     monkeypatch.setattr(scan, "FLAC", ActualFLAC)
+    if combined:
+        base_lookup = lookup
+
+        def lookup(*args):
+            return {**base_lookup(*args), "country": "DE",
+                    "genres": [] if combined == "profile" else ["Classical"]}
+    field = "METADATA" if combined else "LABEL"
+    expected_fields = {"LABEL", "RELEASECOUNTRY", "GENRE"} if combined else {"LABEL"}
     for leaf in paths.values():
         pending = scan.scan("additions", str(leaf), lookup=lookup)["pending"]
-        assert len(pending) == 1 and pending[0]["field"] == "LABEL"
-        scan.decide(pending[0]["fingerprint"], "accept", lookup=lookup)
+        assert {item["field"] for item in pending} == expected_fields
+        if combined == "profile":
+            genre = next(item for item in pending if item["field"] == "GENRE")
+            assert genre["source"] == "archive_profile"
+        for proposal in pending:
+            scan.decide(proposal["fingerprint"], "accept", lookup=lookup)
     monkeypatch.setenv("OSCAR_ENABLE_BOXSET_ARCHIVE_REVISIONS", "1")
-    preview = boxset.preview(RELEASE, lookup=lookup)
+    preview = boxset.preview(RELEASE, lookup=lookup, field=field)
+    assert set(preview["active_fields"]) == expected_fields
     assert preview["all_present_discs_reviewed"]
     result = engine.apply(RELEASE, preview["fingerprint"],
-                          "APPLY_COORDINATED_BOXSET_REVISION", lookup=lookup)
+                          "APPLY_COORDINATED_BOXSET_REVISION", lookup=lookup, field=field)
     assert result["status"] == "completed"
     for disc, leaf in paths.items():
         tracks = list(leaf.glob("*.flac"))
         assert len(tracks) == 1
         tags = ActualFLAC(str(tracks[0]))
         assert tags["LABEL"] == ["Deutsche Grammophon"]
+        if combined:
+            assert tags["RELEASECOUNTRY"] == ["DE"]
+            assert tags["GENRE"] == ["Classical"]
+        if combined == "profile":
+            manifest = json.loads((leaf / "manifest.json").read_text())
+            assert manifest["revision"]["genre_source"] == "archive_profile"
         assert format(tags.info.md5_signature, "032x") == old_audio_md5[disc]
         assert (leaf / "album.cue").read_bytes() == original_cues[disc]
     for original in result["originals_retained"]:
         old = Path(original)
         assert old.is_dir()
         assert "LABEL" not in ActualFLAC(str(old / "01 - Track.flac"))
+
+
+    from oscar import archive_revision_boxset_verify as verifier
+
+    assert verifier.verify(result["operation_id"])["status"] == "pass"
+    if combined:
+        return
+
+    # Existing LABEL journals must stay verifiable after a newer country revision.
+    with engine._db() as db:
+        row = db.execute("SELECT entries_json FROM boxset_revision_operations WHERE operation_id=?",
+                         (result["operation_id"],)).fetchone()
+        entries = json.loads(row["entries_json"])
+        for entry in entries:
+            entry.update(entry.pop("changes")[0])
+        db.execute("UPDATE boxset_revision_operations SET entries_json=? WHERE operation_id=?",
+                   (json.dumps(entries), result["operation_id"]))
+
+    def country_lookup(*args):
+        return {**lookup(*args), "country": "DE"}
+
+    for leaf in paths.values():
+        pending = scan.scan("additions", str(leaf), lookup=country_lookup)["pending"]
+        country = next(p for p in pending if p["field"] == "RELEASECOUNTRY")
+        scan.decide(country["fingerprint"], "accept", lookup=country_lookup)
+    country_plan = boxset.preview(RELEASE, lookup=country_lookup, field="METADATA")
+    assert country_plan["active_fields"] == ["RELEASECOUNTRY"]
+    newer = engine.apply(RELEASE, country_plan["fingerprint"], "APPLY_COORDINATED_BOXSET_REVISION",
+                         lookup=country_lookup, field="METADATA")
+    assert verifier.verify(newer["operation_id"])["status"] == "pass"
+    assert verifier.verify(result["operation_id"])["status"] == "pass"
 
 
 def test_non_audio_evidence_must_remain_byte_identical(tmp_path):
@@ -585,3 +638,17 @@ def test_non_audio_evidence_must_remain_byte_identical(tmp_path):
     (new / "SOURCES.txt").write_text("Changed provenance\\n")
     with pytest.raises(engine.BoxsetApplyError, match="Non-audio archive evidence"):
         engine._verify_non_audio_pair(entry)
+
+
+def test_group_blocks_loose_audio_before_promoting_disc(prepared, monkeypatch):
+    from oscar import archive_revision_boxset_apply as engine
+
+    paths, _, lookup = prepared
+    _approved_group(prepared, monkeypatch)
+    failed = paths[4] / "failed.m4a"
+    failed.write_bytes(b"unexpected playable file")
+    plan = boxset.preview(RELEASE, lookup=lookup)
+    with pytest.raises(engine.BoxsetApplyError, match=r"failed\.m4a"):
+        engine.apply(RELEASE, plan["fingerprint"], "APPLY_COORDINATED_BOXSET_REVISION", lookup=lookup)
+    assert failed.exists()
+    assert all(path.exists() for path in paths.values())

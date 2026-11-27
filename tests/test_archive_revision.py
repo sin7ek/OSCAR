@@ -43,9 +43,12 @@ def _digest(p):
 
 
 @pytest.fixture
-def fixture(tmp_path, monkeypatch):
+def fixture(tmp_path, monkeypatch, request):
     root = tmp_path / "archive"
-    old = root / "Carmen Gomes Inc" / "Desire (2010) [fa89edc1]"
+    undated = getattr(request, "param", None) == "undated"
+    year = "" if undated else "2010"
+    edition = "Desire" if undated else "Desire (2010)"
+    old = root / "Carmen Gomes Inc" / f"{edition} [fa89edc1]"
     old.mkdir(parents=True)
     db_root = tmp_path / "config"; db_root.mkdir()
     monkeypatch.setenv("OSCAR_ARCHIVE_ROOT", str(root))
@@ -72,6 +75,7 @@ def fixture(tmp_path, monkeypatch):
             "MUSICBRAINZ_TRACKID": [f"rec-{number}"],
             "TITLE": ["Song"], "ARTIST": ["Carmen Gomes Inc."],
             "ALBUM": ["Desire"],
+            **({"RELEASECOUNTRY": ["CA"]} if undated else {}),
         }, sort_keys=True))
         source_bytes[name] = target.read_bytes()
         files.append({"track": number, "filename": name,
@@ -103,7 +107,7 @@ def fixture(tmp_path, monkeypatch):
             "INSERT INTO archive_items "
             "(archive_path,artist,title,year,musicbrainz_release_id,track_count,archive_status,imported_at) "
             "VALUES (?,?,?,?,?,?,?,?)",
-            (str(old), "Carmen Gomes Inc", "Desire", "2010", RELEASE, 2,
+            (str(old), "Carmen Gomes Inc", "Desire", year, RELEASE, 2,
              "published_verified", "2026-11-20T00:00:00+00:00"),
         )
     def lookup(release, disc, count):
@@ -445,14 +449,26 @@ def test_explicit_reconciliation_preserves_manually_curated_label(fixture, monke
     assert catalog.list_items()["items"][0]["label"] == "My curated edition note"
 
 
-def test_completed_archive_revision_verify_is_read_only_and_checks_both_generations(fixture, monkeypatch):
+@pytest.mark.parametrize("relocate", [False, True])
+def test_completed_archive_revision_verify_is_read_only_and_checks_both_generations(fixture, monkeypatch, relocate):
     from oscar import archive_revision_verify as maintenance
     monkeypatch.setattr(maintenance, "FLAC", FakeFlac)
     _, old, _, _ = fixture
     plan = _approve(fixture)
     done = revision.apply(str(old), plan["fingerprint"], "APPLY_VERIFIED_ARCHIVE_REVISION")
     before_original = {p.name: p.read_bytes() for p in Path(done["original_retained_at"]).glob("*.flac")}
+    original_path = Path(done["original_retained_at"])
     before_new = {p.name: p.read_bytes() for p in Path(done["archive_path"]).glob("*.flac")}
+    if relocate:
+        from oscar import cleanup
+
+        root = catalog.archive_root()
+        destination = root.parent / "outside-history"
+        monkeypatch.setenv("OSCAR_ARCHIVE_HISTORY_ROOT", str(destination))
+        cleanup.relocate_history("MOVE_OSCAR_HISTORY")
+        assert not (root / ".oscar-archive-versions").exists()
+        assert len(list(destination.rglob("*.flac"))) == 2
+        original_path = destination / original_path.relative_to(root / ".oscar-archive-versions")
     report = maintenance.verify(done["operation_id"])
     assert report["status"] == "verified"
     assert report["original_flacs_verified"] == 2
@@ -460,7 +476,7 @@ def test_completed_archive_revision_verify_is_read_only_and_checks_both_generati
     assert report["approved_fields_verified"] == 2
     assert report["collection_verified"] and report["manifest_and_evidence_verified"]
     assert {p.name: p.read_bytes() for p in Path(done["archive_path"]).glob("*.flac")} == before_new
-    assert {p.name: p.read_bytes() for p in Path(done["original_retained_at"]).glob("*.flac")} == before_original
+    assert {p.name: p.read_bytes() for p in original_path.glob("*.flac")} == before_original
 
 
 def test_verify_rejects_changed_new_flac_and_missing_original_evidence(fixture, monkeypatch):
@@ -586,3 +602,80 @@ def test_verify_and_clean_api_require_auth_and_opt_in(fixture, monkeypatch):
                            json=clean_request, headers=headers)
     assert response.status_code == 409
     assert Path(done["original_retained_at"]).exists()
+
+
+@pytest.mark.parametrize("fixture", ["undated"], indirect=True)
+def test_date_and_country_revision_moves_undated_archive(fixture, monkeypatch):
+    from oscar import archive_revision_verify
+
+    _, old, original, lookup = fixture
+
+    def corrected_release(*args):
+        return {**lookup(*args), "date": "1985", "country": "DE"}
+
+    monkeypatch.setattr(scanner, "lookup_release_medium", corrected_release)
+    monkeypatch.setattr(archive_revision_verify, "FLAC", FakeFlac)
+
+    for mode, field in [("additions", "DATE"), ("changes", "RELEASECOUNTRY")]:
+        proposals = scanner.scan(mode, str(old))["pending"]
+        proposal = next(item for item in proposals if item["field"] == field)
+        scanner.decide(proposal["fingerprint"], "accept")
+    plan = revision.preview(str(old))
+    current = old.with_name("Desire (1985) [fa89edc1]")
+    assert plan["dest_path"] == str(current)
+    assert old.exists() and not current.exists()
+
+    done = revision.apply(str(old), plan["fingerprint"], "APPLY_VERIFIED_ARCHIVE_REVISION")
+    assert done["status"] == "completed"
+    assert not old.exists()
+    historical = Path(done["original_retained_at"])
+    for name, data in original.items():
+        assert (historical / name).read_bytes() == data
+        actual = FakeFlac(current / name)
+        assert actual.get("DATE") == ["1985"]
+        assert actual.get("RELEASECOUNTRY") == ["DE"]
+
+    entry, = catalog.list_items()["items"]
+    assert (entry["archive_path"], entry["year"], entry["musicbrainz_release_id"]) == (str(current), "1985", RELEASE)
+    assert archive_revision_verify.verify(done["operation_id"])["status"] == "verified"
+    assert catalog.import_published()["imported"] == 0
+
+
+def test_discogs_genre_addition_pins_source_and_updates_collection(fixture, monkeypatch):
+    from oscar import genre_evidence
+
+    _, old, _, _ = fixture
+    source = "https://www.discogs.com/release/4709815"
+    monkeypatch.setattr(genre_evidence, "discogs_fallback", lambda info: (["Electronic"], source))
+    proposals = scanner.scan("additions", str(old))["pending"]
+    genre = next(item for item in proposals if item["field"] == "GENRE")
+    assert genre["source"] == "discogs" and genre["source_url"] == source
+
+    scanner.decide(genre["fingerprint"], "accept")
+    different_source = "https://www.discogs.com/release/11725689"
+    monkeypatch.setattr(genre_evidence, "discogs_fallback", lambda info: (["Electronic"], different_source))
+    with pytest.raises(revision.RevisionError, match="provider data"):
+        revision.preview(str(old))
+
+    monkeypatch.setattr(genre_evidence, "discogs_fallback", lambda info: (["Electronic"], source))
+    plan = revision.preview(str(old))
+    done = revision.apply(str(old), plan["fingerprint"], "APPLY_VERIFIED_ARCHIVE_REVISION")
+    current = Path(done["archive_path"])
+    assert FakeFlac(current / "01 - Song.flac").get("GENRE") == ["Electronic"]
+    assert catalog.list_items()["items"][0]["genres"] == "Electronic"
+    manifest = json.loads((current / "manifest.json").read_text())
+    assert manifest["revision"]["genre_source_url"] == source
+
+
+def test_revision_blocks_loose_evidence_without_moving_live_archive(fixture):
+    _, old, original, _ = fixture
+    plan = _approve(fixture)
+    evidence = old / "Verification" / "FailedAttempts"
+    evidence.mkdir(parents=True)
+    audio = evidence / "failed.flac"
+    audio.write_bytes(b"legacy failed audio")
+    with pytest.raises(revision.RevisionError, match=r"FailedAttempts/failed\.flac"):
+        revision.apply(str(old), plan["fingerprint"], "APPLY_VERIFIED_ARCHIVE_REVISION")
+    assert audio.read_bytes() == b"legacy failed audio"
+    assert {name: (old / name).read_bytes() for name in original} == original
+    assert not revision.operations()["items"]

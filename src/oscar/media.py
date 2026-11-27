@@ -7,11 +7,16 @@ import fcntl
 import os
 import re
 import stat
+import sys
 
 from oscar.settings import discover_settings, inspect_drives
 
 CDROM_DRIVE_STATUS = 0x5326
 CDROM_DISC_STATUS = 0x5327
+CDROMREADTOCHDR = 0x5305
+CDROMREADTOCENTRY = 0x5306
+CDROM_LBA = 1
+CDROM_DATA_TRACK = 4
 CDSL_CURRENT = 0x7FFFFFFF
 
 DRIVE_STATUS = {
@@ -29,6 +34,29 @@ DISC_STATUS = {
     104: "data",
     105: "mixed",
 }
+
+
+def _track_types(fd):
+    """Read TOC track control flags, especially when CD-Extra reports as data."""
+    header = bytearray(2)
+    fcntl.ioctl(fd, CDROMREADTOCHDR, header)
+    first, last = header
+    if not 1 <= first <= last <= 99:
+        raise OSError("Invalid CD TOC header")
+    audio = data = 0
+    for number in range(first, last + 1):
+        # Linux struct cdrom_tocentry: track, ADR/control bitfields, format,
+        # padding, address union (4 bytes), data mode and trailing padding.
+        entry = bytearray(12)
+        entry[0] = number
+        entry[2] = CDROM_LBA
+        fcntl.ioctl(fd, CDROMREADTOCENTRY, entry)
+        control = entry[1] >> 4 if sys.byteorder == "little" else entry[1] & 15
+        if control & CDROM_DATA_TRACK:
+            data += 1
+        else:
+            audio += 1
+    return audio, data
 
 
 def probe_device(device: str) -> dict[str, str | int | None]:
@@ -53,6 +81,16 @@ def probe_device(device: str) -> dict[str, str | int | None]:
                 result["disc_code"] = disc_code
             except OSError:
                 result["disc_type"] = "unknown"
+            if result["disc_type"] in {"audio", "data", "mixed", "unknown"}:
+                try:
+                    audio, data = _track_types(fd)
+                    result["audio_tracks"] = audio
+                    result["data_tracks"] = data
+                    result["disc_type"] = (
+                        "mixed" if audio and data else "audio" if audio else "data")
+                except OSError:
+                    # Non-CD media or a drive without readable TOC.
+                    pass
         return result
     except PermissionError:
         return {"status": "permission_denied", "error": "Read access to optical device denied"}

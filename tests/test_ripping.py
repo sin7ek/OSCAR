@@ -88,6 +88,44 @@ def test_only_new_folder_receives_rip_and_hashes(sandbox):
     assert (folders[0]/"state.json").exists()
 
 
+@pytest.mark.parametrize("lookup_fails", [False, True])
+def test_ctdb_runs_automatically_after_full_rip(sandbox, monkeypatch, lookup_fails):
+    from threading import Event
+    from oscar import ctdb_verification
+
+    monkeypatch.setenv("OSCAR_CTDB_EXECUTABLE", "/opt/ctdb/ctdb-cli")
+    completed = Event()
+    calls = []
+
+    def extract(args, *, cwd, **kwargs):
+        audio = Path(cwd) / "audio"
+        audio.mkdir()
+        (audio / "01 - Test.flac").write_bytes(b"saved staged tracks")
+        (audio / "disc.cue").write_text(
+            'FILE "01 - Test.flac" WAVE\n TRACK 01 AUDIO\n INDEX 01 00:00:00\n')
+        return SimpleNamespace(returncode=0)
+
+    def ctdb(args, **kwargs):
+        calls.append(args)
+        assert STABLE not in ripping._ACTIVE
+        if lookup_fails:
+            raise subprocess.TimeoutExpired(args, 180)
+        return SimpleNamespace(returncode=0, stderr=b"", stdout=(
+            f'<ctdb xmlns="{ctdb_verification._NAMESPACE}"><verify_result xmlns=""'
+            ' status="found" confidence="2" total_entries="3"/></ctdb>').encode())
+
+    monkeypatch.setattr(ctdb_verification.subprocess, "run", ctdb)
+    job = ripping.start(STABLE, runner=extract, on_completed=lambda _: completed.set())
+    assert completed.wait(3)
+    directory = sandbox / ("oscar-" + job["id"])
+    evidence, _ = ctdb_verification.saved_evidence(job["id"], directory)
+    assert evidence["trigger"] == "automatic"
+    assert evidence["status"] == ("lookup_failed" if lookup_fails else "matched")
+    assert ripping.status(job["id"])["status"] == "needs_verification"
+    ctdb_verification.automatic(job["id"], directory)
+    assert len(calls) == 1
+
+
 def test_nonzero_exit_never_claims_verified(sandbox):
     job=ripping.start(STABLE,runner=lambda *a,**k:SimpleNamespace(returncode=2))
     for _ in range(100):
@@ -119,3 +157,115 @@ def test_interrupted_job_is_not_reported_as_success(sandbox):
     directory.mkdir()
     (directory/"state.json").write_text(json.dumps({"id":jobid,"status":"running"}))
     assert ripping.status(jobid)["status"]=="interrupted"
+
+
+def test_tray_control_busy_guard_and_read_only_ioctl(sandbox):
+    calls = []
+    def opener(device, flags):
+        assert device == "/dev/sr2"
+        assert flags & os.O_NONBLOCK
+        return 9
+    def ioctl(fd, op):
+        calls.append((fd, op))
+    def closer(fd):
+        calls.append(("close", fd))
+    assert ripping.control_tray(STABLE, "eject", opener=opener,
+                                closer=closer, ioctl=ioctl)["status"] == "command_sent"
+    assert calls == [(9, 0x5309), ("close", 9)]
+    calls.clear()
+    ripping.control_tray(STABLE, "close", opener=opener,
+                         closer=closer, ioctl=ioctl)
+    assert calls == [(9, 0x5319), ("close", 9)]
+    ripping._ACTIVE.add(STABLE)
+    with pytest.raises(ripping.RipError, match="busy"):
+        ripping.control_tray(STABLE, "eject", opener=opener, ioctl=ioctl)
+    ripping._ACTIVE.clear()
+    with pytest.raises(ripping.RipError, match="Unsupported"):
+        ripping.control_tray(STABLE, "toggle", opener=opener, ioctl=ioctl)
+
+
+def test_selected_track_diagnostic_is_never_a_full_disc_workflow(sandbox, monkeypatch):
+    from oscar import workflow_ledger
+    monkeypatch.setattr(ripping, "read_toc", lambda device: {
+        "musicbrainz_disc_id": DISC,
+        "tracks": [{"number": n} for n in range(1, 18)]})
+    assert ripping.plan(STABLE, selected_tracks=[17, 1, 5])["command"][-2:] == ["-l", "1,5,17"]
+    for wrong in ([7, 7], [18], [0], ["7"], []):
+        with pytest.raises(ripping.RipError, match="Selected tracks"):
+            ripping.plan(STABLE, selected_tracks=wrong)
+    def runner(args, *, cwd, stdout, stderr, timeout, check):
+        assert args[-2:] == ["-l", "7"]
+        output = Path(cwd) / "audio"
+        output.mkdir()
+        (output / "07 - Diagnostic.flac").write_bytes(b"diagnostic")
+        return SimpleNamespace(returncode=0)
+    job = ripping.start(STABLE, runner=runner, selected_tracks=[7])
+    for _ in range(100):
+        state = ripping.status(job["id"])
+        if state["status"] not in ("queued", "running"):
+            break
+        time.sleep(.01)
+    assert state["status"] == "partial_diagnostic"
+    assert state["selected_tracks"] == [7]
+    assert (sandbox / ("oscar-" + job["id"]) / "audio" / "07 - Diagnostic.flac").exists()
+    with pytest.raises(workflow_ledger.WorkflowError, match="diagnostic"):
+        workflow_ledger._observed_phase(job["id"], state)
+
+
+def test_stop_preserves_partial_staging_and_interrupted_job(sandbox, monkeypatch):
+    import threading
+    ready = threading.Event()
+    stopped = threading.Event()
+    class FakeProcess:
+        def __init__(self, args, *, cwd, stdout, stderr):
+            assert args[0] == "cyanrip"
+            output = Path(cwd) / "audio"
+            output.mkdir()
+            (output / "01 - Partial.flac").write_bytes(b"partial audio")
+            ready.set()
+        def poll(self):
+            return None if not stopped.is_set() else -15
+        def terminate(self):
+            stopped.set()
+        def wait(self, timeout):
+            assert stopped.wait(2)
+            return -15
+    monkeypatch.setattr(subprocess, "Popen", FakeProcess)
+    job = ripping.start(STABLE)
+    assert ready.wait(2)
+    assert ripping.stop(job["id"])["status"] == "stop_requested"
+    for _ in range(100):
+        state = ripping.status(job["id"])
+        if state["status"] == "interrupted":
+            break
+        time.sleep(.01)
+    assert state["status"] == "interrupted"
+    assert "partial staging" in state["error"]
+    folder = sandbox / ("oscar-" + job["id"])
+    assert (folder / "audio" / "01 - Partial.flac").read_bytes() == b"partial audio"
+    assert (folder / "cyanrip-console.log").exists()
+    assert (folder / "plan.json").exists()
+    assert (folder / "state.json").exists()
+    with pytest.raises(ripping.RipError, match="active"):
+        ripping.stop(job["id"])
+
+
+def test_ui_control_endpoint_confirmation_and_diagnostic_restrictions(sandbox):
+    client = TestClient(app)
+    headers = {"X-OSCAR-RIP-TOKEN": TOKEN}
+    assert client.post("/api/rip/tray", json={
+        "stable_id": STABLE, "action": "eject", "confirmation": "no"
+    }, headers=headers).status_code == 422
+    assert client.post("/api/rip/jobs/" + "a"*32 + "/stop", json={
+        "confirmation": "no"}, headers=headers).status_code == 422
+    assert client.post("/api/go/start", json={
+        "stable_id": STABLE, "selected_tracks": [7],
+        "confirmation": "RIP_TO_STAGING"}, headers=headers).status_code == 422
+    assert client.post("/api/rip/start", json={
+        "stable_id": STABLE, "selected_tracks": [7],
+        "confirmation": "RIP_TO_STAGING"}, headers=headers).status_code == 422
+    html = client.get("/").text
+    assert "Stop rip…" in html
+    assert "Advanced · rip selected tracks" in html
+    assert "/api/rip/tray" in html
+    assert not list(sandbox.iterdir())

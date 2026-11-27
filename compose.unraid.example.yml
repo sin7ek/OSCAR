@@ -33,6 +33,7 @@ services:
       OSCAR_CONFIG_PATH: /config/settings.json  # persistent settings file
       OSCAR_RIP_ROOT: /staging                   # temporary rip/work files
       OSCAR_ARCHIVE_ROOT: /archive               # permanent verified archive
+      # OSCAR_EXTERNAL_LIBRARY_ROOT: /external-music  # optional Collection CTDB check
 
       # ---- OSCAR features: "1" = on, "0" = off --------------------------
       OSCAR_ENABLE_MEDIA_PROBE: "1"              # detect inserted media
@@ -108,6 +109,7 @@ services:
       - /mnt/user/appdata/oscar:/config:rw
       - /mnt/user/ai-workspace/oscar-staging:/staging:rw
       - /mnt/user/ai-workspace/oscar-archive:/archive:rw
+      # - /mnt/user/music/Archive:/external-music:ro  # optional existing FLAC library
 
       # Linux device discovery information; read-only.
       - /sys/class/block:/sys/class/block:ro
