@@ -129,6 +129,8 @@ def saved(relative):
 
 
 def saved_albums():
+    if not os.getenv("OSCAR_EXTERNAL_LIBRARY_ROOT", "").strip():
+        return []
     root = _library_root()
     if not collection_catalog.database_path().is_file():
         return []
