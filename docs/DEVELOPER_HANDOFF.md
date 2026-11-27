@@ -25,6 +25,8 @@ Collection can propose an explicitly approved `GENRE=Classical` write from a ver
 
 **Drive offset lookup:** Settings lists AccurateRip offset candidates with estimated confirmations, submissions and agreement. Conflicts require an operator selection. Check the GH24NS95 candidates and settings save on Tower. [Drive offset setup](DRIVE_OFFSET.md)
 
+**Playable evidence:** New archive and revision candidates reject loose playable evidence before promotion. The read-only archive audit reports loose audio under reserved evidence folders. Check a clean publication and a disposable failed-attempt fixture on Tower.
+
 ## Next on Tower
 
 | Priority | Test | Existing evidence |

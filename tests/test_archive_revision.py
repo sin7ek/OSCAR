@@ -665,3 +665,17 @@ def test_discogs_genre_addition_pins_source_and_updates_collection(fixture, monk
     assert catalog.list_items()["items"][0]["genres"] == "Electronic"
     manifest = json.loads((current / "manifest.json").read_text())
     assert manifest["revision"]["genre_source_url"] == source
+
+
+def test_revision_blocks_loose_evidence_without_moving_live_archive(fixture):
+    _, old, original, _ = fixture
+    plan = _approve(fixture)
+    evidence = old / "Verification" / "FailedAttempts"
+    evidence.mkdir(parents=True)
+    audio = evidence / "failed.flac"
+    audio.write_bytes(b"legacy failed audio")
+    with pytest.raises(revision.RevisionError, match=r"FailedAttempts/failed\.flac"):
+        revision.apply(str(old), plan["fingerprint"], "APPLY_VERIFIED_ARCHIVE_REVISION")
+    assert audio.read_bytes() == b"legacy failed audio"
+    assert {name: (old / name).read_bytes() for name in original} == original
+    assert not revision.operations()["items"]

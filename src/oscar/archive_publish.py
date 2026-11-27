@@ -24,6 +24,7 @@ import uuid
 from mutagen.flac import FLAC, Picture
 
 from oscar import archive_review, cd_extra, cover_art, ctdb_verification, edition_provenance, verification
+from oscar.archive_audit import _PLAYABLE_AUDIO_SUFFIXES
 from oscar.archive_naming import safe_component
 from oscar.metadata_staging import _COPY_ID, _streaminfo_md5_hex
 from oscar.pressing_evidence import observed_matrix
@@ -333,6 +334,7 @@ def _publish_data_supplement(destination, root, plan, data, publish_id):
             output.flush()
             os.fsync(output.fileno())
     digest = _hash(temp / cd_extra.SUPPLEMENT_FILENAME)
+    _assert_playable_inventory(temp / "CD-Extra", [])
     _rename_noreplace(temp / "CD-Extra", destination / "CD-Extra")
     try:
         temp.rmdir()
@@ -594,11 +596,18 @@ def _assert_playable_inventory(directory, published):
     """Do not expose undeclared audio or failed extraction evidence to players."""
     expected = {entry["filename"] for entry in published}
     actual = set()
-    for path in directory.rglob("*"):
-        if path.is_symlink():
-            raise PublishError("Symlink in publication")
-        if path.is_file() and path.suffix.lower() in {".flac", ".wav", ".mp3", ".m4a", ".ogg", ".opus", ".aiff", ".aif", ".ape", ".wv", ".aac", ".alac", ".wma"}:
-            actual.add(path.relative_to(directory).as_posix())
+    def unreadable(error):
+        raise PublishError(f"Unable to inspect publication inventory: {error}") from error
+
+    for base, dirs, files in os.walk(directory, onerror=unreadable):
+        for name in dirs + files:
+            path = Path(base) / name
+            if path.is_symlink():
+                raise PublishError("Symlink in publication")
+        for name in files:
+            path = Path(base) / name
+            if path.suffix.lower() in _PLAYABLE_AUDIO_SUFFIXES:
+                actual.add(path.relative_to(directory).as_posix())
     if actual != expected:
         raise PublishError("Unexpected or missing playable audio in publication: "
                            + ", ".join(sorted(actual ^ expected)))

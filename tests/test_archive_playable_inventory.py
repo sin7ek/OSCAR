@@ -1,5 +1,6 @@
 import pytest
 
+from oscar.archive_audit import audit_archive
 from oscar.archive_publish import _assert_playable_inventory, PublishError
 
 
@@ -26,3 +27,18 @@ def test_nested_declared_track_is_allowed(tmp_path):
     (tmp_path / "CD1").mkdir()
     (tmp_path / "CD1" / "track.flac").touch()
     _assert_playable_inventory(tmp_path, [{"filename": "CD1/track.flac"}])
+
+
+def test_audit_reports_playable_evidence_without_counting_album(tmp_path):
+    folder = tmp_path / "Label" / "Album" / "Verification" / "FailedAttempts"
+    folder.mkdir(parents=True)
+    failed = folder / "failed.FLAC"
+    failed.write_bytes(b"evidence")
+    (folder / "old.zip").touch()
+    (folder / ".ndignore").touch()
+    result = audit_archive(tmp_path)
+    assert result["releases_examined"] == 0
+    assert result["active_flacs"] == 0
+    assert result["status"] == "PASS_WITH_WARNINGS"
+    assert result["playable_evidence"] == [failed.relative_to(tmp_path).as_posix()]
+    assert failed.exists()

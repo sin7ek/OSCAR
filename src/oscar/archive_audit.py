@@ -15,6 +15,12 @@ import sys
 
 _CUE_FILE = re.compile(r'^\s*FILE\s+"([^"\r\n]+)"\s+WAVE\s*$', re.I)
 _NUMBER = re.compile(r"^(\d{1,3})\s*[-.]\s*")
+_PLAYABLE_AUDIO_SUFFIXES = {
+    ".aac", ".aif", ".aiff", ".alac", ".ape", ".dff", ".dsf", ".flac", ".m4a",
+    ".m4b", ".mka", ".mp3", ".mp4", ".oga", ".ogg", ".opus", ".wav", ".wma", ".wv",
+}
+_EVIDENCE_FOLDERS = {"ExtractionEvidence", "FailedAttempts", "Verification"}
+
 
 
 def _sha256(path: Path) -> str:
@@ -199,27 +205,22 @@ def audit_archive(root: Path) -> dict:
     if not root.is_dir() or root.is_symlink():
         raise ValueError("Archive root must be a real directory")
     albums = []
-    for folder in root.rglob("*"):
-        if not folder.is_dir() or folder.is_symlink():
-            continue
-        relative = folder.relative_to(root)
-        if any(part.startswith(".oscar-unpublished-") or part in
-               {"ExtractionEvidence", "FailedAttempts", "Verification", "Original", ".oscar-archive-versions",
-                "old-publications"} for part in relative.parts):
-            continue
-        if any(folder.glob("*.flac")) or (folder / "manifest.json").exists():
-            albums.append(folder)
-    releases = [audit_release(folder) for folder in sorted(albums)]
-    # Evidence folders are excluded from the album count, but a player may
-    # still index their loose audio. Report it separately, never delete it.
     evidence_audio = []
     for path in root.rglob("*"):
-        relative = path.relative_to(root)
-        if not any(part in {"ExtractionEvidence", "FailedAttempts", "Verification", "Original"}
-                   for part in relative.parts[:-1]):
+        if path.is_symlink():
             continue
-        if path.is_file() and path.suffix.lower() in {".flac", ".wav", ".mp3", ".m4a", ".ogg", ".opus", ".aiff", ".aif", ".ape", ".wv", ".aac", ".alac", ".wma"}:
-            evidence_audio.append(str(relative))
+        relative = path.relative_to(root)
+        if any(part.startswith(".oscar-unpublished-") or part in
+               {".oscar-archive-versions", "old-publications"} for part in relative.parts):
+            continue
+        if _EVIDENCE_FOLDERS.intersection(relative.parts[:-1]):
+            if path.is_file() and path.suffix.lower() in _PLAYABLE_AUDIO_SUFFIXES:
+                evidence_audio.append(relative.as_posix())
+            continue
+        if (path.is_dir() and path.name not in _EVIDENCE_FOLDERS
+                and (any(path.glob("*.flac")) or (path / "manifest.json").exists())):
+            albums.append(path)
+    releases = [audit_release(folder) for folder in sorted(albums)]
     evidence_audio.sort()
     return {
         "archive_root": str(root),

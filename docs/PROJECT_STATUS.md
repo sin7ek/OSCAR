@@ -47,6 +47,8 @@ Tower listed seven journal-linked retained generations totaling about 2.14 GiB, 
 
 **Drive offset lookup:** Settings lists AccurateRip offset candidates with estimated confirmations, submissions and agreement. Conflicts require an operator selection. Check the GH24NS95 candidates and settings save on Tower. [Drive offset setup](DRIVE_OFFSET.md)
 
+**Playable evidence:** The publication guard covers original publications, metadata revisions, and CD-Extra data additions. The archive audit reports loose evidence audio separately without changing existing archives.
+
 ### Feature and Tower evidence
 
 **CD-Extra archive completion:** A reviewed second rip can add verified data to a matching existing audio archive. The data folder has separate publication evidence. The operator reported artwork working on Tower; the data supplement still needs a Tower test.
