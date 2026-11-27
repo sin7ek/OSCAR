@@ -148,12 +148,12 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 <button type="button" id="external-verify-browse">Browse music library</button>
 <button type="button" id="external-verify-latest">Show latest check</button>
 <div id="external-verify-picker" hidden>
+<p>Open one album folder, including its disc subfolders if it has multiple discs.</p>
 <p id="external-verify-folder" aria-live="polite"></p>
 <button type="button" id="external-verify-parent">Parent folder</button>
-<label for="external-verify-child">Subfolder</label>
+<label for="external-verify-child">Go to subfolder</label>
 <select id="external-verify-child"></select>
-<button type="button" id="external-verify-open">Open folder</button>
-<button type="button" id="external-verify-start">Verify this album against CTDB</button>
+<button type="button" id="external-verify-start" disabled>Verify this album against CTDB</button>
 </div>
 <div id="external-verify-result" aria-live="polite"></div>
 <h3>Archive metadata maintenance (staging-independent)</h3>
@@ -2853,6 +2853,7 @@ document.getElementById('archive-scan-history').onclick=async()=>{
 const externalVerifier={
  route:'/api/collection/external-verification',
  folder:'',
+ loadingFolder:false,
  headers:null,
  running:false,
  start:document.getElementById('external-verify-start'),
@@ -2866,30 +2867,33 @@ async function externalVerifierRequest(path,options={}){
  return data;
 }
 function updateExternalVerifierButtons(){
- externalVerifier.start.disabled=externalVerifier.running||!externalVerifier.folder;
+ externalVerifier.start.disabled=externalVerifier.running||externalVerifier.loadingFolder||!externalVerifier.folder;
  externalVerifier.latest.disabled=externalVerifier.running;
 }
 async function openExternalFolder(folder){
+ if(externalVerifier.loadingFolder)return;
  const child=document.getElementById('external-verify-child');
  const picker=document.getElementById('external-verify-picker');
  const back=document.getElementById('external-verify-parent');
- const open=document.getElementById('external-verify-open');
+ externalVerifier.loadingFolder=true;
  back.disabled=true;
- open.disabled=true;
- externalVerifier.start.disabled=true;
+ child.disabled=true;
+ updateExternalVerifierButtons();
  try{
   const data=await externalVerifierRequest('/folders?'+new URLSearchParams({folder}));
   externalVerifier.folder=data.folder;
-  document.getElementById('external-verify-folder').textContent=data.folder||'Music library';
+  document.getElementById('external-verify-folder').textContent='Current folder: '+(data.folder||'Music library');
   child.replaceChildren();
-  if(!data.folders.length)child.append(new Option('No subfolders',''));
+  child.append(new Option(data.folders.length?'Choose a subfolder…':'No subfolders',''));
   for(const name of data.folders)child.append(new Option(name,name));
   picker.hidden=false;
  }catch(error){
   externalVerifier.out.textContent='Could not open folder. '+error.message;
  }finally{
+  externalVerifier.loadingFolder=false;
   back.disabled=!externalVerifier.folder;
-  open.disabled=!child.value;
+  child.value='';
+  child.disabled=child.options.length<=1;
   updateExternalVerifierButtons();
  }
 }
@@ -2935,7 +2939,7 @@ function renderExternalVerification(job){
 }
 async function showExternalVerification(start){
  const tool=externalVerifier;
- if(tool.running)return;
+ if(tool.running||(start&&(tool.loadingFolder||!tool.folder)))return;
  tool.headers=tool.headers||requestAuthHeaders('Verify existing FLAC albums');if(!tool.headers)return;
  tool.running=true;updateExternalVerifierButtons();
  try{
@@ -2960,9 +2964,9 @@ document.getElementById('external-verify-browse').onclick=()=>{
  if(externalVerifier.headers)openExternalFolder('');
 };
 document.getElementById('external-verify-parent').onclick=()=>openExternalFolder(externalVerifier.folder.split('/').slice(0,-1).join('/'));
-document.getElementById('external-verify-open').onclick=()=>{
- const child=document.getElementById('external-verify-child').value;
- if(child)openExternalFolder([externalVerifier.folder,child].filter(Boolean).join('/'));
+document.getElementById('external-verify-child').onchange=event=>{
+ const child=event.target.value;
+ if(child)return openExternalFolder([externalVerifier.folder,child].filter(Boolean).join('/'));
 };
 externalVerifier.start.onclick=()=>showExternalVerification(true);
 externalVerifier.latest.onclick=()=>showExternalVerification(false);
