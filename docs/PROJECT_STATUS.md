@@ -6,7 +6,7 @@ See the [dashboard](PROGRESS.md) for area-by-area maturity and the [developer ha
 
 ### External FLAC verification
 
-[#184](https://github.com/sin7ek/OSCAR/pull/184) adds the experimental read-only CLI. It validates numbered FLACs, checks the hashes again after decoding and CTDB lookup, and reports CTDB against the inferred split-track TOC. The focused tests use real generated FLACs and controlled CTDB responses. Tower acceptance requires a known CTDB-matched external rip using the [read-only command](EXTERNAL_VERIFICATION.md#run-on-unraid).
+[#184](https://github.com/sin7ek/OSCAR/pull/184) adds the experimental read-only CLI. It validates numbered FLACs, checks the hashes again after decoding and CTDB lookup, and reports CTDB against the inferred split-track TOC. The focused tests use real generated FLACs and controlled CTDB responses. **Tower acceptance (2026-11-27):** The operator ran the [read-only command](EXTERNAL_VERIFICATION.md#run-on-unraid) on *Ruffneck Collection Part IV* (Ruffneck Records, `RUF 022-2`, 1995). All 16 FLACs passed decoding, and their inventory and SHA-256 values matched before and after verification. CTDB matched 5/7 with TOC ID `XanNHeWWFp.yVCi9eLfJembdUKI-`. The report returned `database_matched_candidate_layout`. This confirms the inferred single-disc path on Tower. The CLI did not evaluate AccurateRip, original CUE or physical pressing identity. Multidisc and other layouts still need Tower coverage.
 
 ### Deployment and cleanup evidence
 
