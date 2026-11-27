@@ -1,7 +1,11 @@
+![OSCAR — Preserve every note.](src/oscar/assets/OSCAR-header.png)
+
 # OSCAR
 **Open Source CD Archiving & Ripping**
 
 *Preserve every note.*
+
+**Rip once. Archive forever. Export whenever.**
 
 Automated, archival-grade CD ripping with AccurateRip/CTDB verification, MusicBrainz metadata, FLAC, CUE sheets, and classical music support.
 

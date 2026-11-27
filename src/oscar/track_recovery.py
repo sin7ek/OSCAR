@@ -124,7 +124,7 @@ def _preflight(original_id: str, diagnostic_id: str, selected: list[int]):
     prior = verification.report(original_id)
     reports = prior.get("tracks") or []
     by_number = {t.get("number"): t for t in reports if isinstance(t, dict)}
-    if (len(reports) != count or len(by_number) != count or
+    if (len(reports) != count or set(by_number) != set(range(1, count + 1)) or
             prior.get("ripping_errors") != 0 or
             any(not by_number[n].get("checks_passed") for n in range(1, count + 1) if n not in selected)):
         raise RecoveryError("Unreplaced tracks lack complete saved positive verification evidence")
@@ -142,7 +142,8 @@ def _preflight(original_id: str, diagnostic_id: str, selected: list[int]):
             raise RecoveryError("Replacement track lacks a full AccurateRip match")
     return {
         "original_dir": original_dir, "diagnostic_dir": diagnostic_dir,
-        "original_plan": old_plan, "original": original, "diagnostic": diagnostic,
+        "original_plan": old_plan, "diagnostic_plan": new_plan,
+        "original": original, "diagnostic": diagnostic, "original_verification": by_number,
         "selected": selected, "count": count, "cue_text": cue,
         "cue_name": cues[0].name, "evidence": evidence,
     }
@@ -190,6 +191,22 @@ def _parse_trackverify(text: str, count: int):
     return results
 
 
+def _rip_attempt(job_id, plan, source_file, report):
+    _, relative, source_hash = source_file
+    return {
+        "source_type": "physical_cd_rip",
+        "job_id": job_id,
+        "file": relative,
+        "sha256": source_hash,
+        "drive_id": plan.get("stable_id"),
+        "read_offset_samples": plan.get("offset_samples"),
+        "verification_source": report.get("evidence_source") or "cyanrip",
+        "eac_crc32": report.get("eac_crc32"),
+        "accuraterip": report.get("accuraterip") or {},
+        "checks_passed": report.get("checks_passed"),
+    }
+
+
 def _run(job_id: str, original_id: str, diagnostic_id: str, selected: list[int], *, runner=subprocess.run):
     directory = ripping.staging_root() / ("oscar-" + job_id)
     try:
@@ -219,11 +236,21 @@ def _run(job_id: str, original_id: str, diagnostic_id: str, selected: list[int],
                 raise RecoveryError("FLAC decode failed on copied track " + str(n))
             paths.append(str(target))
             hashes[target_relative] = copied_hash
-            provenance.append({
+            track_source = {
                 "track": n, "source_job_id": diagnostic_id if recover else original_id,
                 "source_path": relative, "source_sha256": source_hash,
                 "recovered_sha256": copied_hash,
-            })
+                "selected_attempt": (
+                    _rip_attempt(diagnostic_id, info["diagnostic_plan"], info["diagnostic"][n], info["evidence"][n])
+                    if recover else
+                    _rip_attempt(original_id, info["original_plan"], info["original"][n],
+                                 info["original_verification"][n])
+                ),
+            }
+            if recover:
+                track_source["excluded_attempt"] = _rip_attempt(
+                    original_id, info["original_plan"], info["original"][n], info["original_verification"][n])
+            provenance.append(track_source)
         cue_file = audio / info["cue_name"]
         cue_file.write_text(info["cue_text"], encoding="utf-8")
         if verification._cue_refs(cue_file.read_text(encoding="utf-8")) != [

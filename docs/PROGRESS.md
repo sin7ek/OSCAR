@@ -1,6 +1,6 @@
 # OSCAR — Development progress dashboard
 
-Reviewed 2026-11-25 through [#172](https://github.com/sin7ek/OSCAR/pull/172). See the [work document](PROJECT_STATUS.md) for evidence and decisions and the [developer handoff](DEVELOPER_HANDOFF.md) for the next development session.
+Updated 2026-11-27 for [#184](https://github.com/sin7ek/OSCAR/pull/184). See the [work document](PROJECT_STATUS.md) for evidence and decisions and the [developer handoff](DEVELOPER_HANDOFF.md) for the next development session.
 
 ## Progress by area
 
@@ -13,7 +13,7 @@ Percentages are editorial maturity estimates. The evidence column distinguishes 
 | MusicBrainz & release selection | **85%** | `████████▌░` | Équinoxe identifier and Discogs comparison observed. Missing Disc ID guidance for multidisc releases shipped. Validate the complete review-to-tagging flow. |
 | Classical metadata | **80%** | `████████░░` | Boulez LABEL verified. Both boxsets have completed country revisions and DE on all 153 FLACs. Collection shows Classical from the publishing profile. Embedded GENRE and full country revision integrity Verify remain open. |
 | Archive publishing | **90%** | `█████████░` | Reviewed publications and revisions observed. Operator reports artwork working. Validate embedded artwork and the CD-Extra data supplement separately. |
-| Independent AccurateRip / CTDB | **65%** | `██████▌░░░` | Mahler recovery matched 17/17 independently. Machines in Motion matched CTDB 5/5 on Tower. Get the Hits 2 matched automatic CTDB 45/46 and carried the evidence into publication. Wider layout coverage remains open. |
+| Independent AccurateRip / CTDB | **65%** | `██████▌░░░` | Mahler recovery matched 17/17 independently. Machines in Motion matched CTDB 5/5 on Tower. Get the Hits 2 matched automatic CTDB 45/46 and carried the evidence into publication. Wider layout coverage and a Tower test of the experimental [external FLAC verifier](EXTERNAL_VERIFICATION.md) remain open. |
 | Automatic end-to-end workflow | **60%** | `██████░░░░` | Automatic CTDB ran during a Tower workflow and reached the published SOURCES.txt. Go! still retains configured review gates. |
 | Recovery, resume & cleanup | **50%** | `█████░░░░░` | Tower showed inline verification and protection for both Anastacia revisions. Verified deletion, manual deletion and controlled interruption need separate acceptance. |
 | Local & multi-platform collection management | **35%** | `███▌░░░░░░` | Tower shows both Équinoxe pressings separately, including the undated edition. Folder navigation and MusicBrainz OAuth remain open. |
@@ -39,6 +39,10 @@ xychart-beta
 - Per-drive opt-in for automatic start on disc insertion uses the existing Go! and RipReview workflow. Tower still needs insertion, deduplication and slot-limit tests. [Automation roadmap](AUTOMATION_ROADMAP.md#automatic-start-on-insertion)
 
 - Settings lists AccurateRip offset candidates with estimated confirmations, submissions and agreement. Conflicts require an operator selection. Check the GH24NS95 candidates and settings save on Tower. [Drive offset setup](DRIVE_OFFSET.md)
+
+- New archive publications and revisions check playable files against their declared track inventory. Tower acceptance remains open.
+
+- New Track Recovery jobs show the selected and excluded extraction attempts in Proposed SOURCES.txt and the archive. Older recovery jobs retain their saved history. Tower should exercise a fresh recovery and compare the preview with the published report.
 
 ## How to update this living dashboard
 

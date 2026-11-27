@@ -244,6 +244,10 @@ def _copy_and_retag(plan, temp, source, *, flac_factory=None, runner=None):
     _verify_preserved_evidence(temp, original_manifest)
     changes = plan["accepted_changes"]
     files = original_manifest["files"]
+    try:
+        archive_publish._assert_playable_inventory(temp, files)
+    except archive_publish.PublishError as exc:
+        raise RevisionError(str(exc)) from exc
     release_fields = {x["field"]: x["after"] for x in changes if x["scope"] == "release"}
     for entry in files:
         number = entry["track"]

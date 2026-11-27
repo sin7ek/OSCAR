@@ -166,6 +166,12 @@ def _advance(entries):
             raise BoxsetApplyError("Unsafe retained-history publication directory")
         if source.is_symlink() or backup.is_symlink() or temp.is_symlink():
             raise BoxsetApplyError("Unsafe symbolic link in group publication")
+        if temp.is_dir():
+            candidate = _validate_leaf(temp, entry, new=True)
+            try:
+                archive_publish._assert_playable_inventory(temp, candidate["files"])
+            except archive_publish.PublishError as exc:
+                raise BoxsetApplyError(str(exc)) from exc
         if backup.exists():
             _validate_leaf(backup, entry, new=False)
         if source.exists():
@@ -181,7 +187,6 @@ def _advance(entries):
             _validate_leaf(source, entry, new=False)
             if not temp.is_dir():
                 raise BoxsetApplyError("Expected verified candidate is missing during recovery")
-            _validate_leaf(temp, entry, new=True)
             backup.parent.mkdir(parents=True, exist_ok=True)
             if backup.exists() or backup.is_symlink():
                 raise BoxsetApplyError("Original history destination collision")
@@ -191,7 +196,6 @@ def _advance(entries):
                 raise BoxsetApplyError("Disc missing without a retained original")
         if not temp.is_dir():
             raise BoxsetApplyError("Expected verified candidate is missing during recovery")
-        _validate_leaf(temp, entry, new=True)
         archive_publish._rename_noreplace(temp, source)
         _validate_leaf(source, entry, new=True)
 

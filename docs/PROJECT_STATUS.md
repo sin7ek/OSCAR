@@ -1,8 +1,12 @@
 # OSCAR — project work document
 
-## Current status — 2026-11-25
+## Current status — 2026-11-27
 
 See the [dashboard](PROGRESS.md) for area-by-area maturity and the [developer handoff](DEVELOPER_HANDOFF.md) for starting the next session.
+
+### External FLAC verification
+
+[#184](https://github.com/sin7ek/OSCAR/pull/184) adds the experimental read-only CLI. It validates numbered FLACs, checks the hashes again after decoding and CTDB lookup, and reports CTDB against the inferred split-track TOC. The focused tests use real generated FLACs and controlled CTDB responses. Tower acceptance requires a known CTDB-matched external rip using the [read-only command](EXTERNAL_VERIFICATION.md#run-on-unraid).
 
 ### Deployment and cleanup evidence
 
@@ -28,6 +32,8 @@ Tower listed seven journal-linked retained generations totaling about 2.14 GiB, 
 | Classical Collection classification | Both sets show `Classical` in the Genre and Library columns and all 17 discs are `published_verified`. The classical archive publishing profile supplies both display values when the FLACs lack a genre. | Neither boxset had a GENRE revision in the reported multidisc journal. |
 | Jean Michel Jarre — *Équinoxe* | Collection shows separate eight-track `published_verified` rows for `487376 2` (1997) and `800 025-2` (undated). Both show Electronic. | Individual folder navigation, genre-source provenance and the date/country folder migration remain separate. |
 
+Tower ran the #185 inventory smoke test in the deployed container. A matching track inventory passed and a loose failed FLAC was blocked despite `.ndignore`. End-to-end publication and library readback remain open.
+
 ### Next acceptance checks
 
 | Area | Tower test |
@@ -46,6 +52,8 @@ Tower listed seven journal-linked retained generations totaling about 2.14 GiB, 
 **Automatic start on insertion:** Saved per drive and guarded by existing rip authorization. The monitor observes an empty drive before arming, then waits for stable audio and a free slot. The rip is registered through Go! before extraction. Tower hardware acceptance remains open.
 
 **Drive offset lookup:** Settings lists AccurateRip offset candidates with estimated confirmations, submissions and agreement. Conflicts require an operator selection. Check the GH24NS95 candidates and settings save on Tower. [Drive offset setup](DRIVE_OFFSET.md)
+
+**Playable evidence:** The publication guard covers original publications, metadata revisions, and CD-Extra data additions. The archive audit reports loose evidence audio separately without changing existing archives.
 
 ### Feature and Tower evidence
 
@@ -103,7 +111,7 @@ On Tower, the manual Metadata & tagging preview for *Jagged Little Pill* showed 
 | Change | GitHub and image | Tower evidence |
 | --- | --- | --- |
 | [#140 DriveFit](https://github.com/sin7ek/OSCAR/pull/140) | Merged, both checks green, GHCR revision confirmed. Replaces draft #111 as the shipped implementation. | Check samples, normalized GH42 speed and LG diagnostic Track 07. Historical metrics depend on surviving staging; new summaries persist in SQLite. |
-| [#139 Both Track Recovery attempts in provenance](https://github.com/sin7ek/OSCAR/pull/139) | Open at `023e06b`; [Tests](https://github.com/sin7ek/OSCAR/actions/runs/45070962329) and [Docker build](https://github.com/sin7ek/OSCAR/actions/runs/45070962389) passed. Outside the #140 image. | Pending. New jobs capture both attempted sources and their available extraction evidence; older jobs can identify unavailable history. Digital acquisition remains a future input. |
+| [#139 Both Track Recovery attempts in provenance](https://github.com/sin7ek/OSCAR/pull/139) | The recovery source map records the selected and excluded extraction attempts for new recovery jobs. Go! and the publisher display the same attempt evidence. | Tower acceptance remains open. Use a new recovery for both attempts, or an older job to check the explicit missing-history marker. |
 | [#138 Per-track archival SOURCES](https://github.com/sin7ek/OSCAR/pull/138) | Merged as `255c4f1`; [Tests](https://github.com/sin7ek/OSCAR/actions/runs/45067284484) and [Docker build](https://github.com/sin7ek/OSCAR/actions/runs/45067284462) passed; included in #140. | Read-only **Proposed SOURCES.txt** and subsequent publication remain open. Track 07 should name the LG diagnostic job, other tracks the Optiarc job, with verification attributed separately to `trackverify`. |
 | [#134](https://github.com/sin7ek/OSCAR/pull/134) / [#136](https://github.com/sin7ek/OSCAR/pull/136) Track Recovery | Merged and shipped. #136 fixes the bundled verifier's runtime extraction failure. | Mahler Disc 11 reached Archive Review after 17/17 independent AccurateRip v1/v2 matches. Physical edition approval and publication are open for Disc 11. |
 | [#132 Optical controls](https://github.com/sin7ek/OSCAR/pull/132), [#131 Tracked Go jobs](https://github.com/sin7ek/OSCAR/pull/131), [#130 USB drive IDs](https://github.com/sin7ek/OSCAR/pull/130), [#127 ETA](https://github.com/sin7ek/OSCAR/pull/127), [#126 Refreshed-copy adoption](https://github.com/sin7ek/OSCAR/pull/126) | Merged and included in #140; PR checks passed. | LG selected-track extraction worked. Tray/Stop, full four-drive UI regression check, tracked job filtering, ETA and refreshed-copy adoption still need distinct acceptance results. |
@@ -543,7 +551,7 @@ When a complete rip ends in `verification.review_required` because some tracks c
 
 ### RipRepair provenance and experimental opt-in — inspired by The Ruffneck Anthology
 
-**Scope:** [#138](https://github.com/sin7ek/OSCAR/pull/138) ships provenance for new regular and locally recovered publications; open [#139](https://github.com/sin7ek/OSCAR/pull/139) adds both attempted sources on new recoveries. External digital acquisition remains a design. Treat audio verification and source provenance as **two independent dimensions** throughout the UI, review decisions, archival manifests and Collection. A collection can have every track positively verified, while still being an explicitly **HYBRID / REPAIRED CD RIP** rather than a pristine all-original physical CD extraction. Never silently rewrite this distinction after AR or CTDB verification.
+**Scope:** [#138](https://github.com/sin7ek/OSCAR/pull/138) ships provenance for new regular and locally recovered publications; [#139](https://github.com/sin7ek/OSCAR/pull/139) adds both attempted sources on new recoveries. External digital acquisition remains a design. Treat audio verification and source provenance as **two independent dimensions** throughout the UI, review decisions, archival manifests and Collection. A collection can have every track positively verified, while still being an explicitly **HYBRID / REPAIRED CD RIP** rather than a pristine all-original physical CD extraction. Never silently rewrite this distinction after AR or CTDB verification.
 
 **Reference case — The Ruffneck Anthology, part VI:** a physically damaged original CD rip contained a problematic track 16. An externally obtained Soulseek track was used as the verified replacement, the original failed FLAC retained under `Verification/FailedAttempts/`, CUETools validation log retained, and `SOURCES.txt` updated with original and replacement SHA-256 hashes and precise track provenance. The final assembled result reportedly passed AccurateRip **17/17** and CTDB **17/17**, yet remained a **hybrid/repaired CD rip**. The other 16 tracks were left untouched. It is crucial not to represent the replacement as audio actually extracted from the owner's original physical disc. This provenance case is an operator-provided prior workflow; it does not confer physical-edition proof on unrelated downloads.
 

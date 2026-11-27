@@ -638,3 +638,17 @@ def test_non_audio_evidence_must_remain_byte_identical(tmp_path):
     (new / "SOURCES.txt").write_text("Changed provenance\\n")
     with pytest.raises(engine.BoxsetApplyError, match="Non-audio archive evidence"):
         engine._verify_non_audio_pair(entry)
+
+
+def test_group_blocks_loose_audio_before_promoting_disc(prepared, monkeypatch):
+    from oscar import archive_revision_boxset_apply as engine
+
+    paths, _, lookup = prepared
+    _approved_group(prepared, monkeypatch)
+    failed = paths[4] / "failed.m4a"
+    failed.write_bytes(b"unexpected playable file")
+    plan = boxset.preview(RELEASE, lookup=lookup)
+    with pytest.raises(engine.BoxsetApplyError, match=r"failed\.m4a"):
+        engine.apply(RELEASE, plan["fingerprint"], "APPLY_COORDINATED_BOXSET_REVISION", lookup=lookup)
+    assert failed.exists()
+    assert all(path.exists() for path in paths.values())
