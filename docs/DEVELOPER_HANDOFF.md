@@ -29,7 +29,7 @@ Collection can propose an explicitly approved `GENRE=Classical` write from a ver
 
 **Track Recovery evidence:** New Track Recovery jobs show the selected and excluded extraction attempts in Proposed SOURCES.txt and the archive. Older recovery jobs retain their saved history. Tower should exercise a fresh recovery and compare the preview with the published report.
 
-**External FLAC verification:** Collection provides a read-only folder browser and background CTDB check for existing split-track FLACs under an optional music mount. The CLI remains available. Tower accepted the single-disc path on Ruffneck Collection Part IV (16/16 FLACs and CTDB 5/7). Tower also accepted the web verification on Ruffneck Collection Part VII (19/19 FLACs and CTDB 6/6). The updated folder picker and multidisc still need Tower acceptance. Original CUE support and additional layouts remain open. See [External verification](EXTERNAL_VERIFICATION.md).
+**External FLAC verification:** Collection provides a read-only folder browser and background CTDB check for existing split-track FLACs under an optional music mount. The CLI remains available. Collection can save a report with FLAC hashes against the existing external folder and compare hashes on a fresh check. External metadata review remains open. Tower accepted the single-disc path on Ruffneck Collection Part IV (16/16 FLACs and CTDB 5/7). Tower also accepted the web verification on Ruffneck Collection Part VII (19/19 FLACs and CTDB 6/6). The updated folder picker and multidisc still need Tower acceptance. Original CUE support and additional layouts remain open. See [External verification](EXTERNAL_VERIFICATION.md).
 
 ## Next on Tower
 
