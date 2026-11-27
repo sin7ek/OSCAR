@@ -147,6 +147,8 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 <p>Check a folder in your external music library. OSCAR tests the FLACs and queries CTDB using a CD layout inferred from track lengths.</p>
 <button type="button" id="external-verify-browse">Browse music library</button>
 <button type="button" id="external-verify-latest">Show latest check</button>
+<button type="button" id="external-verify-saved">Saved external rips</button>
+<div id="external-verify-saved-list" aria-live="polite"></div>
 <div id="external-verify-picker" hidden>
 <p>Open one album folder, including its disc subfolders if it has multiple discs.</p>
 <p id="external-verify-folder" aria-live="polite"></p>
@@ -2897,6 +2899,12 @@ async function openExternalFolder(folder){
   updateExternalVerifierButtons();
  }
 }
+const externalResultLabels={
+ database_matched_candidate_layout:'External rip · CTDB matched',
+ integrity_passed:'External rip · FLAC integrity passed',
+ integrity_failed:'External rip · FLAC integrity failed',
+ integrity_unavailable:'External rip · FLAC integrity check unavailable'
+};
 function renderExternalVerification(job){
  const out=externalVerifier.out;
  out.replaceChildren();
@@ -2906,13 +2914,16 @@ function renderExternalVerification(job){
  if(job.status==='running'){line.textContent='Checking '+job.folder+'…';return}
  if(job.status==='failed'){line.textContent=job.folder+' · '+job.error;return}
  const result=job.result;
- const labels={
-  database_matched_candidate_layout:'CTDB matched on all discs',
-  integrity_passed:'FLAC integrity passed',
-  integrity_failed:'FLAC integrity failed',
-  integrity_unavailable:'FLAC integrity check unavailable'
- };
- line.textContent=job.folder+' · '+labels[result.status];
+ line.textContent=job.folder+' · '+externalResultLabels[result.status];
+ if(job.saved){
+  const saved=document.createElement('p');
+  saved.textContent='Saved verification · checked '+new Date(job.checked_at).toLocaleString();
+  out.append(saved);
+ }else if(job.saved_hashes_changed!==undefined){
+  const comparison=document.createElement('p');
+  comparison.textContent=job.saved_hashes_changed?'FLAC files or SHA-256 hashes differ from the saved verification.':'FLAC files and SHA-256 hashes match the saved verification.';
+  out.append(comparison);
+ }
  const ctdbLabels={
   matched:'Matched',not_found:'Layout not found',no_audio_match:'Audio differs',
   unsupported:'Unsupported layout',unavailable:'Unavailable',lookup_failed:'Lookup failed',
@@ -2936,6 +2947,50 @@ function renderExternalVerification(job){
  note.textContent=(result.assumed_single_disc?'Single disc assumed. ':!result.disc_total_declared?'Disc total inferred. ':'')+
   'Source FLAC hashes were checked before and after. CTDB results apply to the inferred CD layout; AccurateRip and the original CUE were not checked.';
  out.append(note);
+ if(job.saved)return;
+ const save=document.createElement('button');
+ const feedback=document.createElement('span');
+ save.type='button';save.textContent='Save verification';
+ feedback.setAttribute('role','status');
+ out.append(save,feedback);
+ save.onclick=async()=>{
+  save.disabled=true;
+  try{
+   const saved=await externalVerifierRequest('/reports',{
+    method:'POST',headers:{'Content-Type':'application/json',...externalVerifier.headers},
+    body:JSON.stringify({job_id:job.id})
+   });
+   if(save.isConnected)renderExternalVerification(saved);
+   await showSavedExternalVerifications();
+  }catch(error){
+   feedback.textContent=' Could not save verification. '+error.message;
+   save.disabled=false;
+  }
+ };
+}
+async function showSavedExternalVerifications(){
+ const tool=externalVerifier;
+ tool.headers=tool.headers||requestAuthHeaders('View saved external rips');if(!tool.headers)return;
+ const list=document.getElementById('external-verify-saved-list');
+ try{
+  const {albums}=await externalVerifierRequest('/reports');
+  list.replaceChildren();
+  if(!albums.length){list.textContent='No external verifications have been saved.';return}
+  const rows=document.createElement('ul');
+  for(const album of albums){
+   const row=document.createElement('li');
+   const button=document.createElement('button');
+   button.type='button';button.textContent=album.folder;
+   button.onclick=async()=>{
+    try{
+     const job=await externalVerifierRequest('/reports?'+new URLSearchParams({folder:album.folder}));
+     renderExternalVerification(job);
+    }catch(error){tool.out.textContent='Could not open the saved verification. '+error.message}
+   };
+   row.append(button,' '+externalResultLabels[album.result]);rows.append(row);
+  }
+  list.append(rows);
+ }catch(error){list.textContent='Could not list saved external rips. '+error.message}
 }
 async function showExternalVerification(start){
  const tool=externalVerifier;
@@ -2970,6 +3025,7 @@ document.getElementById('external-verify-child').onchange=event=>{
 };
 externalVerifier.start.onclick=()=>showExternalVerification(true);
 externalVerifier.latest.onclick=()=>showExternalVerification(false);
+document.getElementById('external-verify-saved').onclick=showSavedExternalVerifications;
 
 async function fetchLocalCollection(){
  const out=document.getElementById('collection-result');
