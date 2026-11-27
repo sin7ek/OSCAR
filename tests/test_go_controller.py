@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
-from oscar import go_controller as go, workflow_ledger as ledger, ripping, verification
+from oscar import go_controller as go, rip_working_title, workflow_ledger as ledger, ripping, verification
 from oscar.settings import OscarSettings
 from oscar.api import app
 
@@ -28,6 +28,8 @@ def rig(tmp_path,monkeypatch):
     monkeypatch.setenv("OSCAR_WORKFLOW_DB",str(config/"workflow.sqlite3"))
     monkeypatch.setenv("OSCAR_ENABLE_RIPPING","1")
     monkeypatch.setenv("OSCAR_RIP_TOKEN",TOKEN)
+    # Working-title tests exercise the background lookup with their own worker.
+    monkeypatch.setattr(rip_working_title, "display", lambda *args, **kwargs: "")
     monkeypatch.setattr(ripping,"selected_drive",lambda stable:("/dev/sr2",667))
     monkeypatch.setattr(ripping,"read_toc",lambda device:{
         "musicbrainz_disc_id":DISC,"toc_string":"1 2 1000 150 300",
