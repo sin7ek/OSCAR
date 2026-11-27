@@ -26,6 +26,8 @@ xychart-beta
     bar [90, 85, 85, 80, 90, 65, 60, 50, 35]
 ```
 
+- Tower confirmed the [Genre Evidence preview](GENRE_EVIDENCE_V1.md#tower-results--2026-11-27) with MusicBrainz Pop, a MusicBrainz release without genres, and a matching Discogs CD that supplied Electronic and Ambient.
+
 ## Current deployment
 
 - [#172](https://github.com/sin7ek/OSCAR/pull/172) adds per-revision feedback in Cleanup. The [PR Tests](https://github.com/sin7ek/OSCAR/actions/runs/45512217464) and [PR Docker build](https://github.com/sin7ek/OSCAR/actions/runs/45512217531) passed before merge. Main CI passed and GHCR was verified against merge `3340b58`. See the [build record](PROJECT_STATUS.md#deployment-and-cleanup-evidence) for the published image.

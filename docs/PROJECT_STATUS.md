@@ -6,7 +6,7 @@ See the [dashboard](PROGRESS.md) for area-by-area maturity and the [developer ha
 
 ### Genre evidence follow-up
 
-[Genre Evidence v1](GENRE_EVIDENCE_V1.md) provides a read-only source comparison. The [genre evidence design](GENRE_EVIDENCE_CONFIDENCE_DESIGN.md) records the remaining work on durable evidence, review decisions and publication provenance. Live provider-preview acceptance on Tower remains open.
+[Genre Evidence v1](GENRE_EVIDENCE_V1.md) provides a read-only source comparison. The [genre evidence design](GENRE_EVIDENCE_CONFIDENCE_DESIGN.md) records the remaining work on durable evidence, review decisions and publication provenance. Tower confirmed the [read-only preview](GENRE_EVIDENCE_V1.md#tower-results--2026-11-27): Anastacia Pop, Desire with no supported genre, and Discogs Electronic/Ambient for Équinoxe. Conflicting-provider coverage remains open.
 
 ### External FLAC verification
 
