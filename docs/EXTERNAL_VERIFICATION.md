@@ -6,7 +6,7 @@ Use this read-only tool to check existing split-track FLACs, for example an EAC 
 
 Set `OSCAR_EXTERNAL_LIBRARY_ROOT: /external-music` in the OSCAR service environment and add the bind mount `/mnt/user/music/Archive:/external-music:ro` to that service's volumes. Substitute the host directory if your external music lives elsewhere. Use a dedicated read-only bind mount even if the same host data is accessible to another service.
 
-In **Collection → Verify an existing FLAC album**, select **Browse music library**, open the album folder and select **Verify this album against CTDB**. This also works when ripping is disabled. The usual OSCAR token or trusted local access is required. The folder browser stays inside the configured mount, lists visible directories and does not follow symlinks.
+In **Collection → Verify an existing FLAC album**, select **Browse music library**, use **Go to subfolder** until **Current folder** shows the album, then select **Verify this album against CTDB**. Selecting a subfolder opens it immediately. This also works when ripping is disabled. The usual OSCAR token or trusted local access is required. The folder browser stays inside the configured mount, lists visible directories and does not follow symlinks.
 
 The check runs in the background and shows FLAC results and CTDB confidence per disc. **Show latest check** retrieves the most recent result until another album is checked or OSCAR restarts. The web UI does not save results or files in the source album.
 
