@@ -1,6 +1,6 @@
 # Genre Evidence & Confidence v1 — read-only provider comparison
 
-**Merged in [#124](https://github.com/sin7ek/OSCAR/pull/124); GitHub Tests and Docker build passed. Tower provider/preview acceptance remains open.** The feature is a read-only source-by-source preview in **Collection → Archive metadata maintenance → Genre evidence — source comparison (read-only)**, using the already selected published album. API `POST /api/collection/genre-evidence/preview` requires the existing OSCAR RIP token and accepts `archive_path`, optional explicit numeric `discogs_release_id`, and one of the existing settings policy names (`secure`, `semi_automatic`, `best_guess`). This endpoint never writes to archive/FLAC/Collection/SOURCES or approves proposals.
+**Merged in [#124](https://github.com/sin7ek/OSCAR/pull/124); GitHub Tests and Docker build passed. Tower exercised the read-only preview with MusicBrainz and Discogs.** The feature is a read-only source-by-source preview in **Collection → Archive metadata maintenance → Genre evidence — source comparison (read-only)**, using the already selected published album. API `POST /api/collection/genre-evidence/preview` requires the existing OSCAR RIP token and accepts `archive_path`, optional explicit numeric `discogs_release_id`, and one of the existing settings policy names (`secure`, `semi_automatic`, `best_guess`). This endpoint never writes to archive/FLAC/Collection/SOURCES or approves proposals.
 
 ## Current source capabilities
 
@@ -19,6 +19,17 @@ The tool groups source claims conservatively, normalizes into the existing versi
 - Existing staged new-rip Genre and reviewed single-/multidisc revisions from PRs #117 and #118 remain unchanged.
 
 ## Acceptance
+
+### Tower results — 2026-11-27
+
+| Fixture | Read-only preview result |
+| --- | --- |
+| Anastacia — *Freak of Nature* | MusicBrainz release genre `pop` normalized to `Pop`, limited confidence (1/1). |
+| Carmen Gomes — *Desire* | MusicBrainz reported `no_genre`. No genre was proposed. |
+| Jean Michel Jarre — *Équinoxe*, catalog `800 025-2` | MusicBrainz reported `no_genre`. Discogs release `4709815` was classified based on matching catalog number and CD format. Its raw claims were Electronic, Experimental, Ambient and Synth-pop. OSCAR proposed Electronic and Ambient, each at limited confidence (1/1). |
+
+The operator confirmed these results in the Tower UI. They cover a positive claim, missing genre data and an applicable Discogs claim. They do not establish physical pressing identity, archive write acceptance or conflicting-provider coverage.
+
 
 On Unraid, first re-import Collection if needed. Use **Carmen Gomes — Desire**, optional exact Discogs release ID only if physically reviewed and the Discogs PAT configured. Confirm no-provider/unknown/mismatched-catalog cases fail safely or show abstentions. Repeat with Anastacia, verifying positive MB genres/votes. Verify the archived `SOURCES.txt` and FLACs remain byte-identical after each preview. The 2010 Bernstein/Mahler 11-CD box is a separate **inferred physical edition** and must not be published purely from a genre report.
 
