@@ -4,7 +4,7 @@ Updated 2026-11-27 for [#184](https://github.com/sin7ek/OSCAR/pull/184). See the
 
 ## Progress by area
 
-OSCAR can use the cached MusicBrainz genre vocabulary in Collection, Genre Evidence and metadata previews. The first Tower check is to confirm that a supported subgenre beyond the built-in vocabulary appears when the provider supplies it.
+OSCAR can use the cached MusicBrainz genre vocabulary in Collection, Genre Evidence and metadata previews. Tower verified 2,227 cached genre names and normalization to `Alternative Pop` and `Thrash Metal`. The live metadata preview for a release with a provider-supplied subgenre remains to be checked.
 
 Percentages are editorial maturity estimates. The evidence column distinguishes shipped code from testing on Tower.
 
