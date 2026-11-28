@@ -10,6 +10,19 @@
 
 The tool groups source claims conservatively, normalizes applicable names using the cached official MusicBrainz vocabulary and built-in spellings, shows missing/unknown/unsupported replies as abstentions, and reports agreement fractions among applicable independent sources. `high` means at least three independent album/release claims with at least 75% agreement, `medium` has at least two majority claims; conflicts/missing evidence remain for review. These thresholds are **experimental and not calibrated probabilities of truth**.
 
+## Optional web evidence preview
+
+Set `OSCAR_ENABLE_WEB_GENRE_EVIDENCE=1` and recreate the OSCAR container. Select an indexed album in **Collection → Archive metadata maintenance → Advanced · scan only one archive album**. Open **Genre evidence — source comparison**, choose **SearXNG + local Ollama** or **Hosted Mistral API**, then select **Search web genres (read-only)**. The search runs on demand and sends public release metadata only.
+
+| Provider | Configuration |
+| --- | --- |
+| SearXNG + local Ollama | `OSCAR_SEARXNG_URL` defaults to `http://searxng:8080` and requires SearXNG's JSON search format. `OSCAR_OLLAMA_URL` defaults to `http://ollama:11434`. `OSCAR_OLLAMA_GENRE_MODEL` defaults to `ministral-3:3b`. |
+| Hosted Mistral API | Set `OSCAR_MISTRAL_API_KEY` or the existing `OSCAR_AI_API_KEY`. `OSCAR_MISTRAL_GENRE_MODEL` defaults to `mistral-small-2603`. The hosted API must return original search excerpts for verifiable evidence. Its generated quotations and standalone links are insufficient. |
+
+Use an authenticated `POST /api/collection/genre-evidence/web-preview` with `{"archive_path":"/archive/artist/album","provider":"local"}`; use `"mistral"` for the hosted route. The endpoint accepts the existing `X-OSCAR-RIP-TOKEN` and uses the same indexed archive checks as the provider preview. Only container configuration determines the service URLs and credentials.
+
+Each claim shows the original genre text, normalized name where known, original excerpt, URL and scope. Explicit wording and model suggestions carry distinct labels. Band and track references can be shown as context. A failed local model may leave independently recognized wording available. Web proposals neither affect provider agreement nor write archive tags, manifest data or `SOURCES.txt`. Tower acceptance of both integrated routes remains pending.
+
 ## Security / provenance
 
 - Validated real published archive manifests and every indexed FLAC before fetching; matched exact local MusicBrainz release ID; no user-provided network URL accepted; fixed HTTPS provider hosts.

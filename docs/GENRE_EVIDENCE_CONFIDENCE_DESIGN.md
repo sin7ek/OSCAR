@@ -56,7 +56,7 @@ Actual OSCAR settings are `identification_mode=best_guess|semi_automatic|secure`
 
 ## Web search and local model Tower pilot
 
-**Status:** Standalone scripts validated the services on Tower. OSCAR's metadata UI, automatic tagging and archive publishing do not yet use these services for genre discovery.
+**Status:** Standalone scripts validated the services on Tower. OSCAR now offers an [on-demand read-only preview](GENRE_EVIDENCE_V1.md#optional-web-evidence-preview) through the metadata UI and API, with integrated Tower acceptance pending. Approval, automatic tagging and archive publishing remain open.
 
 - The OSCAR container queried SearXNG on `http://searxng:8080/search` for JSON results from DuckDuckGo, then sent the excerpts to `http://ollama:11434/api/chat`. The containers share the private Docker network `oscar-ai` with SearXNG reachable by container name. Ollama ran `ministral-3:3b` on Tower's CPU with `OLLAMA_NO_CLOUD=1`.
 - Mistral Conversations with `mistral-small-2603` and the `web_search` tool was tested separately as a possible hosted opt-in provider.

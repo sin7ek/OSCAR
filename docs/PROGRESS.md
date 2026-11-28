@@ -4,7 +4,7 @@ Updated 2026-11-28 after the [deployment and Tower evidence](PROJECT_STATUS.md#g
 
 ## Progress by area
 
-OSCAR can use the cached MusicBrainz genre vocabulary in Collection, Genre Evidence and metadata previews. Tower verified 2,227 cached genre names and normalization to `Alternative Pop` and `Thrash Metal`. The live metadata preview for a release with a provider-supplied subgenre remains to be checked. The [Tower web genre pilot](GENRE_EVIDENCE_CONFIDENCE_DESIGN.md#web-search-and-local-model-tower-pilot) tested the services. OSCAR's opt-in web tagging and provenance remain open.
+OSCAR can use the cached MusicBrainz genre vocabulary in Collection, Genre Evidence and metadata previews. Tower verified 2,227 cached genre names and normalization to `Alternative Pop` and `Thrash Metal`. The live metadata preview for a release with a provider-supplied subgenre remains to be checked. The [Tower web genre pilot](GENRE_EVIDENCE_CONFIDENCE_DESIGN.md#web-search-and-local-model-tower-pilot) tested the services. The opt-in [web preview](GENRE_EVIDENCE_V1.md#optional-web-evidence-preview) is implemented for local and hosted providers. Integrated Tower acceptance, genre tagging and provenance remain open.
 
 Percentages are editorial maturity estimates. The evidence column distinguishes shipped code from testing on Tower.
 
