@@ -1176,6 +1176,35 @@ def preview_archive_genre_evidence(body: GenreEvidencePreviewRequest, request: R
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
+class WebGenreEvidenceRequest(BaseModel):
+    archive_path: str = Field(min_length=5, max_length=2048)
+    provider: str = Field(default="local", pattern=r"^(local|mistral)$")
+
+
+@app.post("/api/collection/genre-evidence/web-preview")
+def preview_web_genre_evidence(body: WebGenreEvidenceRequest, request: Request,
+                               x_oscar_rip_token: str | None = Header(default=None)):
+    """Preview optional web evidence for an indexed release without applying tags."""
+    from oscar.archive_metadata_scan import ScanError
+    from oscar.collection_catalog import CatalogError
+    from oscar.genre_evidence import indexed_archive
+    from oscar import web_genre_evidence
+
+    _rip_auth(x_oscar_rip_token, request, require_ripping=False)
+    if not web_genre_evidence.enabled():
+        raise HTTPException(status_code=403, detail="Web genre evidence is disabled")
+    try:
+        snapshot, identity = indexed_archive(body.archive_path)
+    except (ScanError, CatalogError, OSError, ValueError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    try:
+        report = web_genre_evidence.preview(identity, body.provider)
+    except web_genre_evidence.WebGenreError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    report["musicbrainz_release_id"] = snapshot["release_id"]
+    return report
+
+
 class ArchiveRevisionVerifyRequest(BaseModel):
     operation_id: str = Field(pattern=r"^[a-f0-9]{32}$")
 

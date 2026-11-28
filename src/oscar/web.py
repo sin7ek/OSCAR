@@ -178,6 +178,14 @@ input[type=number]{width:120px}button{background:#bfd5ff;color:#091b35;border:0;
 <select id="genre-evidence-workflow"><option value="semi_automatic">Semi Automatic</option><option value="best_guess">Best Guess</option><option value="secure">Secure</option></select>
 <button type="button" id="genre-evidence-preview">Compare genre sources (read-only)</button>
 <div id="genre-evidence-result" aria-live="polite"></div>
+<label for="web-genre-provider">Optional web genre search</label>
+<select id="web-genre-provider">
+ <option value="local">SearXNG + local Ollama</option>
+ <option value="mistral">Hosted Mistral API</option>
+</select>
+<p>Web search sends the selected album's public metadata to the chosen search provider.</p>
+<button type="button" id="web-genre-preview">Search web genres (read-only)</button>
+<div id="web-genre-result" aria-live="polite"></div>
 </details>
 <button type="button" id="archive-scan-review">Review pending metadata proposals</button>
 <button type="button" id="archive-scan-history">View decision history</button>
@@ -2399,6 +2407,46 @@ async function previewGenreEvidence(){
  }catch(error){output.textContent='Read-only genre comparison could not complete: '+error.message}
 }
 document.getElementById('genre-evidence-preview').onclick=previewGenreEvidence;
+const webGenreButton=document.getElementById('web-genre-preview');
+webGenreButton.onclick=async()=>{
+ const output=document.getElementById('web-genre-result');
+ const path=document.getElementById('archive-scan-album').value;
+ if(!path){output.textContent='Select an indexed published archive album first.';return}
+ const auth=requestAuthHeaders('Search the web for album genre evidence');if(!auth)return;
+ webGenreButton.disabled=true;
+ output.textContent='Searching the web and checking excerpts…';
+ try{
+  const provider=document.getElementById('web-genre-provider').value;
+  const response=await fetch('/api/collection/genre-evidence/web-preview',{
+   method:'POST',headers:{'Content-Type':'application/json',...auth},
+   body:JSON.stringify({archive_path:path,provider})
+  });
+  const report=await response.json();
+  if(!response.ok)throw new Error(report.detail||'Web genre search failed');
+  const summary=document.createElement('p');
+  summary.textContent=report.album.artist+' — '+report.album.title+' · '+
+   report.excerpts_checked+' excerpts checked';
+  output.replaceChildren(summary);
+  if(report.status==='analysis_unavailable'||!report.claims.length){
+   const note=document.createElement('p');
+   note.textContent=report.status==='analysis_unavailable'
+    ? 'Ollama analysis was unavailable. Explicit wording is shown where available.'
+    : 'No genre evidence found in the available excerpts.';
+   output.append(note);
+  }
+  for(const claim of report.claims){
+   const article=document.createElement('article'), heading=document.createElement('strong');
+   heading.textContent=claim.genre+' · '+claim.scope+
+    (claim.scope_basis==='explicit_wording'?' · explicit wording':' · model suggestion');
+   const excerpt=document.createElement('blockquote');
+   excerpt.textContent=claim.evidence;
+   const link=document.createElement('a');link.href=claim.url;
+   link.target='_blank';link.rel='noopener noreferrer';link.textContent=claim.title||'Open source';
+   article.append(heading,excerpt,link);output.append(article);
+  }
+ }catch(error){output.textContent='Web genre search could not complete: '+error.message}
+ finally{webGenreButton.disabled=false}
+};
 async function runArchiveScan(mode){
  const box=document.getElementById('archive-scan-result');
  const path=document.getElementById('archive-scan-album').value;

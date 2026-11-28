@@ -257,21 +257,23 @@ def discogs_fallback(info):
     return list(genre_sets.pop()), f"https://www.discogs.com/release/{source_id}"
 
 
-def report_for_archive(archive_path, *, discogs_release_id=None, mb_opener=None,
-                       discogs_opener=None, workflow="semi_automatic"):
+def indexed_archive(archive_path):
     from oscar import archive_metadata_scan as scanner, collection_catalog as catalog
     snapshot = scanner._archive_snapshot(archive_path)
-    root = catalog.archive_root()
-    relative = str(archive_path).removeprefix(str(root) + "/")
-    # Require that the verified physical archive is already indexed.
     with catalog._connect() as db:
         row = db.execute(
-            "SELECT catalog_number FROM archive_items WHERE archive_path=? "
+            "SELECT artist, title, year, catalog_number FROM archive_items WHERE archive_path=? "
             "AND musicbrainz_release_id=?",
             (snapshot["path"], snapshot["release_id"]),
         ).fetchone()
     if row is None:
         raise GenreEvidenceError("Import the verified archive into Collection before genre review")
+    return snapshot, dict(row)
+
+
+def report_for_archive(archive_path, *, discogs_release_id=None, mb_opener=None,
+                       discogs_opener=None, workflow="semi_automatic"):
+    snapshot, row = indexed_archive(archive_path)
     claims = musicbrainz_claims(snapshot["release_id"], opener=mb_opener)
     if discogs_release_id is not None:
         if discogs.configured():
