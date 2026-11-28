@@ -4,6 +4,8 @@ Updated 2026-11-27 for [#184](https://github.com/sin7ek/OSCAR/pull/184). See the
 
 ## Progress by area
 
+OSCAR can use the cached MusicBrainz genre vocabulary in Collection, Genre Evidence and metadata previews. The first Tower check is to confirm that a supported subgenre beyond the built-in vocabulary appears when the provider supplies it.
+
 Percentages are editorial maturity estimates. The evidence column distinguishes shipped code from testing on Tower.
 
 | Area | Progress | Status bar | Evidence and remaining work |

@@ -6,6 +6,8 @@ See the [dashboard](PROGRESS.md) for area-by-area maturity and the [developer ha
 
 ### Genre evidence follow-up
 
+OSCAR uses the [official MusicBrainz vocabulary](https://musicbrainz.org/genres) for genre normalization. The cached list expands the available MusicBrainz and Discogs proposals. The provider still supplies release-level evidence, and approval follows the existing metadata workflow. On Tower, check that the cache downloads and that an explicit Thrash Metal claim is recognized. The SearXNG and Ollama experiments are separate from this change.
+
 [Genre Evidence v1](GENRE_EVIDENCE_V1.md) provides a read-only source comparison. The [genre evidence design](GENRE_EVIDENCE_CONFIDENCE_DESIGN.md) records the remaining work on durable evidence, review decisions and publication provenance. Tower confirmed the [read-only preview](GENRE_EVIDENCE_V1.md#tower-results--2026-11-27): Anastacia Pop, Desire with no supported genre, and Discogs Electronic/Ambient for Équinoxe. Conflicting-provider coverage remains open.
 
 ### External FLAC verification
