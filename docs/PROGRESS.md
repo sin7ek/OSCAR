@@ -1,10 +1,10 @@
 # OSCAR — Development progress dashboard
 
-Updated 2026-11-27 for [#184](https://github.com/sin7ek/OSCAR/pull/184). See the [work document](PROJECT_STATUS.md) for evidence and decisions and the [developer handoff](DEVELOPER_HANDOFF.md) for the next development session.
+Updated 2026-11-28 after the [deployment and Tower evidence](PROJECT_STATUS.md#genre-evidence-follow-up). See the [work document](PROJECT_STATUS.md) for evidence and decisions and the [developer handoff](DEVELOPER_HANDOFF.md) for the next development session.
 
 ## Progress by area
 
-OSCAR can use the cached MusicBrainz genre vocabulary in Collection, Genre Evidence and metadata previews. Tower verified 2,227 cached genre names and normalization to `Alternative Pop` and `Thrash Metal`. The live metadata preview for a release with a provider-supplied subgenre remains to be checked.
+OSCAR can use the cached MusicBrainz genre vocabulary in Collection, Genre Evidence and metadata previews. Tower verified 2,227 cached genre names and normalization to `Alternative Pop` and `Thrash Metal`. The live metadata preview for a release with a provider-supplied subgenre remains to be checked. The [Tower web genre pilot](GENRE_EVIDENCE_CONFIDENCE_DESIGN.md#web-search-and-local-model-tower-pilot) tested the services. OSCAR's opt-in web tagging and provenance remain open.
 
 Percentages are editorial maturity estimates. The evidence column distinguishes shipped code from testing on Tower.
 
@@ -32,6 +32,7 @@ xychart-beta
 
 ## Current deployment
 
+- [#198](https://github.com/sin7ek/OSCAR/pull/198) shipped the vocabulary cache. Main Tests and Docker publish passed. The Linux/amd64 GHCR image was verified against `5b910a2d`, and Tower confirmed the cache. See the [deployment and Tower evidence](PROJECT_STATUS.md#genre-evidence-follow-up).
 - [#172](https://github.com/sin7ek/OSCAR/pull/172) adds per-revision feedback in Cleanup. The [PR Tests](https://github.com/sin7ek/OSCAR/actions/runs/45512217464) and [PR Docker build](https://github.com/sin7ek/OSCAR/actions/runs/45512217531) passed before merge. Main CI passed and GHCR was verified against merge `3340b58`. See the [build record](PROJECT_STATUS.md#deployment-and-cleanup-evidence) for the published image.
 - Tower confirmed inline read-only success and chain protection on both Anastacia generations. The same acceptance report includes a published automatic CTDB match and two distinct Équinoxe listings. See the [Tower evidence](PROJECT_STATUS.md#tower-acceptance--2026-11-25).
 - The [work document](PROJECT_STATUS.md#next-acceptance-checks) lists the remaining Tower tests. For setup and operation use [Cleanup](CLEANUP.md), [staging verification](STAGING_VERIFICATION.md) and [archive publishing](ARCHIVE_PUBLISHER.md).

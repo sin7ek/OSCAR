@@ -8,7 +8,7 @@
 - Discogs: explicit **operator-supplied** release ID using configured `OSCAR_DISCOGS_PAT`, read-only API release endpoint, match physically printed archive catalog number and CD format before treating genre/style as an applicable source. A barcode match is additional evidence. Never search by ambiguous title alone or pretend physical pressing verification.
 - No automatic Qobuz or web scraping. Qobuz needs authorization/licensing research; reviews or store pages can be evaluated later as operator-supplied, independently sourced citations. Current v1 is **not** five-source consensus and makes no statistical claims.
 
-The tool groups source claims conservatively, normalizes into the existing versioned editorial genre set, shows missing/unknown/unsupported replies as abstentions, and reports agreement fractions among applicable independent sources. `high` means at least three independent album/release claims with at least 75% agreement, `medium` has at least two majority claims; conflicts/missing evidence remain for review. These thresholds are **experimental and not calibrated probabilities of truth**.
+The tool groups source claims conservatively, normalizes applicable names using the cached official MusicBrainz vocabulary and built-in spellings, shows missing/unknown/unsupported replies as abstentions, and reports agreement fractions among applicable independent sources. `high` means at least three independent album/release claims with at least 75% agreement, `medium` has at least two majority claims; conflicts/missing evidence remain for review. These thresholds are **experimental and not calibrated probabilities of truth**.
 
 ## Security / provenance
 
@@ -30,6 +30,10 @@ The tool groups source claims conservatively, normalizes into the existing versi
 
 The operator confirmed these results in the Tower UI. They cover a positive claim, missing genre data and an applicable Discogs claim. They do not establish physical pressing identity, archive write acceptance or conflicting-provider coverage.
 
+
+### Vocabulary check on Tower — 2026-11-28
+
+Tower verified 2,227 cached genre names and normalized `Alt-Pop` to `Alternative Pop` and `Thrash Metal` to `Thrash Metal`. The Équinoxe result above predates this change. Rerun the UI preview to see the expanded vocabulary applied to live provider evidence. See the [deployment and Tower evidence](PROJECT_STATUS.md#genre-evidence-follow-up).
 
 On Unraid, first re-import Collection if needed. Use **Carmen Gomes — Desire**, optional exact Discogs release ID only if physically reviewed and the Discogs PAT configured. Confirm no-provider/unknown/mismatched-catalog cases fail safely or show abstentions. Repeat with Anastacia, verifying positive MB genres/votes. Verify the archived `SOURCES.txt` and FLACs remain byte-identical after each preview. The 2010 Bernstein/Mahler 11-CD box is a separate **inferred physical edition** and must not be published purely from a genre report.
 
