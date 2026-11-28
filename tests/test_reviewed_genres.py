@@ -26,6 +26,38 @@ def test_curated_genre_sources_and_freeform_are_ignored():
     assert archive_genres.normalize_genres(["Electronic", "Hardcore"]) == ["Electronic", "Hardcore"]
 
 
+def test_local_musicbrainz_vocabulary_expands_normalization_and_survives_failed_refresh(tmp_path, monkeypatch):
+    import os
+
+    import pytest
+
+    from oscar import genre_vocabulary
+
+    monkeypatch.setenv("OSCAR_CONFIG_PATH", str(tmp_path / "settings.json"))
+    assert archive_genres.normalize_genres(["Thrash Metal", "Jazz"]) == ["Jazz"]
+
+    requests = []
+    def fetch(request):
+        requests.append(request.full_url)
+        return "alternative pop\nclassical\ngabber\njazz\nrock\nthrash metal\n"
+
+    monkeypatch.setattr(genre_vocabulary.mb_client, "fetch_text", fetch)
+    genre_vocabulary._refresh()
+    genre_vocabulary._refresh()
+    assert requests == ["https://musicbrainz.org/ws/2/genre/all?fmt=txt"]
+
+    assert archive_genres.normalize_genres(
+        ["Thrash", "thrash metal", "Alt-Pop", "Gabber", "free-form mood"]
+    ) == ["Gabber", "Alternative Pop", "Thrash Metal"]
+
+    path = tmp_path / "musicbrainz-genre-vocabulary.txt"
+    os.utime(path, (0, 0))
+    monkeypatch.setattr(genre_vocabulary.mb_client, "fetch_text", lambda request: "<html>Oops</html>")
+    with pytest.raises(ValueError, match="Invalid MusicBrainz genre vocabulary"):
+        genre_vocabulary._refresh()
+    assert archive_genres.normalize_genres(["Thrash Metal"]) == ["Thrash Metal"]
+
+
 def test_new_rip_preview_writes_multivalue_genre_only_from_curated_release():
     from test_metadata_staging import medium_payload
     info = medium_payload()

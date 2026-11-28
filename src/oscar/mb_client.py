@@ -28,9 +28,9 @@ def _retry_delay(error, attempt):
     return 3.0 * (attempt + 1)
 
 
-def fetch_json(request, *, opener=None, timeout=12, max_bytes=1_000_000,
-               allow_404=False):
-    """Retrieve bounded JSON, serially, with retries and a shared cooldown.
+def _fetch(request, *, opener=None, timeout=12, max_bytes=1_000_000,
+           allow_404=False):
+    """Retrieve a bounded response, serially, with retries and a shared cooldown.
 
     No untrusted URLs: callers must construct validated MusicBrainz endpoints.
     Uses the original MusicBrainz module's lock and clock for compatibility
@@ -51,13 +51,7 @@ def fetch_json(request, *, opener=None, timeout=12, max_bytes=1_000_000,
                     payload = response.read(max_bytes + 1)
                 if len(payload) > max_bytes:
                     raise mb.MusicBrainzError("MusicBrainz response too large")
-                try:
-                    data = json.loads(payload)
-                except (ValueError, UnicodeDecodeError) as exc:
-                    raise mb.MusicBrainzError("Invalid MusicBrainz JSON response") from exc
-                if not isinstance(data, dict):
-                    raise mb.MusicBrainzError("Unexpected MusicBrainz JSON response")
-                return data
+                return payload
             except urllib.error.HTTPError as exc:
                 if exc.code == 404 and allow_404:
                     return None
@@ -74,3 +68,26 @@ def fetch_json(request, *, opener=None, timeout=12, max_bytes=1_000_000,
                 _UNAVAILABLE_UNTIL = time.monotonic() + _COOLDOWN_SECONDS
                 raise mb.MusicBrainzError("Could not obtain MusicBrainz response") from exc
     raise AssertionError("Unreachable MusicBrainz transport state")
+
+
+def fetch_json(request, *, opener=None, timeout=12, max_bytes=1_000_000,
+               allow_404=False):
+    payload = _fetch(request, opener=opener, timeout=timeout,
+                     max_bytes=max_bytes, allow_404=allow_404)
+    if payload is None:
+        return None
+    try:
+        data = json.loads(payload)
+    except (ValueError, UnicodeDecodeError) as exc:
+        raise mb.MusicBrainzError("Invalid MusicBrainz JSON response") from exc
+    if not isinstance(data, dict):
+        raise mb.MusicBrainzError("Unexpected MusicBrainz JSON response")
+    return data
+
+
+def fetch_text(request, *, timeout=12, max_bytes=256_000):
+    payload = _fetch(request, timeout=timeout, max_bytes=max_bytes)
+    try:
+        return payload.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise mb.MusicBrainzError("Invalid MusicBrainz text response") from exc

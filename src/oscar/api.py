@@ -13,9 +13,15 @@ from oscar.web import settings_page
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Start the metadata-only worker when explicitly enabled."""
+    """Start the configured background workers."""
     stop = threading.Event()
     workers = []
+    from oscar import musicbrainz
+    if musicbrainz.lookup_enabled():
+        from oscar.genre_vocabulary import refresh_worker
+
+        workers.append(threading.Thread(target=refresh_worker, args=(stop,),
+                                        daemon=True, name="oscar-genre-vocabulary"))
     if os.environ.get("OSCAR_ENABLE_METADATA_WORKER") == "1":
         from oscar.metadata_queue import worker_loop
         worker = threading.Thread(target=worker_loop, args=(stop,),

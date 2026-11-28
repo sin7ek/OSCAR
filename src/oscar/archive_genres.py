@@ -1,13 +1,9 @@
-"""Conservative genre vocabulary for local Collection discovery only.
-
-Never derive genres from artist, composer or album title. MusicBrainz genre
-suggestions are not automatically approved. No archive/FLAC tag mutation.
-"""
+"""Normalize explicit provider genres and group them for Collection discovery."""
 from __future__ import annotations
 
-import re
+from oscar import genre_vocabulary
 
-# A deliberately small editorial vocabulary; expand through reviewed changes.
+# Built-in spellings and offline fallback.
 _CANONICAL = {
     "classical": "Classical", "classical music": "Classical",
     "baroque": "Baroque", "romantic": "Romantic",
@@ -34,22 +30,39 @@ _PREFERRED = (
     "Blues", "Folk", "Hip-Hop", "Reggae", "Soul", "Funk", "Country", "Soundtrack",
 )
 
+_ALIASES = {"alt-pop": "alternative pop", "thrash": "thrash metal"}
+_PREFERRED_ORDER = {name: index for index, name in enumerate(_PREFERRED)}
+
+
+def genre_order(name):
+    return (_PREFERRED_ORDER.get(name, len(_PREFERRED)), name.casefold())
+
+
+def _normalized_name(raw, vocabulary):
+    key = raw.strip().casefold()
+    return _CANONICAL.get(key) or vocabulary.get(_ALIASES.get(key, key))
+
 
 def classify(raw_genres, *, profile=None):
     """Return normalized searchable genres + logical section from explicit evidence.
 
-    Only recognizes approved-style literal names already present in FLAC tags.
-    A classical processing profile licenses the broad Classical grouping, NOT
-    a historical period such as Baroque or Romantic.
+    Recognizes genres from explicit tags or provider fields. A classical
+    processing profile adds the broad Classical grouping only.
     """
+    vocabulary = genre_vocabulary.names()
     recognized = set()
     for raw in raw_genres:
         if not isinstance(raw, str):
             continue
-        for token in re.split(r";|\s*/\s*", raw)[:16]:
-            name = _CANONICAL.get(token.casefold().strip())
+        for value in raw.split(";")[:16]:
+            name = _normalized_name(value, vocabulary)
             if name:
                 recognized.add(name)
+                continue
+            recognized.update(
+                name for token in value.split("/")[:16]
+                if (name := _normalized_name(token, vocabulary))
+            )
     if profile == "classical" or recognized.intersection(_CLASSICAL):
         section = "Classical"
         recognized.add("Classical")
@@ -57,7 +70,7 @@ def classify(raw_genres, *, profile=None):
         section = "Popular"
     else:
         section = "Unclassified"
-    values = [name for name in _PREFERRED if name in recognized][:8]
+    values = sorted(recognized, key=genre_order)[:8]
     return {"genres": "; ".join(values), "library_section": section}
 
 

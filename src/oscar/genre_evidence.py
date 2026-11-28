@@ -98,9 +98,8 @@ def analyze(claims, *, workflow="semi_automatic", profile=None):
     for vote in clusters.values():
         for genre in vote:
             counts[genre] = counts.get(genre, 0) + 1
-    rank = {name: i for i, name in enumerate(archive_genres._PREFERRED)}
     findings = []
-    for genre, supporters in sorted(counts.items(), key=lambda p: (rank.get(p[0], 999), p[0])):
+    for genre, supporters in sorted(counts.items(), key=lambda p: archive_genres.genre_order(p[0])):
         ratio = supporters / total if total else 0
         if total >= 3 and supporters >= 3 and ratio >= .75:
             confidence = "high"
