@@ -6,7 +6,7 @@ OSCAR uses genres to classify **Collection views**.
 
 - Existing Collection index now stores `genres` (curated FLAC `GENRE` values) and `library_section` (`Classical`, `Popular`, `Unclassified`).
 - Explicit, reviewed `manifest.profile=classical` is sufficient to place an album in Classical; **it is not enough to infer a musical period**. `Baroque`, `Romantic` etc require explicit genre evidence.
-- Recognizes a deliberately small stable English editorial set (e.g. `Classical; Baroque` and `Electronic; Hardcore`). Multiple standalone FLAC genres become one semicolon-separated Collection display. Unrecognized free-form tags are ignored in navigation, never erased from source files.
+- Recognizes built-in genre names and the [cached MusicBrainz vocabulary](REVIEWED_GENRE_TAGGING.md#musicbrainz-vocabulary-cache). Multiple standalone FLAC genres become one semicolon-separated Collection display. Unrecognized free-form tags are ignored in navigation, never erased from source files.
 - A new Collection library dropdown filters results logically. Search covers genres; CSV/ODS/XLSX can export the additional columns. Existing imported records are enriched safely on the next explicit **Import published archive records** action.
 - No new drive access, no MusicBrainz writes, no file-system moves, no re-encoding or FLAC retagging. Existing local records and archived manifests remain in place.
 

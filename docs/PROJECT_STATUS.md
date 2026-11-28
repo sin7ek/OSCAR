@@ -1,12 +1,14 @@
 # OSCAR — project work document
 
-## Current status — 2026-11-27
+## Current status — 2026-11-28
 
 See the [dashboard](PROGRESS.md) for area-by-area maturity and the [developer handoff](DEVELOPER_HANDOFF.md) for starting the next session.
 
 ### Genre evidence follow-up
 
-OSCAR uses the [official MusicBrainz vocabulary](https://musicbrainz.org/genres) for genre normalization. The cached list expands the available MusicBrainz and Discogs proposals. The provider still supplies release-level evidence, and approval follows the existing metadata workflow. **Tower acceptance (2026-11-28, [#198](https://github.com/sin7ek/OSCAR/pull/198)):** The deployed container reported 2,227 cached genres. The normalization smoke test returned `['Alternative Pop', 'Thrash Metal']` for `['Alt-Pop', 'Thrash Metal']`. A metadata preview for a live release with a provider-supplied subgenre still needs a separate UI check. The SearXNG and Ollama experiments are separate from this change.
+OSCAR uses the [official MusicBrainz vocabulary](https://musicbrainz.org/genres) for genre normalization. The cached list expands the available MusicBrainz and Discogs proposals. The provider still supplies release-level evidence, and approval follows the existing metadata workflow. **Tower acceptance (2026-11-28, [#198](https://github.com/sin7ek/OSCAR/pull/198)):** The deployed container reported 2,227 cached genres. The normalization smoke test returned `['Alternative Pop', 'Thrash Metal']` for `['Alt-Pop', 'Thrash Metal']`. A metadata preview for a live release with a provider-supplied subgenre still needs a separate UI check. The [Tower web genre pilot](GENRE_EVIDENCE_CONFIDENCE_DESIGN.md#web-search-and-local-model-tower-pilot) proved service connectivity and exposed errors in identifying album scope. OSCAR integration remains open.
+
+**Deployment record:** #198 passed 571 local tests and main [Tests](https://github.com/sin7ek/OSCAR/actions/runs/46090579324) and [Docker publish](https://github.com/sin7ek/OSCAR/actions/runs/46090579308). GHCR Linux/amd64 `ghcr.io/sin7ek/oscar:main` matched merge revision `5b910a2db965841db557b0cd1771b478e29767f3` at manifest digest `sha256:a841dc67aa42dba1a69d179e1496c672c36a4ea23e85fbe128698265afc03525`. [#199](https://github.com/sin7ek/OSCAR/pull/199) records the live cache result. The operator deferred the live UI check for a provider-backed subgenre.
 
 [Genre Evidence v1](GENRE_EVIDENCE_V1.md) provides a read-only source comparison. The [genre evidence design](GENRE_EVIDENCE_CONFIDENCE_DESIGN.md) records the remaining work on durable evidence, review decisions and publication provenance. Tower confirmed the [read-only preview](GENRE_EVIDENCE_V1.md#tower-results--2026-11-27): Anastacia Pop, Desire with no supported genre, and Discogs Electronic/Ambient for Équinoxe. Conflicting-provider coverage remains open.
 

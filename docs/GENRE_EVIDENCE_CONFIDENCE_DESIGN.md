@@ -4,7 +4,7 @@
 
 [Genre Evidence v1](GENRE_EVIDENCE_V1.md) is a read-only source comparison for a published release. It displays official MusicBrainz claims and optional catalog-matched Discogs claims, with source attribution, grouped evidence, abstentions and agreement. The existing [reviewed genre workflow](REVIEWED_GENRE_TAGGING.md) separately supports MusicBrainz tags and a Discogs genre fallback where matching CDs agree. New publications already record the genre source and an available Discogs release URL in `SOURCES.txt`, and store the source URL in the manifest.
 
-This design covers richer evidence and approval history, possible additional eligible sources, and a reviewed publication path. Its proposed thresholds and automatic write policies require separate implementation and acceptance. Tower acceptance for the source comparison remains open.
+This design covers richer evidence and approval history, possible additional eligible sources, and a reviewed publication path. Its proposed thresholds and automatic write policies require separate implementation and acceptance. Tower confirmed representative read-only provider comparisons and the 2,227-entry vocabulary cache. Conflicting-provider coverage and a live UI preview of a newly recognized subgenre remain open.
 
 ## Problem
 
@@ -22,7 +22,7 @@ Every observation must include `source_id`, `source_type`, exact URL or stable p
 
 ## Vocabulary and normalizing
 
-- Preserve original verbatim provider labels, normalize only to a versioned controlled OSCAR genre/style vocabulary (e.g. `Classical; Baroque`, `Electronic; Hardcore; Gabber`, `Jazz`).
+- Preserve verbatim provider labels and use the cached MusicBrainz vocabulary, built-in spellings and explicit aliases to normalize names. For example, `Alt-Pop` becomes `Alternative Pop`. New web-only terms can remain explicit review candidates with their original spelling.
 - Broader and narrower labels are **compatible**: `Jazz` and `Vocal Jazz` are not a contradictory 50/50 split. Likewise `Electronic`, `Hardcore`, `Gabber` may be nested. Independently infer a specific genre only if evidence supports that specificity.
 - For a compilation/mixed-mode boxset, release-level genre may be a broad classification and per-track genres must not be invented from release metadata.
 - MusicBrainz and Discogs sometimes reuse user-entered tags. Multiple pages derived from the same upstream provider count as **one independence group**, not independent corroboration.
@@ -49,12 +49,32 @@ Suggested initial gate:
 
 Actual OSCAR settings are `identification_mode=best_guess|semi_automatic|secure` and `secure_review_level=on_ambiguity|before_archive|every_step`. Documentation may call these Best Guess / Semi Secure / Secure, but do not invent a second product mode. Genre assurance does not upgrade or bypass physical-release identification gates.
 
-- **Best Guess**: auto-propose high-confidence genres; *automatic* write to new staging copies can be opt-in when the release workflow already authorizes it; mark inference and confidence in provenance. Unverified edition stays unverified. Low/conflicting data remains empty or pending.
-- **Semi Automatic**: show evidence comparison for reviewed physical release; require operator approval for medium, low/conflicting and optional high if settings dictate. Persist accepted candidate and evidence snapshot.
+- **Best Guess**: with explicit web-genre opt-in, a new tagged copy may receive a web genre automatically when the approved policy can verify an explicit field or an unambiguous link between the term and this album. Model scope alone is insufficient. Record the automatic decision and evidence. Continue with existing provider genres when web evidence is missing, unavailable or ambiguous.
+- **Semi Automatic**: show the excerpt and URL for each proposed web genre and require explicit selection before tagging. Persist the accepted set and evidence snapshot.
 - **Secure**: respect existing exact-release/physical-medium and `secure_review_level` gates. Require explicit reviewer assent for genre tagging before archiving until a separate operator-approved secure policy is defined. No unapproved provider claim can become definitive. Secure indicates conservative review policy, **not a claim that music genre has been objectively proven**.
 - All modes: changes to already-published FLACs continue to require explicit versioned metadata revision with originals retained, never in-place rewriting.
 
+## Web search and local model Tower pilot
+
+**Status:** Standalone scripts validated the services on Tower. OSCAR's metadata UI, automatic tagging and archive publishing do not yet use these services for genre discovery.
+
+- The OSCAR container queried SearXNG on `http://searxng:8080/search` for JSON results from DuckDuckGo, then sent the excerpts to `http://ollama:11434/api/chat`. The containers share the private Docker network `oscar-ai` with SearXNG reachable by container name. Ollama ran `ministral-3:3b` on Tower's CPU with `OLLAMA_NO_CLOUD=1`.
+- Mistral Conversations with `mistral-small-2603` and the `web_search` tool was tested separately as a possible hosted opt-in provider.
+- Search needs only public release identifiers such as artist, album title, year or catalog number. The configured search engine receives the query and Tower's outbound IP. Ollama processes excerpts locally. Omit ripped audio, logs, archive paths and credentials from search queries and analysis payloads.
+
+| Trial | Observed result |
+| --- | --- |
+| Lower Class Brats — *The New Seditionaries* | The first end-to-end run took 27.9 s. It found Punknews but treated the band's street-punk history as an album claim and changed quote punctuation. |
+| Tony Iommi — *From the Dark* | The 32.9 s run gave unsupported Heavy Metal, Hard Rock and Doom Metal proposals from the shown excerpts. The sentence describing the album as his heaviest does not supply a genre. A different excerpt supports broad Metal for review. |
+| Flotsam and Jetsam — *Rats in the Temple* | Audio Ink Radio explicitly describes album-level Thrash Metal. Sonic Perspectives describes the band's power/thrash history. The 35.1 s run added Aggressive Metal without literal support. The evidence-ID run took 22.1 s and retained a band claim. The 6.9 s test with predefined candidates inverted the album and band scopes. |
+| Nessa Barrett — *Tough Love* | Album of the Year labels the album Alt-Pop. The 49.6 s run added Markdown to the copied quote. The 20.6 s evidence-ID run missed the claim, and the 7.1 s predefined-candidate test recovered it. Dark romantic described aesthetics. |
+| Mahler — *Symphonie No. 6*, Boulez / Wiener Philharmoniker, DG `445 835-2` | The review excerpt identified the recording and supplied no genre. The run returned an empty claims list in 10.5 s. “Classical Music” was a site name. |
+
+Use the local vocabulary to discover genre names in excerpts without per-album keywords. The model can also suggest previously unknown terms for review. Return evidence IDs and have OSCAR retrieve the original excerpt. Confirm the raw term appears in the evidence before normalizing it. Preserve the distinction between album, artist, track and mood. The model's classification can guide review. Automatic Best Guess requires an independent check of the album link. Preserve existing provider genres when the optional search service fails or finds no usable evidence.
+
 ## Provenance storage and SOURCES.txt
+
+For each applied web genre, include the original term, normalized tag, short verbatim excerpt, source URL and the automatic Best Guess or explicit approval decision. Bind this record to the published metadata snapshot. The proof-of-concept scripts did not write genre tags or provenance.
 
 Published `SOURCES.txt` and the existing manifest fields provide a baseline for this design. A complete, archived snapshot of all provider claims and approvals remains open. Revision verification protects the original non-audio evidence and requires explicit authorization for permitted differences.
 

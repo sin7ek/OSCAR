@@ -20,6 +20,10 @@ Unattended re-reads and automatic recovery remain future increments. RipReview n
 
 Review provides prefilled handoffs from a verified rip to metadata preview, tagged-copy inspection and read-only archive preview. Semi Secure and Secure expose optional physical identifiers for MusicBrainz/Discogs comparison. Guided Disc ID attachment uses operator confirmation on MusicBrainz. Go! records independent CTDB evidence for eligible full-disc rips and includes it in the archive provenance.
 
+### Web genre proposals (planned)
+
+The [Tower web genre pilot](GENRE_EVIDENCE_CONFIDENCE_DESIGN.md#web-search-and-local-model-tower-pilot) tested standalone web search and local Ministral. Opted-in Best Guess may use explicit album-level evidence. Semi Automatic and Secure require review per web genre before tagging. Save the original excerpt, URL and decision in new publication provenance. A job can continue with provider metadata when web evidence is unavailable or insufficient.
+
 See the [dashboard](PROGRESS.md) and [current acceptance tests](PROJECT_STATUS.md#next-acceptance-checks). The milestones below retain their original design and implementation context.
 
 ## One verified audio pipeline; three top-level operating modes (design decision, 2026-11-19)
